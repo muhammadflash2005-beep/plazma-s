@@ -124,11 +124,12 @@ class LanTcpServer {
   List<TcpPeer> get peers => List.unmodifiable(_peers);
 
   Future<void> start({
-    InternetAddress address = InternetAddress.anyIPv4,
+    InternetAddress? address,
     int port = 0,
   }) async {
     if (isRunning) throw StateError('TCP server is already running.');
-    final server = await ServerSocket.bind(address, port);
+    final bindAddress = address ?? InternetAddress.anyIPv4;
+    final server = await ServerSocket.bind(bindAddress, port);
     _server = server;
     server.listen(_accept, onError: (_) => close());
   }
