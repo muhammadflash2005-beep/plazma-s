@@ -70,7 +70,8 @@ class PlazmaDiscoveryService {
         if (attributes['app'] != 'plazma-s') return;
         final id = attributes['deviceId'] ?? '${service.name}:${service.port}';
         if (id == _localDeviceId) return;
-        final address = service.hostAddresses.firstOrNull ?? service.hostAddress;
+        final addresses = service.hostAddresses;
+        final address = addresses.isNotEmpty ? addresses.first : service.hostAddress;
         if (address == null || address.isEmpty) return;
         _devices[id] = NearbyPlazmaDevice(
           id: id,
