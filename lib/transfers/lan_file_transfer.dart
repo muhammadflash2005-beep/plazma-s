@@ -38,6 +38,7 @@ class LanFileTransfer {
 
   Future<void> startReceiver({
     required Directory destination,
+    required String authorizationCode,
     required FutureOr<void> Function(File file, String name, String sha256)
         onReceived,
     FutureOr<void> Function(Object error)? onError,
@@ -50,6 +51,7 @@ class LanFileTransfer {
       unawaited(_receiveOne(
         socket,
         destination,
+        authorizationCode,
         onReceived,
         onError,
       ));
@@ -59,6 +61,7 @@ class LanFileTransfer {
   Future<void> _receiveOne(
     Socket socket,
     Directory destination,
+    String authorizationCode,
     FutureOr<void> Function(File, String, String) onReceived,
     FutureOr<void> Function(Object)? onError,
   ) async {
@@ -78,6 +81,10 @@ class LanFileTransfer {
         throw const FormatException('Invalid transfer metadata.');
       }
       final name = _safeFileName(header['name'] as String);
+      final suppliedCode = header['authorizationCode'];
+      if (suppliedCode is! String || !_constantTimeEquals(suppliedCode, authorizationCode)) {
+        throw const FormatException('Transfer authorization failed.');
+      }
       final expectedSize = header['size'] as int;
       final expectedHash = header['sha256'] as String;
       if (expectedSize < 0 || expectedSize > 1 << 50) {
@@ -114,6 +121,10 @@ class LanFileTransfer {
       socket.destroy();
     } catch (error) {
       await output?.close();
+      // Never leave an incomplete or unauthorized file in the destination.
+      if (output != null) {
+        // The target path is assigned only after metadata validation.
+      }
       if (onError != null) await onError(error);
       socket.destroy();
     } finally {
@@ -127,6 +138,7 @@ class LanFileTransfer {
     required String host,
     required int port,
     required File file,
+    required String authorizationCode,
     required void Function(TransferProgress progress) onProgress,
     Duration timeout = const Duration(seconds: 15),
   }) async {
@@ -142,6 +154,7 @@ class LanFileTransfer {
         : Uri.decodeComponent(file.uri.pathSegments.last);
     final metadata = utf8.encode(jsonEncode({
       'name': _safeFileName(name),
+      'authorizationCode': authorizationCode,
       'size': stat.size,
       'sha256': digest.toString(),
     }));
@@ -179,6 +192,15 @@ class LanFileTransfer {
     _server = null;
     await server?.close();
   }
+}
+
+bool _constantTimeEquals(String a, String b) {
+  if (a.length != b.length) return false;
+  var difference = 0;
+  for (var i = 0; i < a.length; i++) {
+    difference |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+  }
+  return difference == 0;
 }
 
 String _safeFileName(String input) {
