@@ -83,6 +83,5 @@ void main() {
       expect(error, isA<FormatException>());
       expect(await receivedDirectory.list().isEmpty, isTrue);
     });
-    });
   });
 }
