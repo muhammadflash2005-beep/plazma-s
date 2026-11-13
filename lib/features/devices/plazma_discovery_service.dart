@@ -70,7 +70,10 @@ class PlazmaDiscoveryService {
         final id = attributes['deviceId'] ?? '${service.name}:${service.port}';
         if (id == _localDeviceId) return;
         final addresses = service.hostAddresses;
-        final address = addresses.isNotEmpty ? addresses.first : service.hostAddress;
+        final address = addresses.firstWhere(
+          (candidate) => candidate.contains('.'),
+          orElse: () => service.hostAddress ?? '',
+        );
         if (address == null || address.isEmpty) return;
         _devices[id] = NearbyPlazmaDevice(
           id: id,
@@ -82,8 +85,13 @@ class PlazmaDiscoveryService {
         _emit();
       } else if (event is BonsoirDiscoveryServiceLostEvent) {
         final service = event.service;
-        _devices.removeWhere((_, device) =>
-            device.name == service.name && device.port == service.port);
+        final lostId = service.attributes['deviceId'];
+        if (lostId != null) {
+          _devices.remove(lostId);
+        } else {
+          _devices.removeWhere((_, device) =>
+              device.name == service.name && device.port == service.port);
+        }
         _emit();
       }
     });
