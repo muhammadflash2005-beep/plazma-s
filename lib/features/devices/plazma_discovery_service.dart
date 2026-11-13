@@ -34,7 +34,7 @@ class PlazmaDiscoveryService {
 
   Stream<List<NearbyPlazmaDevice>> get devices => _controller.stream;
 
-  Future<void> start({required String deviceName, required String platform}) async {
+  Future<void> start({required String deviceName, required String platform, bool publish = false}) async {
     if (_discovery != null) return;
     _localDeviceId = _randomId();
     final service = BonsoirService(
@@ -49,10 +49,12 @@ class PlazmaDiscoveryService {
       },
     );
 
-    final broadcast = BonsoirBroadcast(service: service);
-    await broadcast.initialize();
-    await broadcast.start();
-    _broadcast = broadcast;
+    if (publish) {
+      final broadcast = BonsoirBroadcast(service: service);
+      await broadcast.initialize();
+      await broadcast.start();
+      _broadcast = broadcast;
+    }
 
     final discovery = BonsoirDiscovery(type: serviceType);
     await discovery.initialize();
