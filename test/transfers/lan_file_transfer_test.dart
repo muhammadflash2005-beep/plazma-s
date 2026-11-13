@@ -53,6 +53,32 @@ void main() {
       expect(await result.readAsBytes(), bytes);
       expect(progressValues, isNotEmpty);
       expect(progressValues.last, bytes.length);
+
+    test('rejects a sender with an incorrect pairing code', () async {
+      final source = File('${temporaryDirectory.path}/private.bin');
+      await source.writeAsBytes([1, 2, 3, 4]);
+      final rejected = Completer<Object>();
+      await receiver.startReceiver(
+        destination: receivedDirectory,
+        authorizationCode: '482915',
+        onReceived: (file, name, hash) {},
+        onError: (error) {
+          if (!rejected.isCompleted) rejected.complete(error);
+        },
+      );
+
+      await LanFileTransfer().sendFile(
+        host: InternetAddress.loopbackIPv4.address,
+        port: receiver.listeningPort!,
+        file: source,
+        authorizationCode: '111111',
+        onProgress: (_) {},
+      );
+
+      final error = await rejected.future.timeout(const Duration(seconds: 5));
+      expect(error, isA<FormatException>());
+      expect(await receivedDirectory.list().isEmpty, isTrue);
+    });
     });
   });
 }
