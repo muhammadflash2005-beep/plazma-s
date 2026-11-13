@@ -67,6 +67,7 @@ class LanFileTransfer {
   ) async {
     final reader = _SocketByteReader(socket);
     IOSink? output;
+    File? targetFile;
     try {
       final lengthBytes = await reader.readExact(4);
       final headerLength = ByteData.sublistView(lengthBytes).getUint32(0, Endian.big);
@@ -92,6 +93,7 @@ class LanFileTransfer {
       }
 
       final file = File('${destination.path}${Platform.pathSeparator}$name');
+      targetFile = file;
       output = file.openWrite();
       final hasher = AccumulatorSink<Digest>();
       final hashInput = sha256.startChunkedConversion(hasher);
@@ -122,8 +124,8 @@ class LanFileTransfer {
     } catch (error) {
       await output?.close();
       // Never leave an incomplete or unauthorized file in the destination.
-      if (output != null) {
-        // The target path is assigned only after metadata validation.
+      if (targetFile != null && await targetFile.exists()) {
+        await targetFile.delete();
       }
       if (onError != null) await onError(error);
       socket.destroy();
