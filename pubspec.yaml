@@ -10,6 +10,9 @@ dependencies:
   flutter:
     sdk: flutter
   shared_preferences: ^2.5.3
+  file_picker: ^13.3.3
+  device_apps: ^2.2.0
+  bonsoir: ^7.1.5
 
 dev_dependencies:
   flutter_test:
