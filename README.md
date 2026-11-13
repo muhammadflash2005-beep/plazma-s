@@ -43,10 +43,14 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [ ] Network room messages, authenticated sessions, QR pairing, and mDNS discovery
 - [ ] File and folder transfer
 - [ ] Resume and SHA-256 verification
-- [ ] Android and desktop app/package sharing
+- [x] Native file and folder picker UI with multi-file selection
+- [x] Android installed-app browser with names, icons, versions, selection, and base APK path inspection
+- [x] Local mDNS discovery and nearby Plazma S device list
+- [ ] Authenticated device connections and room pairing
+- [ ] Android split-APK extraction and complete app/package sharing
 - [ ] Complete theme system and settings UI
 
-The current protocol codec is a framing primitive, not a complete network transport or a claim that transfers are already working. The in-memory room code is not yet connected to authenticated network sessions.
+The current file picker, installed-app browser, and mDNS discovery are initial native feature slices. They do not yet send files or establish authenticated device sessions. The current protocol codec is a framing primitive, not a complete network transport or a claim that transfers are already working. The in-memory room code is not yet connected to authenticated network sessions.
 
 ## Development
 
