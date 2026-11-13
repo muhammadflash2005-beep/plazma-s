@@ -101,7 +101,121 @@ class _FilesScreenState extends State<FilesScreen> {
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
         FilledButton(onPressed: () {
           final v = _code.text.trim();
-          if (RegExp(r'^\d{6}$').hasMatch(v)) Navigator.pop(ctx, v);
+          if (RegExp(r'^\d{6}
+        }, child: const Text('Connect')),
+      ],
+    ));
+  Future<void> _send(NearbyPlazmaDevice d) async {
+    final files = _items.where((x) => !x.isFolder).toList();
+    if (files.isEmpty) { _message('Choose files first. Folder sending is not enabled yet.'); return; }
+    _code.clear();
+    final code = await _askCode(d);
+    if (code == null || !mounted) return;
+    setState(() { _busy = true; _progress = 0; });
+    try {
+      final sender = LanFileTransfer();
+      for (var i = 0; i < files.length; i++) {
+        final f = files[i];
+        setState(() => _status = 'Sending ${f.name} (${i + 1}/${files.length})');
+        await sender.sendFile(host: d.address, port: d.port, file: File(f.path),
+          authorizationCode: code,
+          onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0)); });
+      }
+      if (mounted) { setState(() { _progress = 1; _status = 'Transfer sent'; }); _message('Sent ${files.length} file(s) to ${d.name}.'); }
+    } catch (e) { if (mounted) setState(() => _status = 'Transfer failed: $e'); _message('Transfer failed: $e'); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+  void _message(String s) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(s), duration: const Duration(seconds: 4)));
+  }
+  String _size(int? n) {
+    if (n == null) return 'Folder · not transferable yet';
+    if (n < 1024) return '$n B';
+    if (n < 1024 * 1024) return '${(n / 1024).toStringAsFixed(1)} KB';
+    return '${(n / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  @override
+  void dispose() {
+    _sub?.cancel(); unawaited(_receiver?.close()); unawaited(_discovery.dispose()); _code.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final total = _items.fold<int>(0, (s, x) => s + (x.bytes ?? 0));
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Files', style: t.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+      const SizedBox(height: 6),
+      Text('Send files directly to nearby devices on your local network.',
+          style: TextStyle(color: t.colorScheme.onSurfaceVariant)),
+      Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
+        Row(children: [
+          const Icon(Icons.wifi_tethering_rounded), const SizedBox(width: 8),
+          const Expanded(child: Text('Receive files', style: TextStyle(fontWeight: FontWeight.w800))),
+          if (_receiver?.isListening == true)
+            TextButton(onPressed: _busy ? null : _stopReceiving, child: const Text('Stop'))
+          else FilledButton(onPressed: _busy ? null : _startReceiving, child: const Text('Start receiving')),
+        ]),
+        if (_receiveCode != null) ...[
+          const Text('Share this pairing code with the sender:'),
+          SelectableText(_receiveCode!, style: TextStyle(fontSize: 28, letterSpacing: 6,
+              fontWeight: FontWeight.w900, color: t.colorScheme.primary)),
+          Text('Save location: $_destination', maxLines: 2, overflow: TextOverflow.ellipsis),
+        ] else const Text('Choose a destination folder to enable receiving.'),
+      ]))),
+      Card(color: t.colorScheme.surfaceContainerHighest, child: const Padding(
+        padding: EdgeInsets.all(12), child: Text(
+          'The six-digit code authorizes the sender. TCP traffic is not encrypted yet; only receive over a trusted network.',
+          style: TextStyle(fontSize: 11, height: 1.4)))),
+      Wrap(spacing: 10, children: [
+        FilledButton.icon(onPressed: _busy ? null : _pickFiles,
+          icon: const Icon(Icons.add_rounded), label: const Text('Choose files')),
+        OutlinedButton.icon(onPressed: _busy ? null : _pickFolder,
+          icon: const Icon(Icons.folder_open_rounded), label: const Text('Choose folder')),
+      ]),
+      Card(child: ListTile(
+        leading: const Icon(Icons.folder_copy_outlined),
+        title: Text('${_items.length} selected · ${_size(total)}'),
+        trailing: TextButton(onPressed: _busy || _items.isEmpty ? null : () => setState(_items.clear),
+          child: const Text('Clear')))),
+      ..._items.asMap().entries.map((e) => Card(child: ListTile(
+        leading: Icon(e.value.isFolder ? Icons.folder_rounded : Icons.insert_drive_file_outlined),
+        title: Text(e.value.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(_size(e.value.bytes)),
+        trailing: IconButton(onPressed: _busy ? null : () => setState(() => _items.removeAt(e.key)),
+          icon: const Icon(Icons.close_rounded))))),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(child: Text('Nearby devices', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(onPressed: _busy || _scanning ? null : _refresh, icon: const Icon(Icons.refresh_rounded)),
+      ]),
+      if (_devices.isEmpty) Card(child: Padding(padding: const EdgeInsets.all(18),
+        child: Center(child: Text(_scanning ? 'Searching local network…' :
+          'No devices found. Enable Receive files on the destination device.'))))
+      else ..._devices.map((d) => Card(child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.devices_rounded)),
+        title: Text(d.name), subtitle: Text('${d.platform} · ${d.address}:${d.port}'),
+        trailing: FilledButton(onPressed: _busy ? null : () => _send(d), child: const Text('Send'))))),
+      if (_status != null) ...[
+        const SizedBox(height: 10), Text(_status!, style: const TextStyle(fontWeight: FontWeight.w700)),
+        if (_progress != null) LinearProgressIndicator(value: _progress),
+      ],
+      const SizedBox(height: 8),
+      Text('Folder transfer, resume, room approvals and encrypted sessions remain in development.',
+        style: TextStyle(fontSize: 11, color: t.colorScheme.onSurfaceVariant)),
+    ]);
+  }
+}
+class _PickedItem {
+  const _PickedItem(this.name, this.path, this.bytes, this.isFolder);
+  final String name, path;
+  final int? bytes;
+  final bool isFolder;
+}
+).hasMatch(v)) {
+            Navigator.pop(ctx, v);
+          }
         }, child: const Text('Connect')),
       ],
     ));
