@@ -33,7 +33,9 @@ The initial repository foundation is in progress:
 - [x] Initial protocol codec unit tests
 - [ ] Confirm Flutter analysis and tests in CI (not yet verified)
 - [x] TCP transport, client connections, and receiver
-- [ ] Room creation, joining, approval, and discovery
+- [x] Room ID generation and host-side room lifecycle (in-memory)
+- [x] Join requests, approval/rejection, lock, capacity, PIN verifier hook, kick, and close
+- [ ] Network room messages, authenticated sessions, QR pairing, and mDNS discovery
 - [ ] File and folder transfer
 - [ ] Resume and SHA-256 verification
 - [ ] Android and desktop app/package sharing
