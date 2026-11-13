@@ -41,7 +41,8 @@ class _FilesScreenState extends State<FilesScreen> {
     try {
       final path = await FilePicker.getDirectoryPath();
       if (!mounted || path == null) return;
-      final name = path.split(RegExp(r'[/\\\\]')).where((part) => part.isNotEmpty).lastOrNull ?? path;
+      final parts = path.split(RegExp(r'[/\\]')).where((part) => part.isNotEmpty).toList();
+      final name = parts.isEmpty ? path : parts.last;
       setState(() {
         if (!_items.any((item) => item.path == path)) {
           _items.add(_PickedItem(name: name, path: path, bytes: null, isFolder: true));
