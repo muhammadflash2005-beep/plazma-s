@@ -60,12 +60,9 @@ class PlazmaDiscoveryService {
     _subscription = discovery.eventStream?.listen((event) {
       if (event is BonsoirDiscoveryServiceFoundEvent) {
         final service = event.service;
-        if (service != null) {
-          unawaited(service.resolve(discovery.serviceResolver));
-        }
+        unawaited(service.resolve(discovery.serviceResolver));
       } else if (event is BonsoirDiscoveryServiceResolvedEvent) {
         final service = event.service;
-        if (service == null) return;
         final attributes = service.attributes;
         if (attributes['app'] != 'plazma-s') return;
         final id = attributes['deviceId'] ?? '${service.name}:${service.port}';
@@ -83,7 +80,6 @@ class PlazmaDiscoveryService {
         _emit();
       } else if (event is BonsoirDiscoveryServiceLostEvent) {
         final service = event.service;
-        if (service == null) return;
         _devices.removeWhere((_, device) =>
             device.name == service.name && device.port == service.port);
         _emit();
