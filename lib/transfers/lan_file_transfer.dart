@@ -19,7 +19,7 @@ class TransferProgress {
 }
 
 /// One file per direct TCP connection. The receiver acknowledges only after
-/// the declared length and SHA-256 digest have both been verified.
+/// the declared payload length and SHA-256 digest have been verified.
 class LanFileTransfer {
   LanFileTransfer({this.port = 0});
   final int port;
@@ -91,10 +91,7 @@ class LanFileTransfer {
       final digestSink = AccumulatorSink<Digest>();
       final hashInput = sha256.startChunkedConversion(digestSink);
       var received = 0;
-      await for (final chunk in reader.remaining()) {
-        if (received + chunk.length > expectedSize) {
-          throw const FormatException('Received more bytes than declared.');
-        }
+      await for (final chunk in reader.readPayload(expectedSize)) {
         output.add(chunk);
         hashInput.add(chunk);
         received += chunk.length;
@@ -179,8 +176,6 @@ class LanFileTransfer {
         ));
       }
       await socket.flush();
-      socket.shutdown(SocketDirection.send);
-
       final acknowledgement = await socket.first.timeout(timeout);
       if (acknowledgement.isEmpty || acknowledgement.first != 1) {
         throw const FormatException('Receiver rejected the file or its integrity check.');
@@ -249,13 +244,24 @@ class _SocketByteReader {
     return result;
   }
 
-  Stream<Uint8List> remaining() async* {
-    if (_offset < _pending.length) {
-      yield Uint8List.sublistView(_pending, _offset);
-      _offset = _pending.length;
-    }
-    while (await _iterator.moveNext()) {
-      yield _iterator.current;
+  Stream<Uint8List> readPayload(int count) async* {
+    var remaining = count;
+    while (remaining > 0) {
+      if (_offset >= _pending.length) {
+        if (!await _iterator.moveNext()) {
+          throw const FormatException('Connection closed before the complete file arrived.');
+        }
+        _pending = _iterator.current;
+        _offset = 0;
+      }
+      final available = _pending.length - _offset;
+      if (available > remaining) {
+        throw const FormatException('Received more bytes than declared.');
+      }
+      final take = available < remaining ? available : remaining;
+      yield Uint8List.sublistView(_pending, _offset, _offset + take);
+      _offset += take;
+      remaining -= take;
     }
   }
 
