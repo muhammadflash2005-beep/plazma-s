@@ -70,15 +70,15 @@ class LanFileTransfer {
       }
 
       final suppliedCode = decoded['authorizationCode'];
-      if (suppliedCode is! String || !_constantTimeEquals(suppliedCode, authorizationCode)) {
-        throw const FormatException('Transfer authorization failed.');
-      }
-
       final name = _safeFileName(decoded['name'] as String);
       final expectedSize = decoded['size'] as int;
       final expectedHash = decoded['sha256'] as String;
       if (expectedSize < 0 || expectedSize > (1 << 50)) {
         throw const FormatException('Invalid file size.');
+      }
+      if (suppliedCode is! String || !_constantTimeEquals(suppliedCode, authorizationCode)) {
+        await for (final _ in reader.readPayload(expectedSize).timeout(const Duration(seconds: 60))) {}
+        throw const FormatException('Transfer authorization failed.');
       }
 
       final file = File('${destination.path}${Platform.pathSeparator}$name');
