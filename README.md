@@ -31,8 +31,8 @@ The initial repository foundation is in progress:
 - [x] Flutter package manifest and Dart lint configuration
 - [x] Bounded, length-prefixed JSON frame codec
 - [x] Initial protocol codec unit tests
-- [ ] Run Flutter analysis and tests in CI
-- [ ] TCP transport and receiver
+- [ ] Confirm Flutter analysis and tests in CI (not yet verified)
+- [x] TCP transport, client connections, and receiver
 - [ ] Room creation, joining, approval, and discovery
 - [ ] File and folder transfer
 - [ ] Resume and SHA-256 verification
