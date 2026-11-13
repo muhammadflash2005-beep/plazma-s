@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -42,7 +40,14 @@ class _DevicesScreenState extends State<DevicesScreen> {
     try {
       await _discovery.start(
         deviceName: 'Plazma S device',
-        platform: Platform.operatingSystem,
+        platform: switch (defaultTargetPlatform) {
+          TargetPlatform.android => 'Android',
+          TargetPlatform.iOS => 'iOS',
+          TargetPlatform.windows => 'Windows',
+          TargetPlatform.macOS => 'macOS',
+          TargetPlatform.linux => 'Linux',
+          TargetPlatform.fuchsia => 'Fuchsia',
+        },
       );
     } catch (error) {
       if (mounted) setState(() => _error = 'Could not start local discovery: $error');
