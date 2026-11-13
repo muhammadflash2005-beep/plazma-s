@@ -8,6 +8,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'features/apps/apps_screen.dart';
+import 'features/devices/devices_screen.dart';
+import 'features/files/files_screen.dart';
+
 void main() => runApp(const PlazmaApp());
 
 enum PlazmaTheme { light, dark, ocean, sunset, forest }
@@ -248,11 +252,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
                           padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
-                          child: _tab == 0
-                              ? _homeContent(wide)
-                              : _tab == 3
-                                  ? _settingsContent()
-                                  : _secondaryContent(),
+                          child: switch (_tab) {
+                            0 => _homeContent(wide),
+                            1 => const FilesScreen(),
+                            2 => const AppsScreen(),
+                            3 => const DevicesScreen(),
+                            4 => _secondaryContent(),
+                            _ => _settingsContent(),
+                          },
                         ),
                       ),
                     ),
@@ -263,7 +270,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       onDestinationSelected: (value) => setState(() => _tab = value),
                       destinations: const [
                         NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
+                        NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
+                        NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                         NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
                       ],
@@ -413,10 +422,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _secondaryContent() {
-    final titles = ['Home', 'App sharing', 'Transfer history', 'Settings'];
+    final titles = ['Home', 'Files', 'Apps', 'Devices', 'Transfer history', 'Settings'];
     final descriptions = [
       'Your local sharing space.',
-      'Installed app export and APK file browsing will be added to the Android app.',
+      'Browse files and folders on this device.',
+      'Browse installed Android apps and prepare APK packages.',
+      'Find nearby Plazma S devices on your local network.',
       'Active, completed, paused and failed transfers will appear here.',
       'Appearance and network preferences.',
     ];
@@ -493,9 +504,11 @@ class _Sidebar extends StatelessWidget {
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Padding(padding: EdgeInsets.fromLTRB(12, 0, 12, 26), child: Text('WORKSPACE', style: TextStyle(fontSize: 10, letterSpacing: 1.8, fontWeight: FontWeight.w800))),
       _navItem(context, Icons.home_rounded, 'Home', 0),
-      _navItem(context, Icons.apps_rounded, 'App sharing', 1),
-      _navItem(context, Icons.history_rounded, 'History', 2),
-      _navItem(context, Icons.settings_rounded, 'Settings', 3),
+      _navItem(context, Icons.folder_rounded, 'Files', 1),
+      _navItem(context, Icons.apps_rounded, 'Apps', 2),
+      _navItem(context, Icons.devices_rounded, 'Devices', 3),
+      _navItem(context, Icons.history_rounded, 'History', 4),
+      _navItem(context, Icons.settings_rounded, 'Settings', 5),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
