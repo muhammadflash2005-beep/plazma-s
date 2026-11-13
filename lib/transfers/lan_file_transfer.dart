@@ -81,7 +81,7 @@ class LanFileTransfer {
         throw const FormatException('Invalid file size.');
       }
 
-      final file = File('${destination.path}${Platform.pathSeparator}${name}');
+      final file = File('${destination.path}${Platform.pathSeparator}$name');
       if (await file.exists()) {
         throw FileSystemException('A file with this name already exists.', file.path);
       }
