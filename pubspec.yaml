@@ -14,6 +14,7 @@ dependencies:
   flutter_device_apps: ^1.1.0
   bonsoir: ^7.1.5
   crypto: ^3.0.6
+  convert: ^3.1.2
 
 dev_dependencies:
   flutter_test:
