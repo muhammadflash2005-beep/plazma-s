@@ -1,3 +1,7 @@
+// Flutter 3.50 deprecates the umbrella Material import while its replacement
+// package is still evolving; keep this preview compatible with stable Flutter.
+// ignore_for_file: deprecated_member_use
+
 import 'dart:math';
 
 import 'package:flutter/material.dart';
