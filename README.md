@@ -36,7 +36,10 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [x] Room ID generation and host-side in-memory room lifecycle
 - [x] Join requests, approval/rejection, lock, capacity, PIN verifier hook, kick, and close
 - [x] Responsive Flutter web preview and room-code UI
+- [x] Five selectable themes with on-device persistence (Light, Dark, Ocean, Sunset, Forest)
+- [x] Android APK build pipeline with local-network permissions and downloadable CI artifact
 - [ ] Web deployment and browser smoke test
+- [ ] Install and smoke-test the first Android APK on a physical device
 - [ ] Network room messages, authenticated sessions, QR pairing, and mDNS discovery
 - [ ] File and folder transfer
 - [ ] Resume and SHA-256 verification
@@ -55,6 +58,7 @@ flutter analyze
 flutter test
 flutter run -d chrome
 flutter build web --release
+flutter build apk --release
 ```
 
 ## Security principles
