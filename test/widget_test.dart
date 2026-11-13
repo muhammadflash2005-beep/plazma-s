@@ -14,6 +14,7 @@ void main() {
   testWidgets('creating a room shows a six-character code', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
 
+    await tester.ensureVisible(find.text('Create room'));
     await tester.tap(find.text('Create room'));
     await tester.pumpAndSettle();
 
