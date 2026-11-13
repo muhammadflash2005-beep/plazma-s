@@ -53,6 +53,7 @@ void main() {
       expect(await result.readAsBytes(), bytes);
       expect(progressValues, isNotEmpty);
       expect(progressValues.last, bytes.length);
+    });
 
     test('rejects a sender with an incorrect pairing code', () async {
       final source = File('${temporaryDirectory.path}/private.bin');
