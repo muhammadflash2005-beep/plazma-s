@@ -2,7 +2,7 @@
 
 **Fast, secure, cross-platform local network file and app sharing.**
 
-Plazma S is a native application project for transferring files and application packages between Android and desktop devices on the same reachable local network.
+Plazma S is a Flutter application project for transferring files and application packages between Android and desktop devices on the same reachable local network.
 
 ## Scope
 
@@ -17,6 +17,10 @@ Plazma S is a native application project for transferring files and application 
 
 **LAN-only by design.** Plazma S will not include internet transfer mode, relay servers, cloud file storage, or online transfer services. Devices must be connected to the same reachable Wi-Fi, hotspot, or wired LAN. Network client isolation may prevent devices on the same Wi-Fi from communicating.
 
+## Web preview
+
+The browser preview is being prepared for interface testing. It demonstrates the responsive home screen and local room-code flow. Browser preview mode does **not** provide real LAN device discovery or file transfer; those require the native Android/desktop application.
+
 ## Technology
 
 - Flutter / Dart for the cross-platform application and shared logic
@@ -26,22 +30,20 @@ Plazma S is a native application project for transferring files and application 
 
 ## Current development status
 
-The initial repository foundation is in progress:
-
 - [x] Flutter package manifest and Dart lint configuration
-- [x] Bounded, length-prefixed JSON frame codec
-- [x] Initial protocol codec unit tests
-- [ ] Confirm Flutter analysis and tests in CI (not yet verified)
-- [x] TCP transport, client connections, and receiver
-- [x] Room ID generation and host-side room lifecycle (in-memory)
+- [x] Bounded, length-prefixed JSON frame codec and unit tests
+- [x] TCP transport, client connections, receiver, and loopback tests
+- [x] Room ID generation and host-side in-memory room lifecycle
 - [x] Join requests, approval/rejection, lock, capacity, PIN verifier hook, kick, and close
+- [x] Responsive Flutter web preview and room-code UI
+- [ ] Web deployment and browser smoke test
 - [ ] Network room messages, authenticated sessions, QR pairing, and mDNS discovery
 - [ ] File and folder transfer
 - [ ] Resume and SHA-256 verification
 - [ ] Android and desktop app/package sharing
-- [ ] Theme system and UI
+- [ ] Complete theme system and settings UI
 
-The current protocol codec is a small framing primitive, not a complete network transport or a claim that transfers are already working.
+The current protocol codec is a framing primitive, not a complete network transport or a claim that transfers are already working. The in-memory room code is not yet connected to authenticated network sessions.
 
 ## Development
 
@@ -51,6 +53,8 @@ Install the Flutter SDK, then run:
 flutter pub get
 flutter analyze
 flutter test
+flutter run -d chrome
+flutter build web --release
 ```
 
 ## Security principles
