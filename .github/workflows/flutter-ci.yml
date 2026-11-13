@@ -28,11 +28,13 @@ jobs:
           if p.exists():
               s = p.read_text()
               s = s.replace('applicationId = "com.plazma.plazma_s"', 'applicationId = "com.plazma.s"')
+              s = s.replace('minSdk = flutter.minSdkVersion', 'minSdk = 24')
               p.write_text(s)
           else:
               p = Path("android/app/build.gradle")
               s = p.read_text()
               s = s.replace("applicationId 'com.plazma.plazma_s'", "applicationId 'com.plazma.s'")
+              s = s.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 24")
               p.write_text(s)
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           s = manifest.read_text()
