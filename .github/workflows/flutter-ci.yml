@@ -1,4 +1,4 @@
-name: Flutter CI
+name: Flutter CI and Android build
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  analyze-and-test:
+  analyze-test-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +18,40 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - name: Generate Android platform scaffold
+        run: flutter create --platforms=android --org com.plazma --project-name plazma_s .
+      - name: Set Android app ID and LAN permissions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/build.gradle.kts")
+          if p.exists():
+              s = p.read_text()
+              s = s.replace('applicationId = "com.plazma.plazma_s"', 'applicationId = "com.plazma.s"')
+              p.write_text(s)
+          else:
+              p = Path("android/app/build.gradle")
+              s = p.read_text()
+              s = s.replace("applicationId 'com.plazma.plazma_s'", "applicationId 'com.plazma.s'")
+              p.write_text(s)
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          s = manifest.read_text()
+          permissions = """
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+              <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+          """
+          s = s.replace("<application", permissions + "\n    <application", 1)
+          manifest.write_text(s)
+          PY
+      - name: Build Android APK
+        run: flutter build apk --release
       - name: Build web preview
         run: flutter build web --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plazma-s-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
