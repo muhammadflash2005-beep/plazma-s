@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:convert/convert.dart';
 
 /// Progress for one LAN file transfer. Bytes are payload bytes, excluding the
 /// small metadata header.
@@ -40,11 +41,11 @@ class LanFileTransfer {
     required FutureOr<void> Function(File file, String name, String sha256)
         onReceived,
     FutureOr<void> Function(Object error)? onError,
-    InternetAddress address = InternetAddress.anyIPv4,
+    InternetAddress? address,
   }) async {
     if (_server != null) throw StateError('Transfer receiver is already running.');
     await destination.create(recursive: true);
-    _server = await ServerSocket.bind(address, port);
+    _server = await ServerSocket.bind(address ?? InternetAddress.anyIPv4, port);
     _server!.listen((socket) {
       unawaited(_receiveOne(
         socket,
