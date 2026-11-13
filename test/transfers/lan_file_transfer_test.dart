@@ -31,6 +31,7 @@ void main() {
 
       await receiver.startReceiver(
         destination: receivedDirectory,
+        authorizationCode: '482915',
         onReceived: (file, name, hash) {
           received.complete(file);
         },
@@ -44,6 +45,7 @@ void main() {
         host: InternetAddress.loopbackIPv4.address,
         port: receiver.listeningPort!,
         file: source,
+        authorizationCode: '482915',
         onProgress: (progress) => progressValues.add(progress.bytesTransferred),
       );
 
