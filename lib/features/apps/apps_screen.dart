@@ -1,6 +1,10 @@
-import 'package:device_apps/device_apps.dart';
+// ignore_for_file: deprecated_member_use
+
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_device_apps/flutter_device_apps.dart';
 
 class AppsScreen extends StatefulWidget {
   const AppsScreen({super.key});
@@ -10,7 +14,7 @@ class AppsScreen extends StatefulWidget {
 }
 
 class _AppsScreenState extends State<AppsScreen> {
-  List<Application> _apps = [];
+  List<AppInfo> _apps = [];
   final Set<String> _selected = {};
   bool _loading = false;
   bool _loaded = false;
@@ -35,17 +39,21 @@ class _AppsScreenState extends State<AppsScreen> {
       _error = null;
     });
     try {
-      final apps = await DeviceApps.getInstalledApplications(
-        includeSystemApps: false,
-        includeAppIcons: true,
-        onlyAppsWithLaunchIntent: true,
+      final apps = await FlutterDeviceApps.listApps(
+        includeSystem: false,
+        onlyLaunchable: true,
+        includeIcons: true,
       );
-      apps.sort((a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()));
+      apps.sort((a, b) =>
+          (a.appName ?? a.packageName ?? '').toLowerCase().compareTo(
+                (b.appName ?? b.packageName ?? '').toLowerCase(),
+              ));
       if (!mounted) return;
       setState(() {
         _apps = apps;
         _loaded = true;
-        _selected.removeWhere((packageName) => !apps.any((app) => app.packageName == packageName));
+        _selected.removeWhere((packageName) =>
+            !apps.any((app) => app.packageName == packageName));
       });
     } catch (error) {
       if (mounted) setState(() => _error = 'Could not read installed apps: $error');
@@ -54,22 +62,19 @@ class _AppsScreenState extends State<AppsScreen> {
     }
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
   Future<void> _queueSelected() async {
-    final chosen = _apps.where((app) => _selected.contains(app.packageName)).toList();
+    final chosen = _apps
+        .where((app) => app.packageName != null && _selected.contains(app.packageName))
+        .toList();
     if (chosen.isEmpty) return;
     final readable = <String>[];
     for (final app in chosen) {
+      final path = app.apkPath;
+      if (path == null || path.isEmpty) continue;
       try {
-        final file = File(app.apkFilePath);
-        if (await file.exists()) readable.add(app.appName);
+        if (await File(path).exists()) readable.add(app.appName ?? app.packageName ?? 'Unknown app');
       } catch (_) {
-        // The system may deny access to a package path on some Android builds.
+        // Some Android builds restrict direct reads of installed package paths.
       }
     }
     if (!mounted) return;
@@ -78,8 +83,8 @@ class _AppsScreenState extends State<AppsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('APK selection checked'),
         content: Text(
-          '${readable.length} of ${chosen.length} selected base APKs are readable on this device. '
-          'Split APK collection and adding these packages to the transfer queue are the next app-sharing step.',
+          '${readable.length} of ${chosen.length} selected base APKs are readable. '
+          'Split APK collection, export into a shareable cache, and sending are the next app-sharing steps.',
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
       ),
@@ -114,21 +119,28 @@ class _AppsScreenState extends State<AppsScreen> {
           child: Text('No launchable user apps were found.'),
         )),
       ..._apps.map((app) {
-        final selected = _selected.contains(app.packageName);
-        final icon = app is ApplicationWithIcon ? Image.memory(app.icon, width: 44, height: 44) : const Icon(Icons.android_rounded, size: 38);
+        final packageName = app.packageName;
+        final selected = packageName != null && _selected.contains(packageName);
+        final iconBytes = app.iconBytes;
+        final icon = iconBytes == null
+            ? const Icon(Icons.android_rounded, size: 38)
+            : Image.memory(iconBytes, width: 44, height: 44);
         return Card(
           child: CheckboxListTile(
             value: selected,
-            onChanged: (value) => setState(() {
-              if (value == true) {
-                _selected.add(app.packageName);
-              } else {
-                _selected.remove(app.packageName);
-              }
-            }),
+            onChanged: packageName == null
+                ? null
+                : (value) => setState(() {
+                      if (value == true) {
+                        _selected.add(packageName);
+                      } else {
+                        _selected.remove(packageName);
+                      }
+                    }),
             secondary: ClipRRect(borderRadius: BorderRadius.circular(10), child: icon),
-            title: Text(app.appName, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text('${app.versionName ?? 'Version unknown'} · ${app.packageName}',
+            title: Text(app.appName ?? packageName ?? 'Unknown app',
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text('${app.versionName ?? 'Version unknown'} · ${packageName ?? 'Package unknown'}',
                 maxLines: 1, overflow: TextOverflow.ellipsis),
             controlAffinity: ListTileControlAffinity.trailing,
           ),
