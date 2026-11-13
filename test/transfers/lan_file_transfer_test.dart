@@ -68,12 +68,15 @@ void main() {
         },
       );
 
-      await LanFileTransfer().sendFile(
-        host: InternetAddress.loopbackIPv4.address,
-        port: receiver.listeningPort!,
-        file: source,
-        authorizationCode: '111111',
-        onProgress: (_) {},
+      await expectLater(
+        LanFileTransfer().sendFile(
+          host: InternetAddress.loopbackIPv4.address,
+          port: receiver.listeningPort!,
+          file: source,
+          authorizationCode: '111111',
+          onProgress: (_) {},
+        ),
+        throwsA(isA<FormatException>()),
       );
 
       final error = await rejected.future.timeout(const Duration(seconds: 5));
