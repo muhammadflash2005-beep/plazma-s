@@ -53,7 +53,7 @@ class _FilesScreenState extends State<FilesScreen> {
       setState(() {
         for (final f in files) {
           if (f.path != null && !_items.any((x) => x.path == f.path)) {
-            _items.add(_PickedItem(f.name, f.path!, f.size, false));
+            _items.add(_PickedItem(f.name, f.path!, File(f.path!).lengthSync(), false));
           }
         }
       });
