@@ -72,9 +72,9 @@ class PlazmaDiscoveryService {
         final addresses = service.hostAddresses;
         final address = addresses.firstWhere(
           (candidate) => candidate.contains('.'),
-          orElse: () => service.hostAddress ?? '',
+          orElse: () => service.hostAddress,
         );
-        if (address == null || address.isEmpty) return;
+        if (address.isEmpty) return;
         _devices[id] = NearbyPlazmaDevice(
           id: id,
           name: service.name,
