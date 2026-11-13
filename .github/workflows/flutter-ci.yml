@@ -1,5 +1,9 @@
 name: Flutter CI and Android build
 
+concurrency:
+  group: plazma-s-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
