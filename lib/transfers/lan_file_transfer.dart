@@ -124,6 +124,8 @@ class LanFileTransfer {
         throw const FormatException('File integrity check failed (SHA-256 mismatch).');
       }
       await onReceived(file, name, actualHash);
+      socket.add([1]); // Receiver accepted the complete, hash-verified file.
+      await socket.flush();
       socket.destroy();
     } catch (error) {
       await output?.close();
@@ -131,6 +133,11 @@ class LanFileTransfer {
       if (targetFile != null && await targetFile.exists()) {
         await targetFile.delete();
       }
+      // Tell the sender that authorization, transfer, or integrity validation failed.
+      try {
+        socket.add([0]);
+        await socket.flush();
+      } catch (_) {}
       if (onError != null) await onError(error);
       socket.destroy();
     } finally {
@@ -189,6 +196,11 @@ class LanFileTransfer {
         ));
       }
       await socket.flush();
+      socket.shutdown(SocketDirection.send);
+      final acknowledgement = await socket.first.timeout(timeout);
+      if (acknowledgement.isEmpty || acknowledgement.first != 1) {
+        throw const FormatException('Receiver rejected the file or its integrity check.');
+      }
       await socket.close();
     } catch (_) {
       socket.destroy();
