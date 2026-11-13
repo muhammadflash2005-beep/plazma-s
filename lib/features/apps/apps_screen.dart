@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:device_apps/device_apps.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class AppsScreen extends StatefulWidget {
@@ -24,7 +23,7 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _loadApps() async {
-    if (!Platform.isAndroid) {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       setState(() {
         _loaded = true;
         _error = 'Installed-app browsing is available on Android devices.';
