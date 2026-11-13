@@ -48,10 +48,10 @@ class _FilesScreenState extends State<FilesScreen> {
   Future<void> _pickFiles() async {
     setState(() => _busy = true);
     try {
-      final result = await FilePicker.pickFiles(allowMultiple: true);
-      if (result == null || !mounted) return;
+      final files = await FilePicker.pickFiles();
+      if (files.isEmpty || !mounted) return;
       setState(() {
-        for (final f in result.files) {
+        for (final f in files) {
           if (f.path != null && !_items.any((x) => x.path == f.path)) {
             _items.add(_PickedItem(f.name, f.path!, f.size, false));
           }
