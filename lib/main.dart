@@ -1,3 +1,8 @@
+// Flutter stable 3.50 marks Material's umbrella library and legacy RadioListTile
+// selection parameters deprecated while transitioning to the new Material API.
+// Keep the UI compatible with the current stable SDK during that migration.
+// ignore_for_file: deprecated_member_use
+
 import 'dart:math';
 
 import 'package:flutter/material.dart';
