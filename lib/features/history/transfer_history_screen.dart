@@ -1,3 +1,6 @@
+// Flutter stable 3.50 currently deprecates the umbrella Material import during its API migration.
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 
 import '../../transfers/transfer_history.dart';
