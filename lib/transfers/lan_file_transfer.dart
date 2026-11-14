@@ -71,6 +71,9 @@ class LanFileTransfer {
 
       final suppliedCode = decoded['authorizationCode'];
       final name = _safeFileName(decoded['name'] as String);
+      final relativePath = _safeRelativePath(decoded['relativePath'] is String
+          ? decoded['relativePath'] as String
+          : name);
       final expectedSize = decoded['size'] as int;
       final expectedHash = decoded['sha256'] as String;
       if (expectedSize < 0 || expectedSize > (1 << 50)) {
@@ -81,7 +84,8 @@ class LanFileTransfer {
         throw const FormatException('Transfer authorization failed.');
       }
 
-      final file = File('${destination.path}${Platform.pathSeparator}$name');
+      final file = File('${destination.path}${Platform.pathSeparator}${relativePath.replaceAll('/', Platform.pathSeparator)}');
+      await file.parent.create(recursive: true);
       if (await file.exists()) {
         throw FileSystemException('A file with this name already exists.', file.path);
       }
@@ -135,6 +139,7 @@ class LanFileTransfer {
     required File file,
     required String authorizationCode,
     required void Function(TransferProgress progress) onProgress,
+    String? relativePath,
     Duration timeout = const Duration(seconds: 15),
   }) async {
     _validateCode(authorizationCode);
@@ -150,6 +155,7 @@ class LanFileTransfer {
         : Uri.decodeComponent(file.uri.pathSegments.last);
     final metadata = utf8.encode(jsonEncode({
       'name': _safeFileName(name),
+      'relativePath': _safeRelativePath(relativePath ?? name),
       'authorizationCode': authorizationCode,
       'size': stat.size,
       'sha256': digest.toString(),
@@ -207,6 +213,19 @@ bool _constantTimeEquals(String a, String b) {
     difference |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
   }
   return difference == 0;
+}
+
+String _safeRelativePath(String input) {
+  final normalized = input.replaceAll(r'\\', '/');
+  if (normalized.startsWith('/') || RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
+    throw const FormatException('Absolute transfer paths are not allowed.');
+  }
+  final segments = normalized.split('/');
+  if (segments.isEmpty || segments.any((segment) =>
+      segment.isEmpty || segment == '.' || segment == '..')) {
+    throw const FormatException('Invalid relative transfer path.');
+  }
+  return segments.map(_safeFileName).join('/');
 }
 
 String _safeFileName(String input) {
