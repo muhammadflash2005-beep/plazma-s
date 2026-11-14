@@ -149,19 +149,20 @@ class LanFileTransfer {
     }
 
     final digest = await sha256.bind(file.openRead()).first;
-    final socket = await Socket.connect(host, port, timeout: timeout);
     final name = file.uri.pathSegments.isEmpty
         ? 'file'
         : Uri.decodeComponent(file.uri.pathSegments.last);
+    final safeRelativePath = _safeRelativePath(relativePath ?? name);
     final metadata = utf8.encode(jsonEncode({
       'name': _safeFileName(name),
-      'relativePath': _safeRelativePath(relativePath ?? name),
+      'relativePath': safeRelativePath,
       'authorizationCode': authorizationCode,
       'size': stat.size,
       'sha256': digest.toString(),
     }));
     final prefix = Uint8List(4);
     ByteData.sublistView(prefix).setUint32(0, metadata.length, Endian.big);
+    final socket = await Socket.connect(host, port, timeout: timeout);
 
     try {
       socket.add(prefix);
