@@ -4,7 +4,6 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -18,6 +17,7 @@ import 'features/files/files_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'rooms/room_network_service.dart';
 import 'rooms/room_models.dart';
+import 'network/local_device_info.dart';
 
 void main() => runApp(const PlazmaApp());
 
@@ -244,37 +244,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return id;
   }
 
-  Future<String> _localIpv4() async {
-    final interfaces = await NetworkInterface.list(
-      type: InternetAddressType.IPv4,
-      includeLoopback: false,
-    );
-    final addresses = interfaces
-        .expand((interface) => interface.addresses)
-        .where((address) =>
-            address.type == InternetAddressType.IPv4 &&
-            !address.isLoopback &&
-            !address.address.startsWith('169.254.'))
-        .toList();
-    if (addresses.isEmpty) {
-      throw const SocketException(
-        'No local IPv4 address found. Connect to Wi-Fi or a hotspot first.',
-      );
-    }
-    addresses.sort((a, b) {
-      bool preferred(InternetAddress value) =>
-          value.address.startsWith('192.168.') ||
-          value.address.startsWith('10.') ||
-          RegExp(r'^172\\.(1[6-9]|2[0-9]|3[0-1])\\.').hasMatch(value.address);
-      return (preferred(b) ? 1 : 0) - (preferred(a) ? 1 : 0);
-    });
-    return addresses.first.address;
-  }
-
-  String get _deviceName {
-    final hostname = Platform.localHostname.trim();
-    return hostname.isEmpty ? 'Plazma S device' : hostname;
-  }
 
   Future<void> _startRoom({required int appCount}) async {
     if (_roomBusy) return;
@@ -287,9 +256,9 @@ class _HomeScreenState extends State<HomeScreen> {
       await _leaveRoom(clearUi: false);
       final host = await RoomNetworkHost.start(
         hostDeviceId: await _deviceId(),
-        hostDeviceName: _deviceName,
+        hostDeviceName: getLocalDeviceName(),
         hostPlatform: defaultTargetPlatform.name,
-        advertisedAddress: await _localIpv4(),
+        advertisedAddress: await getLocalIpv4(),
         port: 0,
       );
       _roomHost = host;
@@ -337,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final client = await RoomNetworkClient.join(
         invitation: invitation,
         deviceId: await _deviceId(),
-        deviceName: _deviceName,
+        deviceName: getLocalDeviceName(),
         platform: defaultTargetPlatform.name,
       );
       _roomClient = client;
