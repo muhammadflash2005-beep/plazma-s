@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -23,6 +24,14 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
   String? _latestVersion, _releaseNotes, _apkUrl, _checksumUrl, _currentVersion, _error;
   File? _downloadedApk;
   double? _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _checkForUpdates();
+    });
+  }
 
   Future<void> _checkForUpdates() async {
     setState(() { _busy = true; _error = null; _progress = null; _status = 'Checking for updates…'; });
