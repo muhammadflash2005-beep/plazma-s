@@ -321,7 +321,8 @@ jobs:
           """
               s = s.replace(marker, marker + signing, 1)
               s = s.replace("signingConfig = signingConfigs.debug", 'signingConfig = signingConfigs.getByName("release")')
-              s = s.replace("buildTypes {", 'buildTypes {\n        getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n        }', 1)
+              s = s.replace('signingConfig = signingConfigs.getByName("debug")', 'signingConfig = signingConfigs.getByName("release")')
+              s = s.replace("signingConfig = signingConfigs.debug", 'signingConfig = signingConfigs.getByName("release")')
               p.write_text(s)
           elif gradle.exists():
               s = gradle.read_text()
@@ -352,6 +353,25 @@ jobs:
           PY
       - name: Build Android APK
         run: flutter build apk --release
+      - name: Verify APK uses permanent release certificate
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/apk-signature.txt
+          APK_CERT="$(sed -n 's/.*certificate SHA-256 digest: //p' /tmp/apk-signature.txt | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          KEY_CERT="$(keytool -exportcert -keystore android/app/plazma-release.jks -storepass "$ANDROID_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sha256sum | awk '{print $1}')"
+          echo "APK signer SHA-256: $APK_CERT"
+          echo "Keystore SHA-256:   $KEY_CERT"
+          test -n "$APK_CERT"
+          test "$APK_CERT" = "$KEY_CERT"
+          echo "Verified: APK is signed by the permanent Plazma S release certificate."
       - name: Build web preview
         run: flutter build web --release
       - uses: actions/upload-artifact@v4
