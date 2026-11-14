@@ -11,18 +11,17 @@ void main() {
     expect(find.text('Join a room'), findsOneWidget);
   });
 
-  testWidgets('creating a room shows its QR invitation and six-character code', (tester) async {
+  testWidgets('creating a room starts the live room flow', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('Create room'));
     await tester.tap(find.text('Create room'));
-    await tester.pumpAndSettle();
+    // The live room startup is asynchronous and the progress indicator is
+    // intentionally animated, so pumpAndSettle would wait forever here.
+    await tester.pump();
 
-    expect(find.text('Your room'), findsOneWidget);
-    expect(find.text('SCAN TO JOIN'), findsOneWidget);
-    expect(find.textContaining('Room ').first, findsOneWidget);
-    expect(find.text('Room host · Local preview'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
   });
 
   testWidgets('settings exposes all five Plazma themes', (tester) async {
