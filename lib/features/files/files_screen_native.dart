@@ -265,6 +265,7 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final transferMode = widget.transferMode;
     final totalBytes = _items.fold<int>(0, (sum, item) => sum + (item.bytes ?? 0));
     final localModeSupported = transferMode == null || transferMode!.supportsLocal(_platform);
     final compatibleDevices = _devices.where((device) =>
