@@ -2,8 +2,10 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
+import '../../network/android_hotspot_service.dart';
 import 'plazma_discovery_service.dart';
 
 class DevicesScreen extends StatefulWidget {
@@ -19,6 +21,9 @@ class _DevicesScreenState extends State<DevicesScreen> {
   List<NearbyPlazmaDevice> _devices = [];
   bool _scanning = false;
   String? _error;
+  final _hotspot = AndroidHotspotService();
+  HotspotCredentials? _hotspotCredentials;
+  bool _startingHotspot = false;
 
   @override
   void initState() {
@@ -28,6 +33,33 @@ class _DevicesScreenState extends State<DevicesScreen> {
       if (mounted) setState(() => _devices = devices);
     });
     _startDiscovery();
+  }
+
+  Future<void> _createHotspot() async {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      setState(() => _error = 'Creating a Plazma hotspot is currently supported on Android only.');
+      return;
+    }
+    setState(() { _startingHotspot = true; _error = null; });
+    try {
+      final credentials = await _hotspot.startHotspot();
+      if (mounted) setState(() => _hotspotCredentials = credentials);
+    } on PlatformException catch (error) {
+      if (mounted) setState(() => _error = error.message ?? 'Could not start the hotspot.');
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not start the hotspot: $error');
+    } finally {
+      if (mounted) setState(() => _startingHotspot = false);
+    }
+  }
+
+  Future<void> _stopHotspot() async {
+    try {
+      await _hotspot.stopHotspot();
+      if (mounted) setState(() => _hotspotCredentials = null);
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not stop hotspot: $error');
+    }
   }
 
   Future<void> _startDiscovery() async {
@@ -41,6 +73,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
     });
     try {
       await _discovery.start(
+        publish: true,
         deviceName: 'Plazma S device',
         platform: switch (defaultTargetPlatform) {
           TargetPlatform.android => 'Android',
@@ -58,6 +91,50 @@ class _DevicesScreenState extends State<DevicesScreen> {
     }
   }
 
+  Widget _hotspotCard(ThemeData theme) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(Icons.wifi_tethering_rounded, color: theme.colorScheme.primary, size: 26),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Connect without a router', style: TextStyle(fontWeight: FontWeight.w800))),
+            ]),
+            const SizedBox(height: 6),
+            Text('Create a temporary Wi-Fi hotspot on this phone, then connect the other device to it. Internet access is not required.',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
+            const SizedBox(height: 12),
+            if (_hotspotCredentials == null)
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                FilledButton.icon(
+                  onPressed: _startingHotspot ? null : _createHotspot,
+                  icon: _startingHotspot
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.wifi_tethering_rounded),
+                  label: Text(_startingHotspot ? 'Starting hotspot…' : 'Create hotspot'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: defaultTargetPlatform == TargetPlatform.android
+                      ? _hotspot.openWifiSettings
+                      : null,
+                  icon: const Icon(Icons.wifi_rounded),
+                  label: const Text('Join hotspot'),
+                ),
+              ])
+            else ...[
+              SelectableText('Network: ${_hotspotCredentials!.ssid}', style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              SelectableText('Password: ${_hotspotCredentials!.password}'),
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                OutlinedButton.icon(onPressed: _hotspot.openWifiSettings, icon: const Icon(Icons.settings_rounded), label: const Text('Wi-Fi settings')),
+                TextButton(onPressed: _stopHotspot, child: const Text('Stop hotspot')),
+              ]),
+            ],
+          ]),
+        ),
+      );
+
   @override
   void dispose() {
     _subscription?.cancel();
@@ -74,6 +151,8 @@ class _DevicesScreenState extends State<DevicesScreen> {
       Text('Find other Plazma S devices advertising on your local network.',
           style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 18),
+      _hotspotCard(theme),
+      const SizedBox(height: 14),
       Card(child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(children: [
