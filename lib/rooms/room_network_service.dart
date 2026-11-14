@@ -231,6 +231,8 @@ class RoomNetworkHost {
   }
 
   Future<void> _handleDisconnect(TcpPeer peer) async {
+    // Socket callbacks can arrive after close() has already closed the room.
+    if (_closed) return;
     final deviceId = _deviceByPeer.remove(peer);
     if (deviceId == null) return;
     _peersByDevice.remove(deviceId);
