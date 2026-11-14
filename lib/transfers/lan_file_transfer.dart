@@ -157,10 +157,13 @@ class LanFileTransfer {
       await partialFile.rename(target.path);
       partialFile = null;
       if (await metadataFile.exists()) await metadataFile.delete();
-      await onReceived(target, name, actualHash.toString());
+      // Commit the file and acknowledge it before invoking UI callbacks.
+      // A callback failure must not make a successfully received file look
+      // like a failed transfer that cannot be retried.
       socket.add([1]);
       await socket.flush();
       handshakeResponseSent = true;
+      await onReceived(target, name, actualHash.toString());
     } catch (error) {
       await output?.close();
       // Keep partial data on connection loss so the next sendFile call resumes.
@@ -220,9 +223,15 @@ class LanFileTransfer {
       await socket.flush();
 
       final offsetBytes = await reader.readExact(8).timeout(timeout);
+      // The receiver uses eight 0xff bytes as an explicit rejection marker.
+      // Dart's ByteData.getUint64 can represent that bit pattern as -1, so
+      // checking only "offset > size" is not sufficient.
+      if (offsetBytes.every((byte) => byte == 0xff)) {
+        throw const FormatException('Receiver rejected transfer authorization or metadata.');
+      }
       final offset = ByteData.sublistView(offsetBytes).getUint64(0, Endian.big);
-      if (offset > stat.size) {
-        throw const FormatException('Receiver supplied an invalid resume offset or rejected authorization.');
+      if (offset < 0 || offset > stat.size) {
+        throw const FormatException('Receiver supplied an invalid resume offset.');
       }
 
       final started = DateTime.now();
