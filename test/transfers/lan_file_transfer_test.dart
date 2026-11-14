@@ -57,6 +57,23 @@ void main() {
       expect(progressValues.last, bytes.length);
     });
 
+    test('rejects parent traversal in a relative transfer path', () async {
+      final source = File('${temporaryDirectory.path}/outside.bin');
+      await source.writeAsBytes([7, 8, 9]);
+
+      await expectLater(
+        LanFileTransfer().sendFile(
+          host: InternetAddress.loopbackIPv4.address,
+          port: 0,
+          file: source,
+          authorizationCode: '482915',
+          relativePath: '../outside.bin',
+          onProgress: (_) {},
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('rejects a sender with an incorrect pairing code', () async {
       final source = File('${temporaryDirectory.path}/private.bin');
       await source.writeAsBytes([1, 2, 3, 4]);
