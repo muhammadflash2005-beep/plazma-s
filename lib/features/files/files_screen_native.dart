@@ -254,8 +254,8 @@ class _FilesScreenState extends State<FilesScreen> {
         _message('Sent ${files.length} file(s) to ${device.name}.');
       }
     } catch (error) {
-      if (mounted) setState(() => _status = 'Transfer failed: $error');
-      _message('Transfer failed: $error');
+      if (mounted) setState(() => _status = 'Transfer stopped. If the connection dropped, retry the same files to resume: $error');
+      _message('Transfer stopped. Retry the same files to resume if the connection dropped. $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
