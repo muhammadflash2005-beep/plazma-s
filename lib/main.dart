@@ -456,7 +456,9 @@ class _HomeScreenState extends State<HomeScreen> {
               trailing: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
             ),
             const Divider(),
-            const Text('Network room invitations and connected devices are the next native milestone.'),
+            Text(_roomAppCount > 0
+                ? '$_roomAppCount selected app(s) are ready for the room handoff. The room code is generated locally; live device joining and APK delivery are not connected yet.'
+                : 'Network room invitations and connected devices are the next native milestone.'),
           ]),
         ),
       );
