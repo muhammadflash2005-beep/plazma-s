@@ -18,8 +18,11 @@ class TransferProgress {
   double get fraction => totalBytes == 0 ? 1 : bytesTransferred / totalBytes;
 }
 
-/// One file per direct TCP connection. The receiver acknowledges only after
-/// the declared payload length and SHA-256 digest have been verified.
+/// Resumable, one-file-per-connection TCP transfer.
+///
+/// The receiver stores incomplete data in a private partial directory. The
+/// transfer identity is stable for the same content and relative destination,
+/// so calling sendFile again resumes from the receiver's reported offset.
 class LanFileTransfer {
   LanFileTransfer({this.port = 0});
   final int port;
@@ -54,7 +57,8 @@ class LanFileTransfer {
   ) async {
     final reader = _SocketByteReader(socket);
     IOSink? output;
-    File? targetFile;
+    File? partialFile;
+    File? metadataFile;
     try {
       final prefix = await reader.readExact(4);
       final headerLength = ByteData.sublistView(prefix).getUint32(0, Endian.big);
@@ -63,65 +67,101 @@ class LanFileTransfer {
       }
       final decoded = jsonDecode(utf8.decode(await reader.readExact(headerLength)));
       if (decoded is! Map<String, dynamic> ||
+          decoded['version'] != 2 ||
           decoded['name'] is! String ||
           decoded['size'] is! int ||
-          decoded['sha256'] is! String) {
-        throw const FormatException('Invalid transfer metadata.');
+          decoded['sha256'] is! String ||
+          decoded['transferId'] is! String ||
+          decoded['relativePath'] is! String) {
+        throw const FormatException('Invalid or unsupported transfer metadata.');
       }
 
       final suppliedCode = decoded['authorizationCode'];
       final name = _safeFileName(decoded['name'] as String);
-      final relativePath = _safeRelativePath(decoded['relativePath'] is String
-          ? decoded['relativePath'] as String
-          : name);
+      final relativePath = _safeRelativePath(decoded['relativePath'] as String);
       final expectedSize = decoded['size'] as int;
       final expectedHash = decoded['sha256'] as String;
-      if (expectedSize < 0 || expectedSize > (1 << 50)) {
-        throw const FormatException('Invalid file size.');
+      final transferId = decoded['transferId'] as String;
+      if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(transferId) ||
+          expectedSize < 0 || expectedSize > (1 << 50) ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(expectedHash)) {
+        throw const FormatException('Invalid transfer identity, size, or digest.');
       }
       if (suppliedCode is! String || !_constantTimeEquals(suppliedCode, authorizationCode)) {
-        await for (final _ in reader.readPayload(expectedSize).timeout(const Duration(seconds: 60))) {}
+        socket.add(List<int>.filled(8, 255));
+        await socket.flush();
         throw const FormatException('Transfer authorization failed.');
       }
 
-      final file = File('${destination.path}${Platform.pathSeparator}${relativePath.replaceAll('/', Platform.pathSeparator)}');
-      await file.parent.create(recursive: true);
-      if (await file.exists()) {
-        throw FileSystemException('A file with this name already exists.', file.path);
+      final target = File('${destination.path}${Platform.pathSeparator}${relativePath.replaceAll('/', Platform.pathSeparator)}');
+      await target.parent.create(recursive: true);
+      if (await target.exists()) {
+        throw FileSystemException('A file with this name already exists.', target.path);
       }
-      targetFile = file;
-      output = file.openWrite();
 
-      final digestSink = AccumulatorSink<Digest>();
-      final hashInput = sha256.startChunkedConversion(digestSink);
-      var received = 0;
-      await for (final chunk in reader.readPayload(expectedSize)) {
+      final partialDirectory = Directory('${destination.path}${Platform.pathSeparator}.plazma_s_partial');
+      await partialDirectory.create(recursive: true);
+      partialFile = File('${partialDirectory.path}${Platform.pathSeparator}$transferId.part');
+      metadataFile = File('${partialDirectory.path}${Platform.pathSeparator}$transferId.json');
+
+      final expectedMetadata = jsonEncode({
+        'version': 2,
+        'name': name,
+        'relativePath': relativePath,
+        'size': expectedSize,
+        'sha256': expectedHash,
+      });
+      if (await metadataFile.exists()) {
+        final saved = jsonDecode(await metadataFile.readAsString());
+        if (saved is! Map<String, dynamic> ||
+            saved['version'] != 2 ||
+            saved['name'] != name ||
+            saved['relativePath'] != relativePath ||
+            saved['size'] != expectedSize ||
+            saved['sha256'] != expectedHash) {
+          throw const FormatException('A different transfer already uses this resume identity.');
+        }
+      } else {
+        await metadataFile.writeAsString(expectedMetadata, flush: true);
+      }
+      if (!await partialFile.exists()) {
+        await partialFile.create(recursive: true);
+      }
+      var offset = await partialFile.length();
+      if (offset > expectedSize) {
+        throw const FormatException('Saved partial file exceeds the declared size.');
+      }
+
+      final offsetBytes = Uint8List(8);
+      ByteData.sublistView(offsetBytes).setUint64(0, offset, Endian.big);
+      socket.add(offsetBytes);
+      await socket.flush();
+
+      output = partialFile.openWrite(mode: FileMode.append);
+      await for (final chunk in reader.readPayload(expectedSize - offset)) {
         output.add(chunk);
-        hashInput.add(chunk);
-        received += chunk.length;
+        offset += chunk.length;
       }
-
       await output.flush();
       await output.close();
       output = null;
-      hashInput.close();
 
-      if (received != expectedSize) {
-        throw const FormatException('Transfer ended before the full file arrived.');
-      }
-      final actualHash = digestSink.events.single.toString();
-      if (actualHash != expectedHash) {
+      final actualHash = await sha256.bind(partialFile.openRead()).first;
+      if (await partialFile.length() != expectedSize || actualHash.toString() != expectedHash) {
+        await partialFile.delete();
+        if (await metadataFile.exists()) await metadataFile.delete();
         throw const FormatException('File integrity check failed (SHA-256 mismatch).');
       }
 
-      await onReceived(file, name, actualHash);
+      await partialFile.rename(target.path);
+      partialFile = null;
+      if (await metadataFile.exists()) await metadataFile.delete();
+      await onReceived(target, name, actualHash.toString());
       socket.add([1]);
       await socket.flush();
     } catch (error) {
       await output?.close();
-      if (targetFile != null && await targetFile.exists()) {
-        await targetFile.delete();
-      }
+      // Keep partial data on connection loss so the next sendFile call resumes.
       socket.add([0]);
       try {
         await socket.flush();
@@ -140,7 +180,7 @@ class LanFileTransfer {
     required String authorizationCode,
     required void Function(TransferProgress progress) onProgress,
     String? relativePath,
-    Duration timeout = const Duration(seconds: 15),
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     _validateCode(authorizationCode);
     final stat = await file.stat();
@@ -153,7 +193,12 @@ class LanFileTransfer {
         ? 'file'
         : Uri.decodeComponent(file.uri.pathSegments.last);
     final safeRelativePath = _safeRelativePath(relativePath ?? name);
+    final transferId = sha256.convert(utf8.encode(
+      'plazma-s-v2:${stat.size}:${digest.toString()}:$safeRelativePath',
+    )).toString();
     final metadata = utf8.encode(jsonEncode({
+      'version': 2,
+      'transferId': transferId,
       'name': _safeFileName(name),
       'relativePath': safeRelativePath,
       'authorizationCode': authorizationCode,
@@ -163,15 +208,27 @@ class LanFileTransfer {
     final prefix = Uint8List(4);
     ByteData.sublistView(prefix).setUint32(0, metadata.length, Endian.big);
     final socket = await Socket.connect(host, port, timeout: timeout);
+    final reader = _SocketByteReader(socket);
 
     try {
       socket.add(prefix);
       socket.add(metadata);
       await socket.flush();
 
+      final offsetBytes = await reader.readExact(8).timeout(timeout);
+      final offset = ByteData.sublistView(offsetBytes).getUint64(0, Endian.big);
+      if (offset > stat.size) {
+        throw const FormatException('Receiver supplied an invalid resume offset or rejected authorization.');
+      }
+
       final started = DateTime.now();
-      var sent = 0;
-      await for (final chunk in file.openRead()) {
+      var sent = offset;
+      onProgress(TransferProgress(
+        bytesTransferred: sent,
+        totalBytes: stat.size,
+        bytesPerSecond: 0,
+      ));
+      await for (final chunk in file.openRead(offset)) {
         socket.add(chunk);
         sent += chunk.length;
         final elapsed = DateTime.now().difference(started).inMicroseconds /
@@ -179,18 +236,20 @@ class LanFileTransfer {
         onProgress(TransferProgress(
           bytesTransferred: sent,
           totalBytes: stat.size,
-          bytesPerSecond: elapsed <= 0 ? 0 : sent / elapsed,
+          bytesPerSecond: elapsed <= 0 ? 0 : (sent - offset) / elapsed,
         ));
       }
       await socket.flush();
-      final acknowledgement = await socket.first.timeout(timeout);
-      if (acknowledgement.isEmpty || acknowledgement.first != 1) {
-        throw const FormatException('Receiver rejected the file or its integrity check.');
+      final acknowledgement = await reader.readExact(1).timeout(timeout);
+      if (acknowledgement.first != 1) {
+        throw const FormatException('Receiver rejected the file or its integrity check. Retry to resume if the connection was interrupted.');
       }
       await socket.close();
     } catch (_) {
       socket.destroy();
       rethrow;
+    } finally {
+      await reader.close();
     }
   }
 
@@ -217,7 +276,7 @@ bool _constantTimeEquals(String a, String b) {
 }
 
 String _safeRelativePath(String input) {
-  final normalized = input.replaceAll(r'\', '/');
+  final normalized = input.replaceAll(r'\\', '/');
   if (normalized.startsWith('/') || RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
     throw const FormatException('Absolute transfer paths are not allowed.');
   }
@@ -230,12 +289,12 @@ String _safeRelativePath(String input) {
 }
 
 String _safeFileName(String input) {
-  final normalized = input.replaceAll(r'\', '/');
+  final normalized = input.replaceAll(r'\\', '/');
   final name = normalized.split('/').last.trim();
   if (name.isEmpty || name == '.' || name == '..') {
     throw const FormatException('Invalid file name.');
   }
-  return name.replaceAll(RegExp(r'[\x00-\x1f]'), '_');
+  return name.replaceAll(RegExp(r'[\\x00-\\x1f]'), '_');
 }
 
 class _SocketByteReader {
@@ -250,7 +309,7 @@ class _SocketByteReader {
     while (written < count) {
       if (_offset >= _pending.length) {
         if (!await _iterator.moveNext()) {
-          throw const FormatException('Connection closed during transfer header.');
+          throw const FormatException('Connection closed during transfer.');
         }
         _pending = _iterator.current;
         _offset = 0;
