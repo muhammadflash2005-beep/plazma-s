@@ -216,7 +216,7 @@ bool _constantTimeEquals(String a, String b) {
 }
 
 String _safeRelativePath(String input) {
-  final normalized = input.replaceAll(r'\\', '/');
+  final normalized = input.replaceAll(r'\', '/');
   if (normalized.startsWith('/') || RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
     throw const FormatException('Absolute transfer paths are not allowed.');
   }
