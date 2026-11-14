@@ -104,17 +104,17 @@ class RoomNetworkHost {
       onMessage: (peer, message) => host._handleMessage(peer, message),
       onPeerDisconnected: (peer) => host._handleDisconnect(peer),
     );
+    await server.start(port: port);
     host = RoomNetworkHost._(
       room: room,
       invitation: RoomInvitation(
         roomId: id,
         host: advertisedAddress,
-        port: port,
+        port: server.port!,
         token: token,
       ),
       _server: server,
     );
-    await server.start(port: port);
     return host;
   }
 
@@ -268,8 +268,7 @@ class RoomNetworkClient {
     required String deviceName,
     required String platform,
   }) async {
-    final events = StreamController<RoomNetworkEvent>.broadcast();
-    late final RoomNetworkClient client;
+    final events = StreamController<RoomNetworkEvent>();
     final peer = await TcpPeer.connect(
       host: invitation.host,
       port: invitation.port,
@@ -299,7 +298,7 @@ class RoomNetworkClient {
         }
       },
     );
-    client = RoomNetworkClient._(peer, events);
+    final client = RoomNetworkClient._(peer, events);
     await peer.send({
       'type': 'room.join',
       'roomId': invitation.roomId,
