@@ -293,7 +293,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Your files. Your devices.\nOne local connection.',
+        Text('Your files. Your devices.
+One local connection.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
         const SizedBox(height: 10),
         Text('Share directly across devices on the same Wi-Fi or hotspot.',
@@ -350,7 +351,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openTransfer(TransferMode mode) => setState(() {\n        _transferMode = mode;\n        _tab = 1;\n      });\n\n  Widget _notice() => Card(
+  void _openTransfer(TransferMode mode) => setState(() {
+        _transferMode = mode;
+        _tab = 1;
+      });
+
+  Widget _notice() => Card(
         color: Theme.of(context).colorScheme.primaryContainer,
         child: Padding(
           padding: const EdgeInsets.all(15),
@@ -548,7 +554,8 @@ class _Sidebar extends StatelessWidget {
       _navItem(context, Icons.history_rounded, 'History', 4),
       _navItem(context, Icons.settings_rounded, 'Settings', 5),
       const Spacer(),
-      const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
+      const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY
+Direct device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
   );
 
