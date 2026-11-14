@@ -1,3 +1,8 @@
+// The updater uses Flutter's Material widgets across supported Flutter versions.
+// Flutter 3.50 marks this import deprecated in favor of a newer package migration.
+// Keep the stable Flutter Material API until the app migrates consistently.
+// ignore_for_file: deprecated_member_use
+
 import 'dart:convert';
 import 'dart:io';
 
