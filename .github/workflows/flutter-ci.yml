@@ -54,12 +54,138 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
               <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-              <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
+              <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
               <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
           """
-          s = s.replace("<application", permissions + "\n    <application", 1)
+          s = s.replace("<application", permissions + "\\n    <application", 1)
           manifest.write_text(s)
+          main = Path("android/app/src/main/kotlin/com/plazma/plazma_s/MainActivity.kt")
+          main.parent.mkdir(parents=True, exist_ok=True)
+          main.write_text(r'''package com.plazma.plazma_s
+
+          import android.Manifest
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.wifi.WifiManager
+          import android.os.Build
+          import android.provider.Settings
+          import androidx.core.app.ActivityCompat
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugin.common.MethodChannel
+
+          class MainActivity : FlutterActivity() {
+              private val channelName = "com.plazma.s/hotspot"
+              private val permissionRequest = 7041
+              private var hotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
+              private var pendingHotspotResult: MethodChannel.Result? = null
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+                      .setMethodCallHandler { call, result ->
+                          when (call.method) {
+                              "startHotspot" -> startHotspot(result)
+                              "stopHotspot" -> {
+                                  hotspotReservation?.close()
+                                  hotspotReservation = null
+                                  result.success(null)
+                              }
+                              "openWifiSettings" -> {
+                                  startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                                  result.success(null)
+                              }
+                              else -> result.notImplemented()
+                          }
+                      }
+              }
+
+              private fun startHotspot(result: MethodChannel.Result) {
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                      result.error("UNSUPPORTED", "Android 8 or later is required for app-created local hotspots.", null)
+                      return
+                  }
+                  if (hotspotReservation != null) {
+                      result.error("ALREADY_RUNNING", "A Plazma S hotspot is already running.", null)
+                      return
+                  }
+                  val permission = if (Build.VERSION.SDK_INT >= 33) {
+                      Manifest.permission.NEARBY_WIFI_DEVICES
+                  } else {
+                      Manifest.permission.ACCESS_FINE_LOCATION
+                  }
+                  if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+                      pendingHotspotResult = result
+                      ActivityCompat.requestPermissions(this, arrayOf(permission), permissionRequest)
+                      return
+                  }
+                  beginHotspot(result)
+              }
+
+              private fun beginHotspot(result: MethodChannel.Result) {
+                  val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                  try {
+                      wifi.startLocalOnlyHotspot(object : WifiManager.LocalOnlyHotspotCallback() {
+                          override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+                              hotspotReservation = reservation
+                              val ssid: String
+                              val password: String
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                  val config = reservation.softApConfiguration
+                                  ssid = config.ssid ?: ""
+                                  password = config.passphrase ?: ""
+                              } else {
+                                  @Suppress("DEPRECATION")
+                                  val config = reservation.wifiConfiguration
+                                  ssid = config?.SSID?.trim('"') ?: ""
+                                  password = config?.preSharedKey?.trim('"') ?: ""
+                              }
+                              runOnUiThread {
+                                  result.success(mapOf("ssid" to ssid, "password" to password))
+                              }
+                          }
+
+                          override fun onStopped() {
+                              hotspotReservation = null
+                          }
+
+                          override fun onFailed(reason: Int) {
+                              runOnUiThread {
+                                  result.error("HOTSPOT_FAILED", "Android could not start the local hotspot (reason $reason). Turn off any existing hotspot and try again.", null)
+                              }
+                          }
+                      }, null)
+                  } catch (error: SecurityException) {
+                      result.error("PERMISSION_DENIED", error.message, null)
+                  } catch (error: Exception) {
+                      result.error("HOTSPOT_FAILED", error.message, null)
+                  }
+              }
+
+              @Deprecated("Deprecated in Android")
+              override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  if (requestCode != permissionRequest) return
+                  val result = pendingHotspotResult
+                  pendingHotspotResult = null
+                  if (result == null) return
+                  if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                      beginHotspot(result)
+                  } else {
+                      result.error("PERMISSION_DENIED", "Nearby Wi-Fi permission is required to create a local hotspot.", null)
+                  }
+              }
+
+              override fun onDestroy() {
+                  hotspotReservation?.close()
+                  hotspotReservation = null
+                  super.onDestroy()
+              }
+          }
+          ''')
           PY
       - name: Build Android APK
         run: flutter build apk --release
