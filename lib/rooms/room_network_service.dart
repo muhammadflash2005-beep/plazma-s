@@ -182,6 +182,16 @@ class RoomNetworkHost {
 
   Future<void> _handleMessage(TcpPeer peer, Map<String, Object?> message) async {
     if (_closed) return;
+    if (message['type'] == 'room.leave') {
+      final deviceId = _deviceByPeer.remove(peer);
+      if (deviceId != null) {
+        _peersByDevice.remove(deviceId);
+        room.leave(deviceId);
+        await _broadcastSnapshot();
+      }
+      await peer.close();
+      return;
+    }
     if (message['type'] != 'room.join') {
       await peer.send({'type': 'room.rejected', 'reason': 'Unsupported room message.'});
       await peer.close();
