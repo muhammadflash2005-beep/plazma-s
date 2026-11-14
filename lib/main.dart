@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
+import 'transfers/transfer_mode.dart';
 
 void main() => runApp(const PlazmaApp());
 
@@ -187,6 +188,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   String? _roomId;
+  TransferMode? _transferMode;
   final _joinController = TextEditingController();
 
   @override
@@ -254,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
                           child: switch (_tab) {
                             0 => _homeContent(wide),
-                            1 => const FilesScreen(),
+                            1 => FilesScreen(transferMode: _transferMode),
                             2 => const AppsScreen(),
                             3 => const DevicesScreen(),
                             4 => _secondaryContent(),
@@ -299,6 +301,42 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 22),
         _notice(),
         const SizedBox(height: 22),
+        Text('Choose your connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: [
+            SizedBox(
+              width: wide ? 350 : double.infinity,
+              child: _TransferModeCard(
+                icon: Icons.computer_rounded,
+                title: 'PC to PC',
+                subtitle: 'Share between Windows, macOS and Linux computers.',
+                onTap: () => _openTransfer(TransferMode.pcToPc),
+              ),
+            ),
+            SizedBox(
+              width: wide ? 350 : double.infinity,
+              child: _TransferModeCard(
+                icon: Icons.phone_android_rounded,
+                title: 'Android to Android',
+                subtitle: 'Send files between Android phones and tablets.',
+                onTap: () => _openTransfer(TransferMode.androidToAndroid),
+              ),
+            ),
+            SizedBox(
+              width: wide ? 350 : double.infinity,
+              child: _TransferModeCard(
+                icon: Icons.devices_rounded,
+                title: 'PC to Android',
+                subtitle: 'Move files between a computer and an Android device.',
+                onTap: () => _openTransfer(TransferMode.pcToAndroid),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
         if (_roomId == null) _roomActions(wide) else _roomPanel(),
         const SizedBox(height: 24),
         Text('Quick access', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
@@ -312,7 +350,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _notice() => Card(
+  void _openTransfer(TransferMode mode) => setState(() {\n        _transferMode = mode;\n        _tab = 1;\n      });\n\n  Widget _notice() => Card(
         color: Theme.of(context).colorScheme.primaryContainer,
         child: Padding(
           padding: const EdgeInsets.all(15),
@@ -547,6 +585,64 @@ class _ActionCard extends StatelessWidget {
         : FilledButton.icon(onPressed: onPressed, icon: const Icon(Icons.arrow_forward_rounded, size: 17), label: Text(buttonText))),
     ]),
   ));
+}
+
+
+class _TransferModeCard extends StatelessWidget {
+  const _TransferModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: theme.colorScheme.primary, size: 26),
+              ),
+              const SizedBox(height: 14),
+              Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 5),
+              Text(
+                subtitle,
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text('Choose connection', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w800, fontSize: 12)),
+                  const Spacer(),
+                  Icon(Icons.arrow_forward_rounded, size: 17, color: theme.colorScheme.primary),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _QuickCard extends StatelessWidget {
