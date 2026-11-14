@@ -135,13 +135,13 @@ jobs:
                               val password: String
                               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                   val config = reservation.softApConfiguration
-                                  ssid = config.ssid
+                                  ssid = config.ssid ?: ""
                                   password = config.passphrase ?: ""
                               } else {
                                   @Suppress("DEPRECATION")
                                   val config = reservation.wifiConfiguration
-                                  ssid = config.SSID.trim('"')
-                                  password = (config.preSharedKey ?: "").trim('"')
+                                  ssid = config?.SSID?.trim('"') ?: ""
+                                  password = config?.preSharedKey?.trim('"') ?: ""
                               }
                               runOnUiThread {
                                   result.success(mapOf("ssid" to ssid, "password" to password))
