@@ -312,7 +312,7 @@ class _FilesScreenState extends State<FilesScreen> {
                       )
                     else
                       FilledButton(
-                        onPressed: _busy ? null : _startReceiving,
+                        onPressed: _busy || !localModeSupported ? null : _startReceiving,
                         child: const Text('Start receiving'),
                       ),
                   ],
@@ -412,8 +412,6 @@ class _FilesScreenState extends State<FilesScreen> {
                   _scanning
                       ? 'Searching local network…'
                       : transferMode != null && _devices.isNotEmpty
-                          ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'
-                          : transferMode != null && _devices.isNotEmpty
                           ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'
                           : 'No devices found. Enable Receive files on the destination device.',
                 ),
