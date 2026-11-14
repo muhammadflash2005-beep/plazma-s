@@ -21,8 +21,8 @@ void main() {
 
     expect(find.text('Your room'), findsOneWidget);
     expect(find.text('SCAN TO JOIN'), findsOneWidget);
-    expect(find.textContaining('Room '), findsOneWidget);
-    expect(find.textContaining('Room host'), findsOneWidget);
+    expect(find.textContaining('Room ').first, findsOneWidget);
+    expect(find.text('Room host · Local preview'), findsOneWidget);
   });
 
   testWidgets('settings exposes all five Plazma themes', (tester) async {
