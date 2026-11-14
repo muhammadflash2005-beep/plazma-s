@@ -160,7 +160,7 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
           Icon(Icons.system_update_rounded, color: theme.colorScheme.primary, size: 26),
           const SizedBox(width: 10),
           Expanded(child: Text('App updates', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
-          if (_busy) const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+          if (_busy) const Icon(Icons.sync_rounded, size: 20),
         ]),
         const SizedBox(height: 8),
         Text(_status, style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
