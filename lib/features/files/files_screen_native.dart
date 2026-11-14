@@ -99,17 +99,43 @@ class _FilesScreenState extends State<FilesScreen> {
   Future<void> _pickFolder() async {
     final path = await FilePicker.getDirectoryPath();
     if (!mounted || path == null) return;
-    final parts = path.split(RegExp(r'[/\\]')).where((part) => part.isNotEmpty).toList();
-    setState(() {
-      if (!_items.any((item) => item.path == path)) {
-        _items.add(_PickedItem(
-          parts.isEmpty ? path : parts.last,
-          path,
-          null,
-          true,
+    setState(() => _busy = true);
+    try {
+      final root = Directory(path);
+      final rootPrefix = root.path.endsWith(Platform.pathSeparator)
+          ? root.path
+          : '\${root.path}\${Platform.pathSeparator}';
+      final discovered = <_PickedItem>[];
+      await for (final entity in root.list(recursive: true, followLinks: false)) {
+        if (entity is! File) continue;
+        final stat = await entity.stat();
+        if (stat.type != FileSystemEntityType.file) continue;
+        final relative = entity.path.substring(rootPrefix.length)
+            .replaceAll(Platform.pathSeparator, '/');
+        if (relative.isEmpty || relative.startsWith('../')) continue;
+        if (_items.any((item) => item.path == entity.path) ||
+            discovered.any((item) => item.path == entity.path)) {
+          continue;
+        }
+        final name = relative.split('/').last;
+        discovered.add(_PickedItem(
+          name,
+          entity.path,
+          stat.size,
+          false,
+          relativePath: relative,
         ));
       }
-    });
+      if (!mounted) return;
+      setState(() => _items.addAll(discovered));
+      _message(discovered.isEmpty
+          ? 'No files found in that folder.'
+          : 'Added \${discovered.length} file(s) from the selected folder.');
+    } catch (error) {
+      _message('Could not read selected folder: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _startReceiving() async {
@@ -212,6 +238,7 @@ class _FilesScreenState extends State<FilesScreen> {
           port: device.port,
           file: File(item.path),
           authorizationCode: code,
+          relativePath: item.relativePath,
           onProgress: (progress) {
             if (mounted) {
               setState(() => _progress = progress.fraction.clamp(0.0, 1.0));
@@ -381,7 +408,9 @@ class _FilesScreenState extends State<FilesScreen> {
             child: ListTile(
               leading: Icon(item.isFolder ? Icons.folder_rounded : Icons.insert_drive_file_outlined),
               title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(_size(item.bytes)),
+              subtitle: Text(item.relativePath == null
+                  ? _size(item.bytes)
+                  : '${_size(item.bytes)} · ${item.relativePath}', maxLines: 2, overflow: TextOverflow.ellipsis),
               trailing: IconButton(
                 onPressed: _busy ? null : () => setState(() => _items.removeAt(entry.key)),
                 icon: const Icon(Icons.close_rounded),
@@ -447,9 +476,11 @@ class _FilesScreenState extends State<FilesScreen> {
 }
 
 class _PickedItem {
-  const _PickedItem(this.name, this.path, this.bytes, this.isFolder);
+  const _PickedItem(this.name, this.path, this.bytes, this.isFolder,
+      {this.relativePath});
   final String name;
   final String path;
   final int? bytes;
   final bool isFolder;
+  final String? relativePath;
 }
