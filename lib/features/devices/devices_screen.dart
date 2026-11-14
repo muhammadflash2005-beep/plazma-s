@@ -73,6 +73,7 @@ class _DevicesScreenState extends State<DevicesScreen> {
     });
     try {
       await _discovery.start(
+        publish: true,
         deviceName: 'Plazma S device',
         platform: switch (defaultTargetPlatform) {
           TargetPlatform.android => 'Android',
@@ -104,13 +105,22 @@ class _DevicesScreenState extends State<DevicesScreen> {
               style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13)),
             const SizedBox(height: 12),
             if (_hotspotCredentials == null)
-              FilledButton.icon(
-                onPressed: _startingHotspot ? null : _createHotspot,
-                icon: _startingHotspot
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.wifi_tethering_rounded),
-                label: Text(_startingHotspot ? 'Starting hotspot…' : 'Create hotspot'),
-              )
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                FilledButton.icon(
+                  onPressed: _startingHotspot ? null : _createHotspot,
+                  icon: _startingHotspot
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.wifi_tethering_rounded),
+                  label: Text(_startingHotspot ? 'Starting hotspot…' : 'Create hotspot'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: defaultTargetPlatform == TargetPlatform.android
+                      ? _hotspot.openWifiSettings
+                      : null,
+                  icon: const Icon(Icons.wifi_rounded),
+                  label: const Text('Join hotspot'),
+                ),
+              ])
             else ...[
               SelectableText('Network: ${_hotspotCredentials!.ssid}', style: const TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
