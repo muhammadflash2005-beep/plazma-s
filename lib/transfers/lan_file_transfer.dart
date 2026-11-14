@@ -276,7 +276,7 @@ bool _constantTimeEquals(String a, String b) {
 }
 
 String _safeRelativePath(String input) {
-  final normalized = input.replaceAll(r'\\', '/');
+  final normalized = input.replaceAll(RegExp(r'\\'), '/');
   if (normalized.startsWith('/') || RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
     throw const FormatException('Absolute transfer paths are not allowed.');
   }
@@ -294,7 +294,7 @@ String _safeFileName(String input) {
   if (name.isEmpty || name == '.' || name == '..') {
     throw const FormatException('Invalid file name.');
   }
-  return name.replaceAll(RegExp(r'[\\x00-\\x1f]'), '_');
+  return name.replaceAll(RegExp(r'[\x00-\x1f]'), '_');
 }
 
 class _SocketByteReader {
