@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../transfers/lan_file_transfer.dart';
+import '../../transfers/transfer_mode.dart';
 import '../devices/plazma_discovery_service.dart';
 
 class FilesScreen extends StatefulWidget {
-  const FilesScreen({super.key});
+  const FilesScreen({this.transferMode, super.key});\n\n  final TransferMode? transferMode;
   @override
   State<FilesScreen> createState() => _FilesScreenState();
 }
@@ -262,7 +263,7 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totalBytes = _items.fold<int>(0, (sum, item) => sum + (item.bytes ?? 0));
+    final totalBytes = _items.fold<int>(0, (sum, item) => sum + (item.bytes ?? 0));\n    final localModeSupported = transferMode == null || transferMode!.supportsLocal(_platform);\n    final compatibleDevices = _devices.where((device) =>\n        transferMode == null || transferMode!.matches(_platform, device.platform)).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -387,7 +388,7 @@ class _FilesScreenState extends State<FilesScreen> {
             ),
           ],
         ),
-        if (_devices.isEmpty)
+        if (compatibleDevices.isEmpty)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(18),
@@ -395,13 +396,13 @@ class _FilesScreenState extends State<FilesScreen> {
                 child: Text(
                   _scanning
                       ? 'Searching local network…'
-                      : 'No devices found. Enable Receive files on the destination device.',
+                      : transferMode != null && _devices.isNotEmpty\n                          ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'\n                          : 'No devices found. Enable Receive files on the destination device.',
                 ),
               ),
             ),
           )
         else
-          ..._devices.map((device) => Card(
+          ...compatibleDevices.map((device) => Card(
                 child: ListTile(
                   leading: const CircleAvatar(child: Icon(Icons.devices_rounded)),
                   title: Text(device.name),
