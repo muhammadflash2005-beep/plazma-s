@@ -11,7 +11,7 @@ void main() {
     expect(find.text('Join a room'), findsOneWidget);
   });
 
-  testWidgets('creating a room shows a six-character code', (tester) async {
+  testWidgets('creating a room shows its QR invitation and six-character code', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pumpAndSettle();
 
@@ -20,7 +20,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Your room'), findsOneWidget);
-    expect(find.text('ROOM CODE'), findsOneWidget);
+    expect(find.text('SCAN TO JOIN'), findsOneWidget);
+    expect(find.textContaining('Room '), findsOneWidget);
     expect(find.textContaining('Room host'), findsOneWidget);
   });
 
