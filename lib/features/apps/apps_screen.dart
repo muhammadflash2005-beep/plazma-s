@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 
 class AppsScreen extends StatefulWidget {
-  const AppsScreen({required this.onSendSelected, super.key});
+  const AppsScreen({required this.onSendSelected, required this.onSelectionChanged, super.key});
 
   final ValueChanged<int> onSendSelected;
+  final ValueChanged<int> onSelectionChanged;
 
   @override
   State<AppsScreen> createState() => _AppsScreenState();
@@ -55,6 +56,7 @@ class _AppsScreenState extends State<AppsScreen> {
         _selected.removeWhere((packageName) =>
             !apps.any((app) => app.packageName == packageName));
       });
+      widget.onSelectionChanged(_selected.length);
     } catch (error) {
       if (mounted) setState(() => _error = 'Could not read installed apps: $error');
     } finally {
@@ -77,13 +79,16 @@ class _AppsScreenState extends State<AppsScreen> {
       child: InkWell(
         onTap: packageName == null
             ? null
-            : () => setState(() {
+            : () {
+                setState(() {
                   if (selected) {
                     _selected.remove(packageName);
                   } else {
                     _selected.add(packageName);
                   }
-                }),
+                });
+                widget.onSelectionChanged(_selected.length);
+              },
         child: Padding(
           padding: const EdgeInsets.fromLTRB(3, 6, 3, 5),
           child: Column(
@@ -186,17 +191,6 @@ class _AppsScreenState extends State<AppsScreen> {
             itemBuilder: (context, index) => _appCard(_apps[index], theme),
           );
         }),
-      if (_selected.isNotEmpty) ...[
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () => widget.onSendSelected(_selected.length),
-            icon: const Icon(Icons.send_rounded),
-            label: Text('Send ${_selected.length} selected app(s)'),
-          ),
-        ),
-      ],
       const SizedBox(height: 16),
       Card(
         color: theme.colorScheme.surfaceContainerHighest,
