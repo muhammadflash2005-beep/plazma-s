@@ -281,7 +281,7 @@ String _safeRelativePath(String input) {
     throw const FormatException('Absolute transfer paths are not allowed.');
   }
   final segments = normalized.split('/');
-  if (segments.isEmpty || segments.any((segment) =>
+  if (segments.isEmpty || segments.first == '.plazma_s_partial' || segments.any((segment) =>
       segment.isEmpty || segment == '.' || segment == '..')) {
     throw const FormatException('Invalid relative transfer path.');
   }
