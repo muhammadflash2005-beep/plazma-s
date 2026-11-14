@@ -46,10 +46,12 @@ void main() {
         port: receiver.listeningPort!,
         file: source,
         authorizationCode: '482915',
+        relativePath: 'Camera/2026/sample.bin',
         onProgress: (progress) => progressValues.add(progress.bytesTransferred),
       );
 
       final result = await received.future.timeout(const Duration(seconds: 5));
+      expect(result.path, endsWith('Camera/2026/sample.bin'));
       expect(await result.readAsBytes(), bytes);
       expect(progressValues, isNotEmpty);
       expect(progressValues.last, bytes.length);
