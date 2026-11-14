@@ -77,9 +77,11 @@ class RoomNetworkHost {
   final LanTcpServer _server;
   final Map<String, TcpPeer> _peersByDevice = {};
   final Map<TcpPeer, String> _deviceByPeer = {};
+  final StreamController<RoomSnapshot> _changes = StreamController<RoomSnapshot>.broadcast();
   bool _closed = false;
 
   RoomSnapshot get snapshot => room.snapshot();
+  Stream<RoomSnapshot> get changes => _changes.stream;
 
   static Future<RoomNetworkHost> start({
     required String hostDeviceId,
@@ -124,6 +126,7 @@ class RoomNetworkHost {
     _ensureOpen();
     final peer = _peersByDevice[deviceId];
     if (peer == null || peer.isClosed || !room.approve(deviceId)) return false;
+    _emitSnapshot();
     await peer.send({
       'type': 'room.joined',
       'snapshot': _snapshotJson(room.snapshot()),
@@ -137,6 +140,7 @@ class RoomNetworkHost {
     final peer = _peersByDevice[deviceId];
     if (!room.reject(deviceId)) return false;
     _peersByDevice.remove(deviceId);
+    _emitSnapshot();
     if (peer != null) {
       _deviceByPeer.remove(peer);
       if (!peer.isClosed) {
@@ -161,6 +165,7 @@ class RoomNetworkHost {
         await peer.close();
       }
     }
+    _emitSnapshot();
     await _broadcastSnapshot();
     return true;
   }
@@ -178,6 +183,7 @@ class RoomNetworkHost {
     await _server.close();
     _peersByDevice.clear();
     _deviceByPeer.clear();
+    await _changes.close();
   }
 
   Future<void> _handleMessage(TcpPeer peer, Map<String, Object?> message) async {
@@ -227,6 +233,7 @@ class RoomNetworkHost {
     }
     _peersByDevice[deviceId] = peer;
     _deviceByPeer[peer] = deviceId;
+    _emitSnapshot();
     await peer.send({'type': 'room.pending', 'roomId': room.id});
   }
 
@@ -245,6 +252,7 @@ class RoomNetworkHost {
   }
 
   Future<void> _broadcastSnapshot() async {
+    _emitSnapshot();
     final payload = {
       'type': 'room.snapshot',
       'snapshot': _snapshotJson(room.snapshot()),
@@ -258,6 +266,10 @@ class RoomNetworkHost {
         }
       }
     }
+  }
+
+  void _emitSnapshot() {
+    if (!_closed && !_changes.isClosed) _changes.add(room.snapshot());
   }
 
   void _ensureOpen() {
