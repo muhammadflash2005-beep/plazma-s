@@ -17,7 +17,17 @@ Plazma S is a Flutter application project for transferring files and application
 
 **LAN-only by design.** Plazma S will not include internet transfer mode, relay servers, cloud file storage, or online transfer services. Devices must be connected to the same reachable Wi-Fi, hotspot, or wired LAN. Network client isolation may prevent devices on the same Wi-Fi from communicating.
 
-## Connection types\n\nThe Home screen offers three explicit transfer routes:\n\n- **PC to PC** — Windows, macOS, and Linux desktop devices.\n- **Android to Android** — Android phones and tablets.\n- **PC to Android** — cross-platform transfers in either direction.\n\nThe selected route filters discovered destinations to the matching platform type. All routes remain local-network-only.\n\n## Web preview
+## Connection types
+
+The Home screen offers three explicit transfer routes:
+
+- **PC to PC** — Windows, macOS, and Linux desktop devices.
+- **Android to Android** — Android phones and tablets.
+- **PC to Android** — cross-platform transfers in either direction.
+
+The selected route filters discovered destinations to the matching platform type. All routes remain local-network-only.
+
+## Web preview
 
 The browser preview is being prepared for interface testing. It demonstrates the responsive home screen and local room-code flow. Browser preview mode does **not** provide real LAN device discovery or file transfer; those require the native Android/desktop application.
 
@@ -41,8 +51,8 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [ ] Web deployment and browser smoke test
 - [ ] Install and smoke-test the first Android APK on a physical device
 - [ ] Network room messages, authenticated sessions, QR pairing, and room-aware mDNS discovery
-- [ ] File and folder transfer
-- [ ] Resume and SHA-256 verification
+- [ ] Folder transfer and resumable transfer
+- [x] Single-file native LAN transfer with SHA-256 verification and receiver acknowledgement
 - [x] Native file and folder picker UI with multi-file selection
 - [x] Android installed-app browser with names, icons, versions, selection, and base APK path inspection
 - [x] Local mDNS discovery and nearby Plazma S device list
