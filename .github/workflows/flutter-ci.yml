@@ -235,20 +235,16 @@ jobs:
           if gradle_kts.exists():
               p = gradle_kts
               s = p.read_text()
-              block = """
-          import java.util.Properties
-          import java.io.FileInputStream
-
+              imports = "import java.util.Properties\\nimport java.io.FileInputStream\\n"
+              s = imports + s
+              marker = "android {"
+              signing = """
           val signingProperties = Properties()
           val signingFile = rootProject.file("key.properties")
           if (signingFile.exists()) {
               signingProperties.load(FileInputStream(signingFile))
           }
 
-          """
-              s = block + s
-              marker = "android {"
-              signing = """
               signingConfigs {
                   create("release") {
                       storeFile = file(signingProperties["storeFile"] as String)
