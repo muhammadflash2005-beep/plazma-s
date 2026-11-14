@@ -224,7 +224,7 @@ jobs:
                            .replace(" ", "\\ "))
 
           (android / "key.properties").write_text(
-              "storeFile=app/plazma-release.jks\\n"
+              "storeFile=plazma-release.jks\\n"
               f"storePassword={prop(os.environ['ANDROID_STORE_PASSWORD'])}\\n"
               f"keyPassword={prop(os.environ['ANDROID_KEY_PASSWORD'])}\\n"
               f"keyAlias={prop(os.environ['ANDROID_KEY_ALIAS'])}\\n"
