@@ -3,8 +3,10 @@
 // Keep the UI compatible with the current stable SDK during that migration.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -14,6 +16,9 @@ import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'transfers/transfer_mode.dart';
+import 'rooms/room_network_service.dart';
+import 'rooms/room_models.dart';
+import 'network/local_device_info.dart';
 
 void main() => runApp(const PlazmaApp());
 
@@ -211,29 +216,186 @@ class _HomeScreenState extends State<HomeScreen> {
   int _roomAppCount = 0;
   int _selectedAppsCount = 0;
   TransferMode? _transferMode;
+  RoomNetworkHost? _roomHost;
+  RoomNetworkClient? _roomClient;
+  RoomSnapshot? _roomSnapshot;
+  StreamSubscription<RoomSnapshot>? _hostChanges;
+  StreamSubscription<RoomNetworkEvent>? _clientEvents;
+  bool _roomBusy = false;
+  String? _roomError;
+  String? _roomStatus;
 
   @override
   void dispose() {
+    unawaited(_hostChanges?.cancel());
+    unawaited(_clientEvents?.cancel());
+    unawaited(_roomHost?.close());
+    unawaited(_roomClient?.close());
     super.dispose();
   }
 
-  String _newRoomId() {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = Random.secure();
-    return List.generate(6, (_) => alphabet[random.nextInt(alphabet.length)]).join();
+  Future<String> _deviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString('plazma_device_id');
+    if (id == null || id.length < 32) {
+      final random = Random.secure();
+      id = List.generate(32, (_) => random.nextInt(16).toRadixString(16)).join();
+      await prefs.setString('plazma_device_id', id);
+    }
+    return id;
   }
 
-  void _createRoom() => setState(() {
-        _roomId = _newRoomId();
-        _roomAppCount = 0;
-      });
 
-  void _createRoomForSelectedApps(int count) => setState(() {
-        _roomId = _newRoomId();
-        _roomAppCount = count;
+  Future<void> _startRoom({required int appCount}) async {
+    if (_roomBusy) return;
+    setState(() {
+      _roomBusy = true;
+      _roomError = null;
+      _roomStatus = 'Starting room…';
+    });
+    try {
+      await _leaveRoom(clearUi: false);
+      final host = await RoomNetworkHost.start(
+        hostDeviceId: await _deviceId(),
+        hostDeviceName: getLocalDeviceName(),
+        hostPlatform: defaultTargetPlatform.name,
+        advertisedAddress: await getLocalIpv4(),
+        port: 0,
+      );
+      _roomHost = host;
+      _roomSnapshot = host.snapshot;
+      _hostChanges = host.changes.listen((snapshot) {
+        if (mounted) setState(() => _roomSnapshot = snapshot);
+      });
+      if (!mounted) {
+        await host.close();
+        return;
+      }
+      setState(() {
+        _roomId = host.invitation.roomId;
+        _roomAppCount = appCount;
         _selectedAppsCount = 0;
+        _roomStatus = 'Room is live — waiting for devices';
+        _roomBusy = false;
         _tab = 0;
       });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _roomBusy = false;
+          _roomError = error.toString();
+          _roomStatus = null;
+        });
+      }
+    }
+  }
+
+  void _createRoom() => unawaited(_startRoom(appCount: 0));
+
+  void _createRoomForSelectedApps(int count) =>
+      unawaited(_startRoom(appCount: count));
+
+  Future<void> _joinInvitation(RoomInvitation invitation) async {
+    if (_roomBusy) return;
+    setState(() {
+      _roomBusy = true;
+      _roomError = null;
+      _roomStatus = 'Connecting to room…';
+    });
+    try {
+      await _leaveRoom(clearUi: false);
+      final client = await RoomNetworkClient.join(
+        invitation: invitation,
+        deviceId: await _deviceId(),
+        deviceName: getLocalDeviceName(),
+        platform: defaultTargetPlatform.name,
+      );
+      _roomClient = client;
+      _clientEvents = client.events.listen((event) {
+        if (!mounted) return;
+        if (event.type == RoomNetworkEventType.pending) {
+          setState(() {
+            _roomId = invitation.roomId;
+            _roomStatus = 'Request sent — waiting for host approval';
+            _roomBusy = false;
+          });
+        } else if (event.type == RoomNetworkEventType.joined ||
+            event.type == RoomNetworkEventType.snapshot) {
+          setState(() {
+            _roomSnapshot = event.snapshot;
+            _roomId = invitation.roomId;
+            _roomStatus = 'Connected to room';
+            _roomBusy = false;
+          });
+        } else if (event.type == RoomNetworkEventType.rejected) {
+          setState(() {
+            _roomStatus = null;
+            _roomError = event.message ?? 'The host rejected the request.';
+            _roomBusy = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_roomError!)),
+          );
+        } else if (event.type == RoomNetworkEventType.disconnected) {
+          setState(() {
+            _roomStatus = 'Disconnected from room';
+            _roomBusy = false;
+          });
+        }
+      });
+      if (mounted) {
+        setState(() {
+          _roomId = invitation.roomId;
+          _roomBusy = false;
+          _roomStatus = 'Connected to host — requesting approval';
+          _tab = 0;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _roomBusy = false;
+          _roomError = error.toString();
+          _roomStatus = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _leaveRoom({bool clearUi = true}) async {
+    await _hostChanges?.cancel();
+    _hostChanges = null;
+    await _clientEvents?.cancel();
+    _clientEvents = null;
+    final host = _roomHost;
+    _roomHost = null;
+    final client = _roomClient;
+    _roomClient = null;
+    await host?.close();
+    await client?.close();
+    if (clearUi && mounted) {
+      setState(() {
+        _roomId = null;
+        _roomSnapshot = null;
+        _roomAppCount = 0;
+        _roomStatus = null;
+        _roomError = null;
+      });
+    }
+  }
+
+  Future<void> _approveMember(String deviceId) async {
+    final ok = await _roomHost?.approve(deviceId) ?? false;
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not approve this device. Try again.')),
+      );
+    }
+  }
+
+  Future<void> _rejectMember(String deviceId) async {
+    await _roomHost?.reject(deviceId);
+  }
 
   void _showJoinDialog() {
     var handled = false;
@@ -247,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             children: [
               const Text(
-                'Point your camera at the QR code displayed on the host device.',
+                'Scan the live room QR code shown on the host device.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 14),
@@ -262,21 +424,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           .whereType<String>()
                           .firstOrNull;
                       if (raw == null) return;
-                      final invite = Uri.tryParse(raw);
-                      if (invite == null ||
-                          invite.scheme != 'plazmas' ||
-                          invite.host != 'join') {
-                        return;
-                      }
-                      final room = invite.queryParameters['room'] ?? '';
-                      if (!RegExp(r'^[A-HJ-NP-Z2-9]{6}$').hasMatch(room)) {
-                        return;
-                      }
+                      final uri = Uri.tryParse(raw);
+                      if (uri == null) return;
+                      final invitation = RoomInvitation.tryParse(uri);
+                      if (invitation == null) return;
                       handled = true;
                       Navigator.of(dialogContext).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Room QR recognized: $room. Live room joining still needs the network room service.')),
-                      );
+                      unawaited(_joinInvitation(invitation));
                     },
                   ),
                 ),
@@ -389,6 +543,18 @@ class _HomeScreenState extends State<HomeScreen> {
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
         const SizedBox(height: 22),
         _notice(),
+        if (_roomBusy) const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: LinearProgressIndicator(),
+        ),
+        if (_roomError != null)
+          Card(
+            color: theme.colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(_roomError!, style: TextStyle(color: theme.colorScheme.onErrorContainer)),
+            ),
+          ),
         const SizedBox(height: 22),
         Text('Choose your connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
@@ -466,74 +632,159 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.add_circle_rounded,
             title: 'Create a room',
-            subtitle: 'Start a sharing space and invite nearby devices.',
+            subtitle: 'Start a live room and display its QR invitation.',
             buttonText: 'Create room',
             onPressed: _createRoom,
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.login_rounded,
             title: 'Join a room',
-            subtitle: 'Enter the six-character code shared by the host.',
-            buttonText: 'Enter room code',
+            subtitle: 'Scan the host device’s live room QR code.',
+            buttonText: 'Scan room QR',
             onPressed: _showJoinDialog,
             outlined: true,
           )),
         ],
       );
 
-  Widget _roomPanel() => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _roomPanel() {
+    final snapshot = _roomSnapshot;
+    final host = _roomHost;
+    final invitation = host?.invitation;
+    final isHost = host != null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(children: [
               const Expanded(child: Text('Your room', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-              IconButton(onPressed: () => setState(() => _roomId = null), icon: const Icon(Icons.close_rounded)),
+              IconButton(
+                tooltip: 'Leave room',
+                onPressed: () => unawaited(_leaveRoom()),
+                icon: const Icon(Icons.close_rounded),
+              ),
             ]),
+            if (_roomStatus != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(children: [
+                  Icon(
+                    isHost ? Icons.wifi_tethering_rounded : Icons.link_rounded,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(_roomStatus!, style: const TextStyle(fontWeight: FontWeight.w600))),
+                ]),
+              ),
+            if (isHost && invitation != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 18),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Column(children: [
+                  const Text('SCAN TO JOIN', style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                    child: QrImageView(
+                      data: invitation.toUri().toString(),
+                      version: QrVersions.auto,
+                      size: 190,
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Room ${invitation.roomId}', style: TextStyle(
+                    fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.w800,
+                    color: Theme.of(context).colorScheme.primary,
+                  )),
+                  const SizedBox(height: 8),
+                  const Text('Keep this screen open. Other devices must be on the same reachable Wi-Fi or hotspot.', textAlign: TextAlign.center),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Devices: ${snapshot?.joinedCount ?? 1}/${snapshot?.maxMembers ?? 8}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              if (snapshot != null)
+                ...snapshot.members.map((member) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(child: Icon(Icons.devices_rounded)),
+                  title: Text(member.deviceName),
+                  subtitle: Text('${member.platform} · ${member.role.name}'),
+                  trailing: const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
+                )),
+              if (snapshot != null && snapshot.pendingMembers.isNotEmpty) ...[
+                const Divider(),
+                const Text('Join requests', style: TextStyle(fontWeight: FontWeight.w800)),
+                ...snapshot.pendingMembers.map((member) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(child: Icon(Icons.person_add_alt_1_rounded)),
+                  title: Text(member.deviceName),
+                  subtitle: Text(member.platform),
+                  trailing: Wrap(spacing: 2, children: [
+                    IconButton(
+                      tooltip: 'Approve',
+                      onPressed: () => unawaited(_approveMember(member.deviceId)),
+                      icon: const Icon(Icons.check_circle_outline_rounded, color: Colors.green),
+                    ),
+                    IconButton(
+                      tooltip: 'Reject',
+                      onPressed: () => unawaited(_rejectMember(member.deviceId)),
+                      icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                    ),
+                  ]),
+                )),
+              ],
+            ] else ...[
+              Center(
+                child: Icon(Icons.devices_rounded, size: 44, color: Theme.of(context).colorScheme.primary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _roomStatus ?? 'Waiting for host approval',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              if (snapshot != null) ...[
+                const SizedBox(height: 12),
+                ...snapshot.members.map((member) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(child: Icon(Icons.devices_rounded)),
+                  title: Text(member.deviceName),
+                  subtitle: Text(member.platform),
+                )),
+              ],
+            ],
+            if (_roomAppCount > 0) ...[
+              const Divider(),
+              Text('$_roomAppCount selected app(s) are queued for the next transfer step.'),
+            ],
             const SizedBox(height: 12),
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 18),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(18),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: Column(children: [
-                const Text('SCAN TO JOIN', style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                  child: QrImageView(
-                    data: Uri(scheme: 'plazmas', host: 'join', queryParameters: {'room': _roomId}).toString(),
-                    version: QrVersions.auto,
-                    size: 190,
-                    backgroundColor: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text('Room ${_roomId!}', style: TextStyle(
-                  fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.w800,
-                  color: Theme.of(context).colorScheme.primary,
-                )),
-                const SizedBox(height: 8),
-                const Text('Scan this QR code from another Plazma S device.', textAlign: TextAlign.center),
-              ]),
+              child: const Text(
+                'Room joining is connected over the local network. This signaling channel is not encrypted yet; do not send sensitive information. File and APK transfer will be connected separately.',
+                style: TextStyle(fontSize: 12, height: 1.4),
+              ),
             ),
-            const SizedBox(height: 18),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Icon(Icons.devices_rounded)),
-              title: Text('This device'),
-              subtitle: Text('Room host · Local preview'),
-              trailing: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
-            ),
-            const Divider(),
-            Text(_roomAppCount > 0
-                ? '$_roomAppCount selected app(s) are ready for the room handoff. The room code is generated locally; live device joining and APK delivery are not connected yet.'
-                : 'Network room invitations and connected devices are the next native milestone.'),
-          ]),
+          ],
         ),
-      );
+      ),
+    );
+  }
 
   Widget _settingsContent() {
     final selected = widget.themes.selected;
