@@ -206,6 +206,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   String? _roomId;
+  int _roomAppCount = 0;
   TransferMode? _transferMode;
   final _joinController = TextEditingController();
 
@@ -221,7 +222,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return List.generate(6, (_) => alphabet[random.nextInt(alphabet.length)]).join();
   }
 
-  void _createRoom() => setState(() => _roomId = _newRoomId());
+  void _createRoom() => setState(() {
+        _roomId = _newRoomId();
+        _roomAppCount = 0;
+      });
+
+  void _createRoomForSelectedApps(int count) => setState(() {
+        _roomId = _newRoomId();
+        _roomAppCount = count;
+        _tab = 0;
+      });
 
   void _joinRoom() {
     final code = _joinController.text.trim().toUpperCase();
@@ -275,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: switch (_tab) {
                             0 => _homeContent(wide),
                             1 => FilesScreen(transferMode: _transferMode),
-                            2 => const AppsScreen(),
+                            2 => AppsScreen(onSendSelected: _createRoomForSelectedApps),
                             3 => const DevicesScreen(),
                             4 => _secondaryContent(),
                             _ => _settingsContent(),
@@ -446,7 +456,9 @@ class _HomeScreenState extends State<HomeScreen> {
               trailing: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
             ),
             const Divider(),
-            const Text('Network room invitations and connected devices are the next native milestone.'),
+            Text(_roomAppCount > 0
+                ? '$_roomAppCount selected app(s) are ready for the room handoff. The room code is generated locally; live device joining and APK delivery are not connected yet.'
+                : 'Network room invitations and connected devices are the next native milestone.'),
           ]),
         ),
       );
