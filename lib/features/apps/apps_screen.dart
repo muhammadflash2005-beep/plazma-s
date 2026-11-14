@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 
 class AppsScreen extends StatefulWidget {
-  const AppsScreen({super.key});
+  const AppsScreen({required this.onSendSelected, super.key});
+
+  final ValueChanged<int> onSendSelected;
 
   @override
   State<AppsScreen> createState() => _AppsScreenState();
@@ -62,45 +64,18 @@ class _AppsScreenState extends State<AppsScreen> {
     }
   }
 
-  Future<void> _queueSelected() async {
-    final chosen = _apps
-        .where((app) => app.packageName != null && _selected.contains(app.packageName))
-        .toList();
-    if (chosen.isEmpty) return;
-    final readable = <String>[];
-    for (final app in chosen) {
-      final path = app.apkPath;
-      if (path == null || path.isEmpty) continue;
-      try {
-        if (await File(path).exists()) readable.add(app.appName ?? app.packageName ?? 'Unknown app');
-      } catch (_) {
-        // Some Android builds restrict direct reads of installed package paths.
-      }
-    }
-    if (!mounted) return;
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('APK selection checked'),
-        content: Text(
-          '${readable.length} of ${chosen.length} selected base APKs are readable. '
-          'Split APK collection, export into a shareable cache, and sending are the next app-sharing steps.',
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
-      ),
-    );
-  }
 
   Widget _appCard(AppInfo app, ThemeData theme) {
     final packageName = app.packageName;
     final selected = packageName != null && _selected.contains(packageName);
     final iconBytes = app.iconBytes;
     final icon = iconBytes == null
-        ? const Icon(Icons.android_rounded, size: 42)
-        : Image.memory(iconBytes, width: 54, height: 54, fit: BoxFit.contain);
+        ? const Icon(Icons.android_rounded, size: 30)
+        : Image.memory(iconBytes, width: 38, height: 38, fit: BoxFit.contain);
 
     return Card(
       clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: packageName == null
             ? null
@@ -112,64 +87,54 @@ class _AppsScreenState extends State<AppsScreen> {
                   }
                 }),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+          padding: const EdgeInsets.fromLTRB(3, 6, 3, 5),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Align(
-                alignment: Alignment.topRight,
-                heightFactor: 1,
-                child: Checkbox(
-                  value: selected,
-                  onChanged: packageName == null
-                      ? null
-                      : (value) => setState(() {
-                            if (value == true) {
-                              _selected.add(packageName);
-                            } else {
-                              _selected.remove(packageName);
-                            }
-                          }),
-                  visualDensity: VisualDensity.compact,
-                ),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(9),
+                      child: icon,
+                    ),
+                  ),
+                  if (selected)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        width: 17,
+                        height: 17,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: theme.colorScheme.surface, width: 1.5),
+                        ),
+                        child: const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Container(
-                width: 76,
-                height: 76,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.65),
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: icon,
-                ),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 5),
               Text(
                 app.appName ?? packageName ?? 'Unknown app',
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                app.versionName ?? 'Version unknown',
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
-              ),
-              const Spacer(),
-              Text(
-                selected ? 'Selected' : 'Tap to select',
-                style: TextStyle(
-                  fontSize: 11,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 9.5,
+                  height: 1.05,
                   fontWeight: FontWeight.w700,
-                  color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                  color: selected ? theme.colorScheme.primary : null,
                 ),
               ),
             ],
@@ -208,16 +173,17 @@ class _AppsScreenState extends State<AppsScreen> {
         )),
       if (_apps.isNotEmpty)
         LayoutBuilder(builder: (context, constraints) {
-          final columns = (constraints.maxWidth / 150).floor().clamp(2, 6);
+          // Five compact app tiles fit across a typical phone content width.
+          final columns = (constraints.maxWidth / 62).floor().clamp(2, 5);
           return GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _apps.length,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 0.78,
+              crossAxisSpacing: 4,
+              mainAxisSpacing: 5,
+              childAspectRatio: 0.62,
             ),
             itemBuilder: (context, index) => _appCard(_apps[index], theme),
           );
@@ -227,9 +193,9 @@ class _AppsScreenState extends State<AppsScreen> {
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: _queueSelected,
-            icon: const Icon(Icons.archive_outlined),
-            label: Text('Prepare ${_selected.length} selected APK(s)'),
+            onPressed: () => widget.onSendSelected(_selected.length),
+            icon: const Icon(Icons.send_rounded),
+            label: Text('Send ${_selected.length} selected app(s)'),
           ),
         ),
       ],
