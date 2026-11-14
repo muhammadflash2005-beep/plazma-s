@@ -267,9 +267,9 @@ class _FilesScreenState extends State<FilesScreen> {
     final theme = Theme.of(context);
     final transferMode = widget.transferMode;
     final totalBytes = _items.fold<int>(0, (sum, item) => sum + (item.bytes ?? 0));
-    final localModeSupported = transferMode == null || transferMode!.supportsLocal(_platform);
+    final localModeSupported = transferMode == null || transferMode.supportsLocal(_platform);
     final compatibleDevices = _devices.where((device) =>
-        transferMode == null || transferMode!.matches(_platform, device.platform)).toList();
+        transferMode == null || transferMode.matches(_platform, device.platform)).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -281,7 +281,7 @@ class _FilesScreenState extends State<FilesScreen> {
         Text(
           transferMode == null
               ? 'Send files directly to nearby devices on your local network.'
-              : '${transferMode!.label} · ${transferMode!.description}',
+              : '${transferMode.label} · ${transferMode.description}',
           style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 16),
@@ -413,7 +413,7 @@ class _FilesScreenState extends State<FilesScreen> {
                   _scanning
                       ? 'Searching local network…'
                       : transferMode != null && _devices.isNotEmpty
-                          ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'
+                          ? 'Nearby devices were found, but none match ${transferMode.label}. Check that the other device is running Plazma S and has receiving enabled.'
                           : 'No devices found. Enable Receive files on the destination device.',
                 ),
               ),
