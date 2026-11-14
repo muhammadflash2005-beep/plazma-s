@@ -360,10 +360,23 @@ jobs:
         run: |
           set -euo pipefail
           KEYSTORE="android/app/plazma-release.jks"
-          keytool -list -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
-          keytool -certreq -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" -keypass "$ANDROID_KEY_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -file /tmp/plazma-signing-check.csr >/dev/null
-          rm -f /tmp/plazma-signing-check.csr
-          echo "Verified: keystore, alias, store password, and private-key password are valid."
+          keytool -list -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" >/tmp/plazma-keystore-check.txt 2>&1 || {
+            echo "Release keystore password check failed:"
+            cat /tmp/plazma-keystore-check.txt
+            exit 1
+          }
+          keytool -list -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/tmp/plazma-alias-check.txt 2>&1 || {
+            echo "Release key alias check failed. Confirm ANDROID_KEY_ALIAS matches the alias inside the keystore."
+            cat /tmp/plazma-alias-check.txt
+            exit 1
+          }
+          keytool -certreq -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" -keypass "$ANDROID_KEY_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -file /tmp/plazma-signing-check.csr >/tmp/plazma-key-check.txt 2>&1 || {
+            echo "Release private-key password check failed. Confirm ANDROID_KEY_PASSWORD."
+            cat /tmp/plazma-key-check.txt
+            exit 1
+          }
+          rm -f /tmp/plazma-signing-check.csr /tmp/plazma-keystore-check.txt /tmp/plazma-alias-check.txt /tmp/plazma-key-check.txt
+          echo "Verified: keystore password, key alias, and private-key password are valid."
 
       - name: Build Android APK
         run: flutter build apk --release
