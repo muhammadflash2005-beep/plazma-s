@@ -6,6 +6,8 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'features/apps/apps_screen.dart';
@@ -208,11 +210,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _roomId;
   int _roomAppCount = 0;
   TransferMode? _transferMode;
-  final _joinController = TextEditingController();
 
   @override
   void dispose() {
-    _joinController.dispose();
     super.dispose();
   }
 
@@ -233,36 +233,64 @@ class _HomeScreenState extends State<HomeScreen> {
         _tab = 0;
       });
 
-  void _joinRoom() {
-    final code = _joinController.text.trim().toUpperCase();
-    if (!RegExp(r'^[A-HJ-NP-Z2-9]{6}$').hasMatch(code)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid 6-character room code.')),
-      );
-      return;
-    }
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Room discovery will be connected in the next native milestone.')),
+  void _showJoinDialog() {
+    var handled = false;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Scan to join'),
+        content: SizedBox(
+          width: 320,
+          height: 360,
+          child: Column(
+            children: [
+              const Text(
+                'Point your camera at the QR code displayed on the host device.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: MobileScanner(
+                    onDetect: (capture) {
+                      if (handled) return;
+                      final raw = capture.barcodes
+                          .map((barcode) => barcode.rawValue)
+                          .whereType<String>()
+                          .firstOrNull;
+                      if (raw == null) return;
+                      final invite = Uri.tryParse(raw);
+                      if (invite == null ||
+                          invite.scheme != 'plazmas' ||
+                          invite.host != 'join') {
+                        return;
+                      }
+                      final room = invite.queryParameters['room'] ?? '';
+                      if (!RegExp(r'^[A-HJ-NP-Z2-9]{6}$').hasMatch(room)) {
+                        return;
+                      }
+                      handled = true;
+                      Navigator.of(dialogContext).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Room QR recognized: $room. Live room joining still needs the network room service.')),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
     );
   }
-
-  void _showJoinDialog() => showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Join a room'),
-          content: TextField(
-            controller: _joinController,
-            textCapitalization: TextCapitalization.characters,
-            maxLength: 6,
-            decoration: const InputDecoration(labelText: 'Room code', hintText: 'K7M4PX'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            FilledButton(onPressed: _joinRoom, child: const Text('Continue')),
-          ],
-        ),
-      );
 
   @override
   Widget build(BuildContext context) {
@@ -437,14 +465,25 @@ class _HomeScreenState extends State<HomeScreen> {
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Column(children: [
-                const Text('ROOM CODE', style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                SelectableText(_roomId!, style: TextStyle(
-                  fontSize: 34, letterSpacing: 7, fontWeight: FontWeight.w900,
+                const Text('SCAN TO JOIN', style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                  child: QrImageView(
+                    data: Uri(scheme: 'plazmas', host: 'join', queryParameters: {'room': _roomId}).toString(),
+                    version: QrVersions.auto,
+                    size: 190,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text('Room ${_roomId!}', style: TextStyle(
+                  fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.w800,
                   color: Theme.of(context).colorScheme.primary,
                 )),
                 const SizedBox(height: 8),
-                const Text('Share this code with someone on your local network.', textAlign: TextAlign.center),
+                const Text('Scan this QR code from another Plazma S device.', textAlign: TextAlign.center),
               ]),
             ),
             const SizedBox(height: 18),
