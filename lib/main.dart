@@ -17,6 +17,7 @@ import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'rooms/room_network_service.dart';
+import 'rooms/room_models.dart';
 
 void main() => runApp(const PlazmaApp());
 
