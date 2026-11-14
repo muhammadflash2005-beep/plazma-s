@@ -7,8 +7,12 @@ concurrency:
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
+
+permissions:
+  contents: write
 
 jobs:
   analyze-test-build:
@@ -60,7 +64,7 @@ jobs:
               <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
               <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
           """
-          s = s.replace("<application", permissions + "\\n    <application", 1)
+          s = s.replace("<application", permissions + "\n    <application", 1)
           manifest.write_text(s)
           main = Path("android/app/src/main/kotlin/com/plazma/plazma_s/MainActivity.kt")
           main.parent.mkdir(parents=True, exist_ok=True)
@@ -187,6 +191,100 @@ jobs:
           }
           ''')
           PY
+      - name: Configure permanent Android release signing
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+
+          required = [
+              "ANDROID_KEYSTORE_BASE64",
+              "ANDROID_KEY_ALIAS",
+              "ANDROID_STORE_PASSWORD",
+              "ANDROID_KEY_PASSWORD",
+          ]
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit("Missing GitHub Actions secrets: " + ", ".join(missing))
+
+          android = Path("android")
+          keystore = android / "app" / "plazma-release.jks"
+          keystore.write_bytes(base64.b64decode(os.environ["ANDROID_KEYSTORE_BASE64"], validate=True))
+
+          def prop(value):
+              return (value.replace("\\", "\\\\")
+                           .replace(":", "\\:")
+                           .replace("=", "\\=")
+                           .replace(" ", "\\ "))
+
+          (android / "key.properties").write_text(
+              "storeFile=plazma-release.jks\n"
+              f"storePassword={prop(os.environ['ANDROID_STORE_PASSWORD'])}\n"
+              f"keyPassword={prop(os.environ['ANDROID_KEY_PASSWORD'])}\n"
+              f"keyAlias={prop(os.environ['ANDROID_KEY_ALIAS'])}\n"
+          )
+
+          gradle_kts = android / "app" / "build.gradle.kts"
+          gradle = android / "app" / "build.gradle"
+          if gradle_kts.exists():
+              p = gradle_kts
+              s = p.read_text()
+              imports = "import java.util.Properties\nimport java.io.FileInputStream\n"
+              s = imports + s
+              marker = "android {"
+              signing = """
+          val signingProperties = Properties()
+          val signingFile = rootProject.file("key.properties")
+          if (signingFile.exists()) {
+              signingProperties.load(FileInputStream(signingFile))
+          }
+
+              signingConfigs {
+                  create("release") {
+                      storeFile = file(signingProperties["storeFile"] as String)
+                      storePassword = signingProperties["storePassword"] as String
+                      keyAlias = signingProperties["keyAlias"] as String
+                      keyPassword = signingProperties["keyPassword"] as String
+                  }
+              }
+          """
+              s = s.replace(marker, marker + signing, 1)
+              s = s.replace("signingConfig = signingConfigs.debug", 'signingConfig = signingConfigs.getByName("release")')
+              s = s.replace("buildTypes {", 'buildTypes {\n        getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n        }', 1)
+              p.write_text(s)
+          elif gradle.exists():
+              s = gradle.read_text()
+              block = """
+          def signingProperties = new Properties()
+          def signingFile = rootProject.file("key.properties")
+          if (signingFile.exists()) {
+              signingProperties.load(new FileInputStream(signingFile))
+          }
+
+          """
+              s = block + s
+              s = s.replace("android {", """android {
+              signingConfigs {
+                  release {
+                      storeFile file(signingProperties['storeFile'])
+                      storePassword signingProperties['storePassword']
+                      keyAlias signingProperties['keyAlias']
+                      keyPassword signingProperties['keyPassword']
+                  }
+              }
+          """, 1)
+              s = s.replace("signingConfig signingConfigs.debug", "signingConfig signingConfigs.release")
+              gradle.write_text(s)
+          else:
+              raise SystemExit("Generated Android Gradle file not found")
+          print("Permanent Android release signing configured.")
+          PY
       - name: Build Android APK
         run: flutter build apk --release
       - name: Build web preview
@@ -196,3 +294,14 @@ jobs:
           name: plazma-s-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+      - name: Generate APK checksum
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: sha256sum build/app/outputs/flutter-apk/app-release.apk > build/app/outputs/flutter-apk/SHA256SUMS.txt
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/SHA256SUMS.txt
+          generate_release_notes: true
