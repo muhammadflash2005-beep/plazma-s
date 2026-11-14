@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../transfers/lan_file_transfer.dart';
+import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_mode.dart';
 import '../devices/plazma_discovery_service.dart';
 
@@ -148,7 +149,15 @@ class _FilesScreenState extends State<FilesScreen> {
       await receiver.startReceiver(
         destination: Directory(path),
         authorizationCode: code,
-        onReceived: (file, name, hash) {
+        onReceived: (file, name, hash) async {
+          await TransferHistoryStore.add(
+            name: name,
+            type: 'file',
+            direction: 'received',
+            path: file.path,
+            bytes: await file.length(),
+            peer: 'Nearby device',
+          );
           _message('Received $name · SHA-256 verified');
         },
         onError: (error) {
@@ -244,6 +253,14 @@ class _FilesScreenState extends State<FilesScreen> {
               setState(() => _progress = progress.fraction.clamp(0.0, 1.0));
             }
           },
+        );
+        await TransferHistoryStore.add(
+          name: item.name,
+          type: 'file',
+          direction: 'sent',
+          path: item.path,
+          bytes: item.bytes ?? await File(item.path).length(),
+          peer: device.name,
         );
       }
       if (mounted) {
