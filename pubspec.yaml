@@ -28,6 +28,6 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: assets/icon/plazma_s.png
+  image_path: assets/icon/plazma_s.jpg
   adaptive_icon_background: "#05020D"
-  adaptive_icon_foreground: assets/icon/plazma_s.png
+  adaptive_icon_foreground: assets/icon/plazma_s.jpg
