@@ -11,7 +11,9 @@ import '../../transfers/transfer_mode.dart';
 import '../devices/plazma_discovery_service.dart';
 
 class FilesScreen extends StatefulWidget {
-  const FilesScreen({this.transferMode, super.key});\n\n  final TransferMode? transferMode;
+  const FilesScreen({this.transferMode, super.key});
+
+  final TransferMode? transferMode;
   @override
   State<FilesScreen> createState() => _FilesScreenState();
 }
@@ -263,7 +265,10 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totalBytes = _items.fold<int>(0, (sum, item) => sum + (item.bytes ?? 0));\n    final localModeSupported = transferMode == null || transferMode!.supportsLocal(_platform);\n    final compatibleDevices = _devices.where((device) =>\n        transferMode == null || transferMode!.matches(_platform, device.platform)).toList();
+    final totalBytes = _items.fold<int>(0, (sum, item) => sum + (item.bytes ?? 0));
+    final localModeSupported = transferMode == null || transferMode!.supportsLocal(_platform);
+    final compatibleDevices = _devices.where((device) =>
+        transferMode == null || transferMode!.matches(_platform, device.platform)).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -273,10 +278,20 @@ class _FilesScreenState extends State<FilesScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Send files directly to nearby devices on your local network.',
+          transferMode == null
+              ? 'Send files directly to nearby devices on your local network.'
+              : '${transferMode!.label} · ${transferMode!.description}',
           style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 16),
+        if (!localModeSupported)
+          Card(
+            color: theme.colorScheme.errorContainer,
+            child: const Padding(
+              padding: EdgeInsets.all(14),
+              child: Text('This connection type does not match the platform running this app. Choose the matching connection type from Home.'),
+            ),
+          ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -396,7 +411,11 @@ class _FilesScreenState extends State<FilesScreen> {
                 child: Text(
                   _scanning
                       ? 'Searching local network…'
-                      : transferMode != null && _devices.isNotEmpty\n                          ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'\n                          : 'No devices found. Enable Receive files on the destination device.',
+                      : transferMode != null && _devices.isNotEmpty
+                          ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'
+                          : transferMode != null && _devices.isNotEmpty
+                          ? 'Nearby devices were found, but none match ${transferMode!.label}. Check that the other device is running Plazma S and has receiving enabled.'
+                          : 'No devices found. Enable Receive files on the destination device.',
                 ),
               ),
             ),
