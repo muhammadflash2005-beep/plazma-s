@@ -58,6 +58,7 @@ class LanFileTransfer {
     IOSink? output;
     File? partialFile;
     File? metadataFile;
+    var handshakeResponseSent = false;
     try {
       final prefix = await reader.readExact(4);
       final headerLength = ByteData.sublistView(prefix).getUint32(0, Endian.big);
@@ -89,6 +90,7 @@ class LanFileTransfer {
       if (suppliedCode is! String || !_constantTimeEquals(suppliedCode, authorizationCode)) {
         socket.add(List<int>.filled(8, 255));
         await socket.flush();
+        handshakeResponseSent = true;
         throw const FormatException('Transfer authorization failed.');
       }
 
@@ -158,13 +160,16 @@ class LanFileTransfer {
       await onReceived(target, name, actualHash.toString());
       socket.add([1]);
       await socket.flush();
+      handshakeResponseSent = true;
     } catch (error) {
       await output?.close();
       // Keep partial data on connection loss so the next sendFile call resumes.
-      socket.add([0]);
-      try {
-        await socket.flush();
-      } catch (_) {}
+      if (!handshakeResponseSent) {
+        socket.add([0]);
+        try {
+          await socket.flush();
+        } catch (_) {}
+      }
       if (onError != null) await onError(error);
     } finally {
       socket.destroy();
