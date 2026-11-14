@@ -293,8 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Your files. Your devices.
-One local connection.',
+        Text('Your files. Your devices.\nOne local connection.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
         const SizedBox(height: 10),
         Text('Share directly across devices on the same Wi-Fi or hotspot.',
@@ -554,8 +553,7 @@ class _Sidebar extends StatelessWidget {
       _navItem(context, Icons.history_rounded, 'History', 4),
       _navItem(context, Icons.settings_rounded, 'Settings', 5),
       const Spacer(),
-      const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY
-Direct device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
+      const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
   );
 
