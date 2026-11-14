@@ -2,16 +2,23 @@
 
 import 'package:flutter/material.dart';
 
+import '../../transfers/transfer_mode.dart';
+
 class FilesScreen extends StatelessWidget {
-  const FilesScreen({super.key});
+  const FilesScreen({this.transferMode, super.key});
+
+  final TransferMode? transferMode;
 
   @override
-  Widget build(BuildContext context) => const Center(
+  Widget build(BuildContext context) => Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
           child: Text(
-            'File transfers are available in the native Plazma S app. '
-            'Open Plazma S on Android or desktop to send files over your local network.',
+            transferMode == null
+                ? 'File transfers are available in the native Plazma S app. '
+                    'Open Plazma S on Android or desktop to send files over your local network.'
+                : '${transferMode!.label} is selected. '
+                    'Install the native Plazma S app on the devices to discover each other and transfer files over your local network.',
             textAlign: TextAlign.center,
           ),
         ),
