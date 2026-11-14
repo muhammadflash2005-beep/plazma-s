@@ -351,6 +351,20 @@ jobs:
               raise SystemExit("Generated Android Gradle file not found")
           print("Permanent Android release signing configured.")
           PY
+      - name: Validate permanent Android signing credentials
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYSTORE="android/app/plazma-release.jks"
+          keytool -list -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          keytool -certreq -keystore "$KEYSTORE" -storepass "$ANDROID_STORE_PASSWORD" -keypass "$ANDROID_KEY_PASSWORD" -alias "$ANDROID_KEY_ALIAS" -file /tmp/plazma-signing-check.csr >/dev/null
+          rm -f /tmp/plazma-signing-check.csr
+          echo "Verified: keystore, alias, store password, and private-key password are valid."
+
       - name: Build Android APK
         run: flutter build apk --release
       - name: Verify APK uses permanent release certificate
