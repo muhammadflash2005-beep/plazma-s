@@ -104,7 +104,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final root = Directory(path);
       final rootPrefix = root.path.endsWith(Platform.pathSeparator)
           ? root.path
-          : '\${root.path}\${Platform.pathSeparator}';
+          : '${root.path}${Platform.pathSeparator}';
       final discovered = <_PickedItem>[];
       await for (final entity in root.list(recursive: true, followLinks: false)) {
         if (entity is! File) continue;
@@ -130,7 +130,7 @@ class _FilesScreenState extends State<FilesScreen> {
       setState(() => _items.addAll(discovered));
       _message(discovered.isEmpty
           ? 'No files found in that folder.'
-          : 'Added \${discovered.length} file(s) from the selected folder.');
+          : 'Added ${discovered.length} file(s) from the selected folder.');
     } catch (error) {
       _message('Could not read selected folder: $error');
     } finally {
