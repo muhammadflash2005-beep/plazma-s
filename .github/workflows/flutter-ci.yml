@@ -24,6 +24,8 @@ jobs:
       - run: flutter test
       - name: Generate Android platform scaffold
         run: flutter create --platforms=android --org com.plazma --project-name plazma_s .
+      - name: Generate app launcher icons
+        run: dart run flutter_launcher_icons
       - name: Set Android app ID and LAN permissions
         run: |
           python3 - <<'PY'
