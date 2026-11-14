@@ -245,6 +245,7 @@ class RoomNetworkHost {
     _peersByDevice.remove(deviceId);
     if (room.pendingMembers.any((member) => member.deviceId == deviceId)) {
       room.reject(deviceId);
+      _emitSnapshot();
     } else {
       room.leave(deviceId);
       await _broadcastSnapshot();
