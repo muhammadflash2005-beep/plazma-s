@@ -44,13 +44,16 @@ void main() {
           deviceName: 'Android phone',
           platform: 'android',
         );
-        final events = client.events;
-        final pending = await events.first.timeout(const Duration(seconds: 3));
+        final events = StreamIterator(client.events);
+        expect(await events.moveNext().timeout(const Duration(seconds: 3)), isTrue);
+        final pending = events.current;
         expect(pending.type, RoomNetworkEventType.pending);
         expect(host.pendingMembers.single.deviceId, 'phone-1');
 
         expect(await host.approve('phone-1'), isTrue);
-        final joined = await events.first.timeout(const Duration(seconds: 3));
+        expect(await events.moveNext().timeout(const Duration(seconds: 3)), isTrue);
+        final joined = events.current;
+        await events.cancel();
         expect(joined.type, RoomNetworkEventType.joined);
         expect(joined.snapshot!.joinedCount, 2);
         expect(joined.snapshot!.members.last.deviceId, 'phone-1');
@@ -75,7 +78,7 @@ void main() {
           roomId: host.invitation.roomId,
           host: host.invitation.host,
           port: host.invitation.port,
-          token: '0' * 64,
+          token: List.filled(64, '0').join(),
         );
         client = await RoomNetworkClient.join(
           invitation: invalid,
