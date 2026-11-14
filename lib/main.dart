@@ -16,6 +16,7 @@ import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'transfers/transfer_mode.dart';
+import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
 
@@ -576,25 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ]);
   }
 
-  Widget _secondaryContent() {
-    final titles = ['Home', 'Files', 'Apps', 'Devices', 'Transfer history', 'Settings'];
-    final descriptions = [
-      'Your local sharing space.',
-      'Browse files and folders on this device.',
-      'Browse installed Android apps and prepare APK packages.',
-      'Find nearby Plazma S devices on your local network.',
-      'Active, completed, paused and failed transfers will appear here.',
-      'Appearance and network preferences.',
-    ];
-    return Card(child: Padding(
-      padding: const EdgeInsets.all(26),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(titles[_tab], style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8),
-        Text(descriptions[_tab]),
-      ]),
-    ));
-  }
+  Widget _secondaryContent() => const TransferHistoryScreen();
 }
 
 class _ThemeSwatch extends StatelessWidget {
