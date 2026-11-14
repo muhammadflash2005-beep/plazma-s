@@ -66,10 +66,10 @@ class RoomNetworkEvent {
 /// LAN room signaling host. File payloads continue to use the transfer
 /// transport; this service only handles room membership and state.
 class RoomNetworkHost {
-  RoomNetworkHost._({
+  RoomNetworkHost._(
+    this._server, {
     required this.room,
     required this.invitation,
-    required this._server,
   });
 
   final RoomHost room;
@@ -106,6 +106,7 @@ class RoomNetworkHost {
     );
     await server.start(port: port);
     host = RoomNetworkHost._(
+      server,
       room: room,
       invitation: RoomInvitation(
         roomId: id,
@@ -113,7 +114,6 @@ class RoomNetworkHost {
         port: server.port!,
         token: token,
       ),
-      _server: server,
     );
     return host;
   }
