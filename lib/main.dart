@@ -542,6 +542,18 @@ class _HomeScreenState extends State<HomeScreen> {
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
         const SizedBox(height: 22),
         _notice(),
+        if (_roomBusy) const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: LinearProgressIndicator(),
+        ),
+        if (_roomError != null)
+          Card(
+            color: theme.colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(_roomError!, style: TextStyle(color: theme.colorScheme.onErrorContainer)),
+            ),
+          ),
         const SizedBox(height: 22),
         Text('Choose your connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
