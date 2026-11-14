@@ -10,6 +10,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'updates/app_update_card.dart';
+
 import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
@@ -558,6 +560,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       )),
       const SizedBox(height: 20),
+      const AppUpdateCard(),
+      const SizedBox(height: 12),
       Card(child: ListTile(
         leading: const Icon(Icons.wifi_rounded),
         title: const Text('Connection mode'),
