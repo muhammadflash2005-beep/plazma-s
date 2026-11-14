@@ -15,7 +15,7 @@ import 'transfers/transfer_mode.dart';
 
 void main() => runApp(const PlazmaApp());
 
-enum PlazmaTheme { light, dark, ocean, sunset, forest }
+enum PlazmaTheme { light, dark, ocean, sunset, forest, purple, crimson, midnight }
 
 extension PlazmaThemeInfo on PlazmaTheme {
   String get label => switch (this) {
@@ -24,6 +24,9 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.ocean => 'Ocean',
         PlazmaTheme.sunset => 'Sunset',
         PlazmaTheme.forest => 'Forest',
+        PlazmaTheme.purple => 'Purple',
+        PlazmaTheme.crimson => 'Crimson',
+        PlazmaTheme.midnight => 'Midnight',
       };
 
   String get description => switch (this) {
@@ -32,6 +35,9 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.ocean => 'Cool blue with teal accents',
         PlazmaTheme.sunset => 'Warm orange with pink accents',
         PlazmaTheme.forest => 'Fresh green with golden accents',
+        PlazmaTheme.purple => 'Royal violet with lavender accents',
+        PlazmaTheme.crimson => 'Bold red with soft rose accents',
+        PlazmaTheme.midnight => 'Near-black surfaces with violet-blue accents',
       };
 
   Color get background => switch (this) {
@@ -40,6 +46,9 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.ocean => const Color(0xFFF0F9FF),
         PlazmaTheme.sunset => const Color(0xFFFFF7ED),
         PlazmaTheme.forest => const Color(0xFFF0FDF4),
+        PlazmaTheme.purple => const Color(0xFFFAF5FF),
+        PlazmaTheme.crimson => const Color(0xFFFFF1F2),
+        PlazmaTheme.midnight => const Color(0xFF09090F),
       };
 
   Color get surface => switch (this) {
@@ -48,6 +57,9 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.ocean => const Color(0xFFFFFFFF),
         PlazmaTheme.sunset => const Color(0xFFFFFFFF),
         PlazmaTheme.forest => const Color(0xFFFFFFFF),
+        PlazmaTheme.purple => const Color(0xFFFFFFFF),
+        PlazmaTheme.crimson => const Color(0xFFFFFFFF),
+        PlazmaTheme.midnight => const Color(0xFF181824),
       };
 
   Color get primary => switch (this) {
@@ -56,6 +68,9 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.ocean => const Color(0xFF0284C7),
         PlazmaTheme.sunset => const Color(0xFFEA580C),
         PlazmaTheme.forest => const Color(0xFF16A34A),
+        PlazmaTheme.purple => const Color(0xFF7C3AED),
+        PlazmaTheme.crimson => const Color(0xFFE11D48),
+        PlazmaTheme.midnight => const Color(0xFF8B5CF6),
       };
 
   Color get accent => switch (this) {
@@ -64,20 +79,23 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.ocean => const Color(0xFF14B8A6),
         PlazmaTheme.sunset => const Color(0xFFDB2777),
         PlazmaTheme.forest => const Color(0xFFCA8A04),
+        PlazmaTheme.purple => const Color(0xFFC084FC),
+        PlazmaTheme.crimson => const Color(0xFFFB7185),
+        PlazmaTheme.midnight => const Color(0xFF22D3EE),
       };
 
   Color get foreground => switch (this) {
-        PlazmaTheme.dark => const Color(0xFFF1F5F9),
+        PlazmaTheme.dark || PlazmaTheme.midnight => const Color(0xFFF1F5F9),
         _ => const Color(0xFF0F172A),
       };
 
   Color get muted => switch (this) {
-        PlazmaTheme.dark => const Color(0xFF94A3B8),
+        PlazmaTheme.dark || PlazmaTheme.midnight => const Color(0xFF94A3B8),
         _ => const Color(0xFF64748B),
       };
 
   ThemeData toThemeData() {
-    final isDark = this == PlazmaTheme.dark;
+    final isDark = this == PlazmaTheme.dark || this == PlazmaTheme.midnight;
     final scheme = ColorScheme.fromSeed(
       seedColor: primary,
       brightness: isDark ? Brightness.dark : Brightness.light,

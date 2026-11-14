@@ -91,6 +91,94 @@ class _AppsScreenState extends State<AppsScreen> {
     );
   }
 
+  Widget _appCard(AppInfo app, ThemeData theme) {
+    final packageName = app.packageName;
+    final selected = packageName != null && _selected.contains(packageName);
+    final iconBytes = app.iconBytes;
+    final icon = iconBytes == null
+        ? const Icon(Icons.android_rounded, size: 42)
+        : Image.memory(iconBytes, width: 54, height: 54, fit: BoxFit.contain);
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: packageName == null
+            ? null
+            : () => setState(() {
+                  if (selected) {
+                    _selected.remove(packageName);
+                  } else {
+                    _selected.add(packageName);
+                  }
+                }),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                heightFactor: 1,
+                child: Checkbox(
+                  value: selected,
+                  onChanged: packageName == null
+                      ? null
+                      : (value) => setState(() {
+                            if (value == true) {
+                              _selected.add(packageName);
+                            } else {
+                              _selected.remove(packageName);
+                            }
+                          }),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Container(
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: icon,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                app.appName ?? packageName ?? 'Unknown app',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                app.versionName ?? 'Version unknown',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+              ),
+              const Spacer(),
+              Text(
+                selected ? 'Selected' : 'Tap to select',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -118,34 +206,22 @@ class _AppsScreenState extends State<AppsScreen> {
           padding: EdgeInsets.all(20),
           child: Text('No launchable user apps were found.'),
         )),
-      ..._apps.map((app) {
-        final packageName = app.packageName;
-        final selected = packageName != null && _selected.contains(packageName);
-        final iconBytes = app.iconBytes;
-        final icon = iconBytes == null
-            ? const Icon(Icons.android_rounded, size: 38)
-            : Image.memory(iconBytes, width: 44, height: 44);
-        return Card(
-          child: CheckboxListTile(
-            value: selected,
-            onChanged: packageName == null
-                ? null
-                : (value) => setState(() {
-                      if (value == true) {
-                        _selected.add(packageName);
-                      } else {
-                        _selected.remove(packageName);
-                      }
-                    }),
-            secondary: ClipRRect(borderRadius: BorderRadius.circular(10), child: icon),
-            title: Text(app.appName ?? packageName ?? 'Unknown app',
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text('${app.versionName ?? 'Version unknown'} · ${packageName ?? 'Package unknown'}',
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-            controlAffinity: ListTileControlAffinity.trailing,
-          ),
-        );
-      }),
+      if (_apps.isNotEmpty)
+        LayoutBuilder(builder: (context, constraints) {
+          final columns = (constraints.maxWidth / 150).floor().clamp(2, 6);
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _apps.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 0.78,
+            ),
+            itemBuilder: (context, index) => _appCard(_apps[index], theme),
+          );
+        }),
       if (_selected.isNotEmpty) ...[
         const SizedBox(height: 12),
         SizedBox(
