@@ -289,7 +289,7 @@ String _safeRelativePath(String input) {
 }
 
 String _safeFileName(String input) {
-  final normalized = input.replaceAll(r'\\', '/');
+  final normalized = input.replaceAll(RegExp(r'\\'), '/');
   final name = normalized.split('/').last.trim();
   if (name.isEmpty || name == '.' || name == '..') {
     throw const FormatException('Invalid file name.');
