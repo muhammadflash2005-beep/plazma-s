@@ -70,8 +70,11 @@ void main() {
         'plazma-s-v2:${bytes.length}:$hash:$relativePath',
       )).toString();
 
+      final destinationKey = sha256.convert(
+        utf8.encode(receivedDirectory.absolute.path),
+      ).toString();
       final partialDirectory = Directory(
-        '${receivedDirectory.path}/.plazma_s_partial',
+        '${Directory.systemTemp.path}/plazma_s_partial/$destinationKey',
       );
       await partialDirectory.create(recursive: true);
       final partial = File('${partialDirectory.path}/$transferId.part');
