@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plazma_s/transfers/lan_file_transfer.dart';
@@ -55,6 +58,76 @@ void main() {
       expect(await result.readAsBytes(), bytes);
       expect(progressValues, isNotEmpty);
       expect(progressValues.last, bytes.length);
+    });
+
+    test('resumes from the receiver partial file offset', () async {
+      final source = File('${temporaryDirectory.path}/resume.bin');
+      final bytes = List<int>.generate(512 * 1024, (index) => index % 239);
+      await source.writeAsBytes(bytes);
+      const relativePath = 'Camera/resume.bin';
+      final hash = sha256.convert(bytes).toString();
+      final transferId = sha256.convert(utf8.encode(
+        'plazma-s-v2:${bytes.length}:$hash:$relativePath',
+      )).toString();
+
+      final partialDirectory = Directory(
+        '${receivedDirectory.path}/.plazma_s_partial',
+      );
+      await partialDirectory.create(recursive: true);
+      final partial = File('${partialDirectory.path}/$transferId.part');
+      final resumeOffset = bytes.length ~/ 3;
+      await partial.writeAsBytes(bytes.sublist(0, resumeOffset));
+      final metadata = File('${partialDirectory.path}/$transferId.json');
+      await metadata.writeAsString(jsonEncode({
+        'version': 2,
+        'name': 'resume.bin',
+        'relativePath': relativePath,
+        'size': bytes.length,
+        'sha256': hash,
+      }));
+
+      final received = Completer<File>();
+      await receiver.startReceiver(
+        destination: receivedDirectory,
+        authorizationCode: '482915',
+        onReceived: (file, name, digest) => received.complete(file),
+        onError: (error) {
+          if (!received.isCompleted) received.completeError(error);
+        },
+      );
+
+      final progressValues = <int>[];
+      await LanFileTransfer().sendFile(
+        host: InternetAddress.loopbackIPv4.address,
+        port: receiver.listeningPort!,
+        file: source,
+        authorizationCode: '482915',
+        relativePath: relativePath,
+        onProgress: (progress) => progressValues.add(progress.bytesTransferred),
+      );
+
+      final result = await received.future.timeout(const Duration(seconds: 5));
+      expect(progressValues.first, resumeOffset);
+      expect(progressValues.last, bytes.length);
+      expect(await result.readAsBytes(), bytes);
+      expect(await partial.exists(), isFalse);
+      expect(await metadata.exists(), isFalse);
+    });
+
+    test('does not allow a transfer to target its private resume directory', () async {
+      final source = File('${temporaryDirectory.path}/reserved.bin');
+      await source.writeAsBytes([1]);
+      await expectLater(
+        LanFileTransfer().sendFile(
+          host: InternetAddress.loopbackIPv4.address,
+          port: 0,
+          file: source,
+          authorizationCode: '482915',
+          relativePath: '.plazma_s_partial/attack.bin',
+          onProgress: (_) {},
+        ),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('rejects parent traversal in a relative transfer path', () async {
