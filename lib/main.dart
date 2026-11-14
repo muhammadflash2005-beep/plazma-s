@@ -207,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   String? _roomId;
   int _roomAppCount = 0;
+  int _selectedAppsCount = 0;
   TransferMode? _transferMode;
   final _joinController = TextEditingController();
 
@@ -230,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _createRoomForSelectedApps(int count) => setState(() {
         _roomId = _newRoomId();
         _roomAppCount = count;
+        _selectedAppsCount = 0;
         _tab = 0;
       });
 
@@ -285,7 +287,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: switch (_tab) {
                             0 => _homeContent(wide),
                             1 => FilesScreen(transferMode: _transferMode),
-                            2 => AppsScreen(onSendSelected: _createRoomForSelectedApps),
+                            2 => AppsScreen(
+                                onSendSelected: _createRoomForSelectedApps,
+                                onSelectionChanged: (count) =>
+                                    setState(() => _selectedAppsCount = count),
+                              ),
                             3 => const DevicesScreen(),
                             4 => _secondaryContent(),
                             _ => _settingsContent(),
@@ -294,6 +300,33 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
+                  if (_tab == 2 && _selectedAppsCount > 0)
+                    Material(
+                      color: Theme.of(context).colorScheme.surface,
+                      elevation: 10,
+                      child: SafeArea(
+                        top: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(22, 10, 22, 10),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 1180),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () => _createRoomForSelectedApps(_selectedAppsCount),
+                                  icon: const Icon(Icons.send_rounded),
+                                  label: Text('Send $_selectedAppsCount selected app(s)'),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size.fromHeight(50),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   if (!wide)
                     NavigationBar(
                       selectedIndex: _tab,
