@@ -17,7 +17,7 @@ Plazma S is a Flutter application project for transferring files and application
 
 **LAN-only by design.** Plazma S will not include internet transfer mode, relay servers, cloud file storage, or online transfer services. Devices must be connected to the same reachable Wi-Fi, hotspot, or wired LAN. Network client isolation may prevent devices on the same Wi-Fi from communicating.
 
-## Web preview
+## Connection types\n\nThe Home screen offers three explicit transfer routes:\n\n- **PC to PC** — Windows, macOS, and Linux desktop devices.\n- **Android to Android** — Android phones and tablets.\n- **PC to Android** — cross-platform transfers in either direction.\n\nThe selected route filters discovered destinations to the matching platform type. All routes remain local-network-only.\n\n## Web preview
 
 The browser preview is being prepared for interface testing. It demonstrates the responsive home screen and local room-code flow. Browser preview mode does **not** provide real LAN device discovery or file transfer; those require the native Android/desktop application.
 
@@ -40,7 +40,7 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [x] Android APK build pipeline with local-network permissions and downloadable CI artifact
 - [ ] Web deployment and browser smoke test
 - [ ] Install and smoke-test the first Android APK on a physical device
-- [ ] Network room messages, authenticated sessions, QR pairing, and mDNS discovery
+- [ ] Network room messages, authenticated sessions, QR pairing, and room-aware mDNS discovery
 - [ ] File and folder transfer
 - [ ] Resume and SHA-256 verification
 - [x] Native file and folder picker UI with multi-file selection
@@ -50,7 +50,7 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [ ] Android split-APK extraction and complete app/package sharing
 - [ ] Complete theme system and settings UI
 
-The current file picker, installed-app browser, and mDNS discovery are initial native feature slices. They do not yet send files or establish authenticated device sessions. The current protocol codec is a framing primitive, not a complete network transport or a claim that transfers are already working. The in-memory room code is not yet connected to authenticated network sessions.
+The current native Files screen supports direct single-file and sequential multi-file TCP transfers, six-digit receiver-code authorization, SHA-256 verification, and receiver acknowledgements. It does not yet encrypt TCP traffic, transfer folders, resume interrupted transfers, or use room membership as authorization. The room code remains a local preview and is not yet connected to authenticated network sessions. Device-to-device behavior still requires physical-device testing.
 
 ## Development
 
