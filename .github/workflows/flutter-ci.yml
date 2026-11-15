@@ -56,6 +56,8 @@ jobs:
           s = manifest.read_text()
           permissions = """
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
@@ -78,7 +80,13 @@ jobs:
                       android:resource="@xml/plazma_file_paths" />
               </provider>
           """
-          s = s.replace("</application>", provider + "\n    </application>", 1)
+          service = """
+              <service
+                  android:name=".TransferForegroundService"
+                  android:exported="false"
+                  android:foregroundServiceType="dataSync" />
+          """
+          s = s.replace("</application>", service + "\n" + provider + "\n    </application>", 1)
           manifest.write_text(s)
           gradle_kts = Path("android/app/build.gradle.kts")
           if gradle_kts.exists():
@@ -116,12 +124,42 @@ jobs:
           import android.net.Uri
           import java.io.File
           import androidx.core.content.FileProvider
+          import androidx.core.content.ContextCompat
           import android.os.Build
           import android.provider.Settings
           import androidx.core.app.ActivityCompat
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
+
+          class TransferForegroundService : android.app.Service() {
+              override fun onCreate() {
+                  super.onCreate()
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val channel = android.app.NotificationChannel("plazma_transfer", "File transfers", android.app.NotificationManager.IMPORTANCE_LOW)
+                      getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
+                  }
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  val openApp = Intent(this, MainActivity::class.java).apply {
+                      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                  }
+                  val pending = android.app.PendingIntent.getActivity(this, 0, openApp, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                  val notification = androidx.core.app.NotificationCompat.Builder(this, "plazma_transfer")
+                      .setSmallIcon(android.R.drawable.stat_sys_upload)
+                      .setContentTitle("Plazma S transfer active")
+                      .setContentText("Your local Wi-Fi transfer is running")
+                      .setContentIntent(pending)
+                      .setOngoing(true)
+                      .setCategory(androidx.core.app.NotificationCompat.CATEGORY_PROGRESS)
+                      .build()
+                  startForeground(45454, notification)
+                  return START_STICKY
+              }
+
+              override fun onBind(intent: Intent?): android.os.IBinder? = null
+          }
 
           class MainActivity : FlutterActivity() {
               private val channelName = "com.plazma.s/hotspot"
@@ -135,6 +173,24 @@ jobs:
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/transfer_service")
+                      .setMethodCallHandler { call, result ->
+                          when (call.method) {
+                              "start" -> {
+                                  try {
+                                      ContextCompat.startForegroundService(this, Intent(this, TransferForegroundService::class.java))
+                                      result.success(null)
+                                  } catch (error: Exception) {
+                                      result.error("TRANSFER_SERVICE_START_FAILED", error.message, null)
+                                  }
+                              }
+                              "stop" -> {
+                                  stopService(Intent(this, TransferForegroundService::class.java))
+                                  result.success(null)
+                              }
+                              else -> result.notImplemented()
+                          }
+                      }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/updater")
                       .setMethodCallHandler { call, result ->
                           if (call.method != "installApk") {
