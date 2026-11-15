@@ -54,6 +54,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _pickImages() async {
     if (_busy) return;
     try {
@@ -155,6 +156,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
   );
   }
 
+  // ignore: unused_element
   Future<void> _receiveImages() async {
     if (_busy) return;
     final invite = await _scan();
