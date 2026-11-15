@@ -26,6 +26,28 @@ void main() {
       expect(PlazmaConnectionInvite.tryParse('plazmas://join?room=ABC123'), isNull);
     });
 
+    test('rejects non-private hosts and invalid Wi-Fi credentials', () {
+      const token = '0123456789abcdef0123456789abcdef';
+      expect(
+        PlazmaConnectionInvite.tryParse(
+          'plazmas://connect?ssid=x&password=12345678&host=8.8.8.8&port=45454&token=$token',
+        ),
+        isNull,
+      );
+      expect(
+        PlazmaConnectionInvite.tryParse(
+          'plazmas://connect?ssid=x&password=short&host=192.168.1.2&port=45454&token=$token',
+        ),
+        isNull,
+      );
+      expect(
+        PlazmaConnectionInvite.tryParse(
+          'plazmas://connect?ssid=abcdefghijklmnopqrstuvwxyz123456789&password=12345678&host=192.168.1.2&port=45454&token=$token',
+        ),
+        isNull,
+      );
+    });
+
     test('rejects invalid ports and malformed tokens', () {
       expect(
         PlazmaConnectionInvite.tryParse(
