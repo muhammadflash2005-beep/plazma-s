@@ -724,6 +724,13 @@ jobs:
           name: plazma-s-android-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+      - name: Read app version
+        id: app_version
+        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+        run: |
+          VERSION="$(sed -n 's/^version: *//p' pubspec.yaml | head -n 1 | cut -d+ -f1)"
+          test -n "$VERSION"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
       - name: Generate APK checksum
         if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
         run: sha256sum build/app/outputs/flutter-apk/app-release.apk > build/app/outputs/flutter-apk/SHA256SUMS.txt
@@ -731,7 +738,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.2.5' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || steps.app_version.outputs.tag }}
           target_commitish: main
           files: |
             build/app/outputs/flutter-apk/app-release.apk
