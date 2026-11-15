@@ -280,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
           ),
-          if (_tab == 0)
+          if (_tab == 0 && _category == 0)
             Positioned(
               left: wide ? 300 : 16,
               right: 16,
