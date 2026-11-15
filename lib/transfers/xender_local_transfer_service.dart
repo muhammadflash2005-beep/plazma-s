@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../network/android_wifi_session_service.dart';
+import 'transfer_overlay_controller.dart';
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -424,6 +425,7 @@ class XenderLocalTransferService {
     _relativePaths = const [];
     await server?.close(force: true);
     await _wifi.stop();
+    TransferOverlayController.clear();
     await stopForegroundService();
   }
 
