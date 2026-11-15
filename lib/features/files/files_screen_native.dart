@@ -313,7 +313,11 @@ class _FilesScreenState extends State<FilesScreen> {
       ..sort((a, b) {
         int splitOrder(SharedLocalFile item) {
           if (item.relativePath.endsWith('/base.apk')) return 0;
-          final match = RegExp(r'/split_(\\d+)\\.apk
+          final match = RegExp(r'/split_(\d+)\.apk$').firstMatch(item.relativePath);
+          return int.tryParse(match?.group(1) ?? '') ?? (1 << 30);
+        }
+        return splitOrder(a).compareTo(splitOrder(b));
+      });
     if (parts.isEmpty || _destination == null) return;
     final paths = parts.map((item) {
       final relative = item.relativePath.replaceAll('/', Platform.pathSeparator);
