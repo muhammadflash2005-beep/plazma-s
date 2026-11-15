@@ -79,14 +79,15 @@ class _MusicScreenState extends State<MusicScreen> {
 
   Future<void> _sendMusic() async {
     if (_selected.isEmpty || _busy) return;
+    final filesToSend = List<File>.from(_selected);
     setState(() { _busy = true; _status = 'Preparing music…'; });
     try {
-      final names = _selected.map((f) => f.uri.pathSegments.last).toList();
+      final names = filesToSend.map((f) => f.uri.pathSegments.last).toList();
       final invite = await _service.startSharing(
-        files: List<File>.from(_selected),
+        files: filesToSend,
         relativePaths: names,
         onTransferCompleted: () async {
-          for (final file in _selected) {
+          for (final file in filesToSend) {
             await TransferHistoryStore.add(
               name: file.uri.pathSegments.last,
               type: 'music',
@@ -107,7 +108,7 @@ class _MusicScreenState extends State<MusicScreen> {
       });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
-        fileCount: _selected.length,
+        fileCount: filesToSend.length,
         label: 'Sharing music',
       ));
     } catch (e) {
@@ -309,19 +310,9 @@ class _MusicScreenState extends State<MusicScreen> {
               } else {
                 _selected.add(file);
               }
-              _status = _selected.isEmpty ? null : '${_selected.length} song(s) selected';
             });
             _updateSelectionCount();
           },
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: _busy ? null : _receiveMusic,
-            icon: const Icon(Icons.qr_code_scanner, size: 18),
-            label: const Text('Receive'),
-          ),
         ),
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
