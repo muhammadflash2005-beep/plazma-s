@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../network/android_wifi_session_service.dart';
+import '../rooms/room_id.dart';
+import '../rooms/room_registry.dart';
 import 'transfer_overlay_controller.dart';
 
 class SharedLocalFile {
@@ -545,7 +547,6 @@ class XenderLocalTransferService {
   String _displayName(String path) => path.split('/').last;
 
   Future<void> stopSharing() async {
-    final invite = _invite;
     final server = _server;
     _server = null;
     _invite = null;
