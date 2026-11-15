@@ -341,7 +341,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
               ),
             ),
-          Positioned(
+          AnimatedBuilder(
+            animation: Listenable.merge([
+              AppsScreen.selectedCount,
+              ImagesScreen.selectedCount,
+              VideosScreen.selectedCount,
+              MusicScreen.selectedCount,
+            ]),
+            builder: (context, _) {
+              final hasSelection = _tab == 0 && (
+                (_category == 0 && AppsScreen.selectedCount.value > 0) ||
+                (_category == 1 && ImagesScreen.selectedCount.value > 0) ||
+                (_category == 2 && MusicScreen.selectedCount.value > 0) ||
+                (_category == 3 && VideosScreen.selectedCount.value > 0)
+              );
+              if (hasSelection) return const SizedBox.shrink();
+              return Positioned(
             right: 16,
             bottom: wide ? 24 : 92,
             child: ValueListenableBuilder<TransferOverlaySnapshot?>(
@@ -407,6 +422,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
+          ),;
+            },
           ),
         ],
       ),
