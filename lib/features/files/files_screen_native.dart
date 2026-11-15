@@ -13,6 +13,7 @@ import '../../network/android_wifi_session_service.dart';
 import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_mode.dart';
 import '../../transfers/transfer_overlay_controller.dart';
+import '../../transfers/transfer_history.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class FilesScreen extends StatefulWidget {
@@ -147,6 +148,19 @@ class _FilesScreenState extends State<FilesScreen> {
       final invite = await _service.startSharing(
         files: List<File>.from(_files),
         relativePaths: List<String>.from(_relativePaths),
+        onTransferCompleted: () async {
+          for (var index = 0; index < _files.length; index++) {
+            final file = _files[index];
+            await TransferHistoryStore.add(
+              name: _relativePaths[index].split('/').last,
+              type: 'file',
+              direction: 'sent',
+              path: file.path,
+              bytes: await file.length(),
+              peer: 'Nearby Plazma S device',
+            );
+          }
+        },
       );
       if (!mounted) return;
       setState(() {
