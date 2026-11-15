@@ -103,7 +103,10 @@ class XenderLocalTransferService {
     final invite = await _wifi.createInvite(port: 45454);
     HttpServer? server;
     try {
-      server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port);
+      // Bind to the address advertised in the QR invite. Binding to 0.0.0.0
+      // can silently accept on the sender's normal LAN while the receiver is
+      // attached to the isolated local-only hotspot.
+      server = await HttpServer.bind(InternetAddress(invite.host), invite.port);
       _files = checkedFiles;
       _relativePaths = checkedPaths;
       _invite = invite;
