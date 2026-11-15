@@ -43,7 +43,7 @@ class _MusicScreenState extends State<MusicScreen> {
     if (_busy) return;
     try {
       // file_picker 13 returns a List<PlatformFile>; multi-select is the default.
-      final result = await FilePicker.pickFiles(type: FileType.audio);
+      final result = await FilePicker.pickFiles(type: FileType.audio, allowMultiple: true);
       if (!mounted || result.isEmpty) return;
       setState(() {
         for (final item in result) {
@@ -240,7 +240,7 @@ class _MusicScreenState extends State<MusicScreen> {
       if (_invite == null && _receiver == null) ...[
         Row(children: [
           Expanded(child: FilledButton.icon(onPressed: _busy ? null : _pickMusic,
-            icon: const Icon(Icons.add_music_alternate), label: const Text('Choose music'))),
+            icon: const Icon(Icons.library_music_rounded), label: const Text('Choose music'))),
           const SizedBox(width: 10),
           Expanded(child: OutlinedButton.icon(onPressed: _busy ? null : _receiveMusic,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive'))),
