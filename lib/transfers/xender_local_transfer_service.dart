@@ -611,7 +611,11 @@ class XenderLocalTransferService {
     _relativePaths = const [];
     await server?.close(force: true);
     await _wifi.stop();
+    await stopForegroundService();
   }
 
-  Future<void> disconnect() => _wifi.disconnect();
+  Future<void> disconnect() async {
+    await _wifi.disconnect();
+    await stopForegroundService();
+  }
 }
