@@ -407,7 +407,8 @@ class _AppsScreenState extends State<AppsScreen> {
           const SizedBox(height: 6),
           const Text('Supported formats: EXE, MSI, MSIX, AppImage, DEB, RPM, DMG, PKG and ZIP.'),
         ]))),
-        if (Platform.isAndroid) ...[\n        Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
+        if (Platform.isAndroid) ...[
+        Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))]),
         LayoutBuilder(builder: (context, c) {
@@ -458,7 +459,8 @@ class _AppsScreenState extends State<AppsScreen> {
         if (_selected.isNotEmpty) Padding(padding: const EdgeInsets.only(top:12),
           child: SizedBox(width:double.infinity,child:FilledButton.icon(
             onPressed:_busy ? null : _send,icon:const Icon(Icons.send),
-            label:Text('Send ' + _selected.length.toString() + ' selected app(s)')))),\n        ],
+            label:Text('Send ' + _selected.length.toString() + ' selected app(s)')))),
+        ],
       ],
     ]);
   }
