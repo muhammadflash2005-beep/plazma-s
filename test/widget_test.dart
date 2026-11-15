@@ -38,9 +38,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Share files'), findsOneWidget);
+    expect(find.text('Receive'), findsOneWidget);
     expect(find.text('Enter connection code'), findsOneWidget);
-    expect(find.text('Add files'), findsOneWidget);
-    expect(find.text('Start sharing'), findsOneWidget);
+    expect(find.text('Add files'), findsNothing);
+    expect(find.text('Start sharing'), findsNothing);
   });
 
   testWidgets('Me tab exposes all nine Plazma themes', (tester) async {
