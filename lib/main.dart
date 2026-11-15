@@ -445,12 +445,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _categoryContent() => IndexedStack(
     index: _category,
-    children: const [
-      AppsScreen(),
-      ImagesScreen(),
-      MusicScreen(),
-      VideosScreen(),
-      FilesScreen(),
+    children: [
+      const AppsScreen(),
+      ImagesScreen(enabled: _category == 1),
+      MusicScreen(enabled: _category == 2),
+      VideosScreen(enabled: _category == 3),
+      const FilesScreen(),
     ],
   );
 
