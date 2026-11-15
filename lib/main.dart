@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'updates/app_update_card.dart';
 
 import 'features/apps/apps_screen.dart';
-import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
 import 'features/music/music_screen.dart';
@@ -216,15 +215,17 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _tab = 0;
+  int _tab = 1;
+  int _category = 0;
   TransferMode? _transferMode;
+  String? _transferAction;
 
   @override
   void dispose() {
     super.dispose();
   }
 
-  void _showJoinDialog() => _openTransfer(null);
+  void _showJoinDialog() => setState(() { _transferAction = null; _transferMode = null; _tab = 2; });
 
   @override
   Widget build(BuildContext context) {
@@ -235,29 +236,25 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: Row(
           children: [
-            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() => _tab = value)),
+            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() { _tab = value; if (value != 2) { _transferMode = null; _transferAction = null; } })),
             Expanded(
               child: Column(
                 children: [
                   _TopBar(onJoin: _showJoinDialog),
+                  if (_tab == 1) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
+                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
                           child: IndexedStack(
                             index: _tab,
                             children: [
                               _homeContent(wide),
-                              FilesScreen(transferMode: _transferMode),
-                              const AppsScreen(),
-                              const ImagesScreen(),
-                              const VideosScreen(),
-                              const MusicScreen(),
-                              const DevicesScreen(),
-                              _secondaryContent(),
-                              _settingsContent(),
+                              _categoryContent(),
+                              _transferAction == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode, initialAction: _transferAction),
+                              _meContent(),
                             ],
                           ),
                         ),
@@ -267,17 +264,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (!wide)
                     NavigationBar(
                       selectedIndex: _tab,
-                      onDestinationSelected: (value) => setState(() => _tab = value),
+                      onDestinationSelected: (value) => setState(() {
+                        _tab = value;
+                        if (value != 2) { _transferMode = null; _transferAction = null; }
+                      }),
                       destinations: const [
                         NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
-                        NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
-                        NavigationDestination(icon: Icon(Icons.photo_library_rounded), label: 'Images'),
-                        NavigationDestination(icon: Icon(Icons.video_library_rounded), label: 'Videos'),
-                        NavigationDestination(icon: Icon(Icons.library_music_rounded), label: 'Music'),
-                        NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
-                        NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
-                        NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
+                        NavigationDestination(icon: Icon(Icons.swap_horiz_rounded), label: 'Transfer'),
+                        NavigationDestination(icon: Icon(Icons.person_rounded), label: 'Me'),
                       ],
                     ),
                 ],
@@ -286,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
           ),
-          if (_tab == 2)
+          if (_tab == 1)
             Positioned(
               left: wide ? 300 : 16,
               right: 16,
@@ -319,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 2 : 1),
+                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 1 : 2),
                     child: SizedBox(
                       width: 58,
                       height: 58,
@@ -384,30 +379,23 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Text('Your devices. One room.\nSend together.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Text('Connect Android phones and computers on the same Wi-Fi. Create a room, invite up to seven other devices, and send apps, files, images, music and videos.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
-        const SizedBox(height: 22),
+        const SizedBox(height: 12),
         _notice(),
-        const SizedBox(height: 22),
+        const SizedBox(height: 14),
         Text('Multi-device transfer room', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _roomActions(wide),
-        const SizedBox(height: 24),
-        Text('Quick access', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 12),
-        Wrap(spacing: 14, runSpacing: 14, children: const [
-          _QuickCard(icon: Icons.folder_rounded, title: 'Files', subtitle: 'Photos, videos & documents'),
-          _QuickCard(icon: Icons.android_rounded, title: 'Apps', subtitle: 'APK sharing for Android'),
-          _QuickCard(icon: Icons.devices_rounded, title: 'Devices', subtitle: 'Nearby device connections'),
-        ]),
       ],
     );
   }
 
-  void _openTransfer(TransferMode? mode) => setState(() {
+  void _openTransfer(TransferMode? mode, String action) => setState(() {
         _transferMode = mode;
-        _tab = 1;
+        _transferAction = action;
+        _tab = 2;
       });
 
   Widget _notice() => Card(
@@ -434,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: 'Create a room',
             subtitle: 'Start a room from this PC or Android device. Share the QR code or connection code with up to seven recipients.',
             buttonText: 'Create room',
-            onPressed: () => _openTransfer(null),
+            onPressed: () => _openTransfer(null, 'create'),
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.qr_code_scanner_rounded,
@@ -446,6 +434,76 @@ class _HomeScreenState extends State<HomeScreen> {
           )),
         ],
       );
+
+  Widget _topCategoryNavigation() {
+    const labels = ['Apps', 'Images', 'Music', 'Videos', 'Files'];
+    const icons = [Icons.apps_rounded, Icons.photo_library_rounded, Icons.library_music_rounded, Icons.video_library_rounded, Icons.folder_rounded];
+    return SizedBox(
+      height: 54,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        scrollDirection: Axis.horizontal,
+        itemCount: labels.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) => ChoiceChip(
+          avatar: Icon(icons[index], size: 17),
+          label: Text(labels[index]),
+          selected: _category == index,
+          onSelected: (_) => setState(() => _category = index),
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryContent() => IndexedStack(
+    index: _category,
+    children: const [
+      AppsScreen(),
+      ImagesScreen(),
+      MusicScreen(),
+      VideosScreen(),
+      FilesScreen(),
+    ],
+  );
+
+  Widget _transferChooser(bool wide) {
+    final theme = Theme.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Transfer', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      Text('All devices must be connected to the same Wi-Fi. Create a room or join someone else’s room.',
+        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, height: 1.4)),
+      const SizedBox(height: 22),
+      _notice(),
+      const SizedBox(height: 20),
+      _ActionCard(
+        icon: Icons.add_circle_outline_rounded,
+        title: 'Create room',
+        subtitle: 'Choose apps, files, images, music or videos to share. Invite up to seven devices using a QR code or room code.',
+        buttonText: 'Create room',
+        onPressed: () => _openTransfer(null, 'create'),
+      ),
+      const SizedBox(height: 14),
+      _ActionCard(
+        icon: Icons.meeting_room_outlined,
+        title: 'Join room',
+        subtitle: 'Scan the host QR code on Android or enter the connection code on a computer to receive shared content.',
+        buttonText: 'Join room',
+        outlined: true,
+        onPressed: () => _openTransfer(null, 'join'),
+      ),
+    ]);
+  }
+
+  Widget _meContent() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text('Me', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+    const SizedBox(height: 16),
+    _settingsContent(),
+    const SizedBox(height: 22),
+    Text('Transfer history', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+    const SizedBox(height: 10),
+    _secondaryContent(),
+  ]);
 
   Widget _settingsContent() {
     final selected = widget.themes.selected;
@@ -584,7 +642,7 @@ class _TopBar extends StatelessWidget {
         Text('plazma', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface, letterSpacing: -0.8)),
         Text(' S', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.primary)),
         const Spacer(),
-        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Receive')),
+        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Transfer')),
       ]),
     );
   }
@@ -603,14 +661,9 @@ class _Sidebar extends StatelessWidget {
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Padding(padding: EdgeInsets.fromLTRB(12, 0, 12, 26), child: Text('WORKSPACE', style: TextStyle(fontSize: 10, letterSpacing: 1.8, fontWeight: FontWeight.w800))),
       _navItem(context, Icons.home_rounded, 'Home', 0),
-      _navItem(context, Icons.folder_rounded, 'Files', 1),
-      _navItem(context, Icons.apps_rounded, 'Apps', 2),
-      _navItem(context, Icons.photo_library_rounded, 'Images', 3),
-      _navItem(context, Icons.video_library_rounded, 'Videos', 4),
-      _navItem(context, Icons.library_music_rounded, 'Music', 5),
-      _navItem(context, Icons.devices_rounded, 'Devices', 6),
-      _navItem(context, Icons.history_rounded, 'History', 7),
-      _navItem(context, Icons.settings_rounded, 'Settings', 8),
+      _navItem(context, Icons.apps_rounded, 'Apps', 1),
+      _navItem(context, Icons.swap_horiz_rounded, 'Transfer', 2),
+      _navItem(context, Icons.person_rounded, 'Me', 3),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
@@ -652,25 +705,3 @@ class _ActionCard extends StatelessWidget {
 }
 
 
-class _QuickCard extends StatelessWidget {
-  const _QuickCard({required this.icon, required this.title, required this.subtitle});
-  final IconData icon;
-  final String title, subtitle;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 225,
-    child: Card(child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(children: [
-        Icon(icon, color: Theme.of(context).colorScheme.primary, size: 25),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 3),
-          Text(subtitle, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        ])),
-      ]),
-    )),
-  );
-}

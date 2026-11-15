@@ -16,10 +16,11 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class FilesScreen extends StatefulWidget {
-  const FilesScreen({this.transferMode, this.initialPaths = const [], super.key});
+  const FilesScreen({this.transferMode, this.initialPaths = const [], this.initialAction, super.key});
 
   final TransferMode? transferMode;
   final List<String> initialPaths;
+  final String? initialAction;
 
   @override
   State<FilesScreen> createState() => _FilesScreenState();
@@ -495,9 +496,13 @@ class _FilesScreenState extends State<FilesScreen> {
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 18),
         if (_status != null) _statusCard(theme),
-        if (_invite == null) _senderPanel(theme) else _senderQrPanel(theme),
-        const SizedBox(height: 18),
-        if (_receiverInvite == null) _receiverPanel(theme) else _receiverFilesPanel(theme),
+        if (widget.initialAction != 'join') ...[
+          if (_invite == null) _senderPanel(theme) else _senderQrPanel(theme),
+        ],
+        if (widget.initialAction == null) const SizedBox(height: 18),
+        if (widget.initialAction != 'create') ...[
+          if (_receiverInvite == null) _receiverPanel(theme) else _receiverFilesPanel(theme),
+        ],
         if (_busy) const Padding(
           padding: EdgeInsets.only(top: 14),
           child: LinearProgressIndicator(),

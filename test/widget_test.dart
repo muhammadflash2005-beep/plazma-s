@@ -1,38 +1,55 @@
+// Flutter 3.50 currently reports the Material library import as deprecated.
+// Keep this import for the Material button finder used by this widget test.
+// ignore_for_file: deprecated_member_use
+
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plazma_s/main.dart';
 
 void main() {
-  testWidgets('home screen exposes unified room creation and joining actions', (tester) async {
+  testWidgets('app opens on the Apps tab with the Xender-style categories', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('plazma'), findsOneWidget);
-    expect(find.text('Create a room'), findsOneWidget);
-    expect(find.text('Join a room'), findsOneWidget);
-    expect(find.text('Create room'), findsOneWidget);
-    expect(find.text('Join room'), findsOneWidget);
+    expect(find.text('Images'), findsOneWidget);
+    expect(find.text('Music'), findsOneWidget);
+    expect(find.text('Videos'), findsOneWidget);
+    expect(find.text('Files'), findsOneWidget);
+    expect(find.text('Quick access'), findsNothing);
   });
 
-  testWidgets('Join action opens the unified transfer room screen', (tester) async {
+  testWidgets('Join room opens the unified transfer screen', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
-    await tester.ensureVisible(find.text('Join room'));
-    await tester.tap(find.text('Join room'));
-    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Transfer').last);
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(find.text('Create room'), findsWidgets);
+    expect(find.text('Join room'), findsWidgets);
+
+    // The chooser is taller than the test viewport; bring its action button
+    // into view before tapping it, just as a user would scroll on a phone.
+    final joinRoomButton = find.widgetWithText(OutlinedButton, 'Join room');
+    await tester.ensureVisible(joinRoomButton);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(joinRoomButton);
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Share files'), findsOneWidget);
+    expect(find.text('Receive'), findsOneWidget);
     expect(find.text('Enter connection code'), findsOneWidget);
-    expect(find.text('Add files'), findsOneWidget);
-    expect(find.text('Start sharing'), findsOneWidget);
+    expect(find.text('Add files'), findsNothing);
+    expect(find.text('Start sharing'), findsNothing);
   });
 
-  testWidgets('settings exposes all nine Plazma themes', (tester) async {
+  testWidgets('Me tab exposes all nine Plazma themes', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
-    await tester.tap(find.text('Settings').last);
-    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Me').last);
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Plazma Light'), findsOneWidget);
     expect(find.text('Plazma Dark'), findsOneWidget);
