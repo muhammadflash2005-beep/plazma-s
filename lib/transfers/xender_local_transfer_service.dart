@@ -97,6 +97,7 @@ class XenderLocalTransferService {
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
+  Future<void> Function()? _onTransferCompleted;
 
   PlazmaConnectionInvite? get invite => _invite;
   bool get isSharing => _server != null;
@@ -104,6 +105,7 @@ class XenderLocalTransferService {
   Future<PlazmaConnectionInvite> startSharing({
     required List<File> files,
     required List<String> relativePaths,
+    Future<void> Function()? onTransferCompleted,
   }) async {
     if (_server != null) throw StateError('A sharing session is already running.');
     if (files.isEmpty || files.length != relativePaths.length) {
@@ -160,6 +162,7 @@ class XenderLocalTransferService {
       _files = checkedFiles;
       _manifest = manifest;
       _invite = invite;
+      _onTransferCompleted = onTransferCompleted;
       _server = server;
       server.listen(
         _handleRequest,
@@ -187,6 +190,14 @@ class XenderLocalTransferService {
       if (request.method == 'POST' && request.uri.path == '/complete') {
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
+        final onCompleted = _onTransferCompleted;
+        if (onCompleted != null) {
+          try {
+            await onCompleted();
+          } catch (error) {
+            debugPrint('Could not record completed outgoing transfer: $error');
+          }
+        }
         unawaited(stopSharing());
         return;
       }
@@ -465,6 +476,7 @@ class XenderLocalTransferService {
     final server = _server;
     _server = null;
     _invite = null;
+    _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
     await server?.close(force: true);
