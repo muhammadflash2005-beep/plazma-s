@@ -5,7 +5,27 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
+
 import '../network/android_wifi_session_service.dart';
+
+@immutable
+class TransferIndicatorState {
+  const TransferIndicatorState({
+    this.active = false,
+    this.fileCount = 0,
+    this.progress = 0,
+    this.label = '',
+  });
+
+  final bool active;
+  final int fileCount;
+  final double progress;
+  final String label;
+}
+
+final ValueNotifier<TransferIndicatorState> plazmaTransferIndicator =
+    ValueNotifier<TransferIndicatorState>(const TransferIndicatorState());
+
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -77,6 +97,8 @@ class XenderLocalTransferService {
   List<File> _files = const [];
   List<String> _relativePaths = const [];
   PlazmaConnectionInvite? _invite;
+  int _servedBytes = 0;
+  final Set<int> _servedFileIds = <int>{};
 
   PlazmaConnectionInvite? get invite => _invite;
   bool get isSharing => _server != null;
@@ -111,6 +133,13 @@ class XenderLocalTransferService {
       _relativePaths = checkedPaths;
       _invite = invite;
       _server = server;
+      _servedBytes = 0;
+      _servedFileIds.clear();
+      plazmaTransferIndicator.value = TransferIndicatorState(
+        active: true,
+        fileCount: checkedFiles.length,
+        label: 'Waiting for receiver',
+      );
       server.listen(
         _handleRequest,
         onError: (Object error, StackTrace stack) {
@@ -173,8 +202,29 @@ class XenderLocalTransferService {
         request.response.headers.contentType = ContentType.binary;
         request.response.headers.contentLength = await file.length();
         request.response.headers.set('Cache-Control', 'no-store');
-        await request.response.addStream(file.openRead());
+        final totalSize = _files.fold<int>(0, (sum, shared) => sum + shared.lengthSync());
+        var fileBytes = 0;
+        await for (final chunk in file.openRead()) {
+          request.response.add(chunk);
+          fileBytes += chunk.length;
+          _servedBytes += chunk.length;
+          plazmaTransferIndicator.value = TransferIndicatorState(
+            active: true,
+            fileCount: _files.length,
+            progress: totalSize == 0 ? 0 : (_servedBytes / totalSize).clamp(0.0, 1.0),
+            label: 'Sending ${_displayName(_relativePaths[id])}',
+          );
+        }
         await request.response.close();
+        _servedFileIds.add(id);
+        if (_servedFileIds.length >= _files.length) {
+          plazmaTransferIndicator.value = TransferIndicatorState(
+            active: false,
+            fileCount: _files.length,
+            progress: 1,
+            label: 'Transfer complete',
+          );
+        }
         return;
       }
       request.response.statusCode = HttpStatus.notFound;
@@ -222,6 +272,11 @@ class XenderLocalTransferService {
   }) async {
     await destination.create(recursive: true);
     final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
+    plazmaTransferIndicator.value = TransferIndicatorState(
+      active: true,
+      fileCount: files.length,
+      label: 'Receiving files',
+    );
     var totalBytes = 0;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
@@ -234,13 +289,15 @@ class XenderLocalTransferService {
           final existingDigest = await sha256.bind(target.openRead()).first;
           if (existingSize == item.size && existingDigest.toString() == item.sha256) {
             totalBytes += item.size;
-            onProgress(LocalTransferProgress(
+            final progress = LocalTransferProgress(
               fileName: item.name,
               fileBytes: item.size,
               fileSize: item.size,
               totalBytes: totalBytes,
               totalSize: totalSize,
-            ));
+            );
+            onProgress(progress);
+            plazmaTransferIndicator.value = TransferIndicatorState(active: true, fileCount: files.length, progress: progress.fraction, label: 'Receiving ${item.name}');
             continue;
           }
           throw FileSystemException('A different file with this name already exists.', target.path);
@@ -261,13 +318,15 @@ class XenderLocalTransferService {
             sink.add(chunk);
             fileBytes += chunk.length;
             totalBytes += chunk.length;
-            onProgress(LocalTransferProgress(
+            final progress = LocalTransferProgress(
               fileName: item.name,
               fileBytes: fileBytes,
               fileSize: item.size,
               totalBytes: totalBytes,
               totalSize: totalSize,
-            ));
+            );
+            onProgress(progress);
+            plazmaTransferIndicator.value = TransferIndicatorState(active: true, fileCount: files.length, progress: progress.fraction, label: 'Receiving ${item.name}');
           }
           await sink.flush();
           await sink.close();
@@ -287,6 +346,7 @@ class XenderLocalTransferService {
       }
     } finally {
       client.close(force: true);
+      plazmaTransferIndicator.value = const TransferIndicatorState();
     }
   }
 
@@ -330,6 +390,9 @@ class XenderLocalTransferService {
     _invite = null;
     _files = const [];
     _relativePaths = const [];
+    _servedBytes = 0;
+    _servedFileIds.clear();
+    plazmaTransferIndicator.value = const TransferIndicatorState();
     await server?.close(force: true);
     await _wifi.stop();
   }
