@@ -31,6 +31,7 @@ class _AppsScreenState extends State<AppsScreen> {
   final Set<String> _selected = {};
   final Map<String, List<SharedLocalFile>> _incoming = {};
   final Map<String, String> _saved = {};
+  final Map<String, Future<void>> _saveTasks = {};
   Directory? _library;
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
@@ -105,25 +106,56 @@ class _AppsScreenState extends State<AppsScreen> {
     return items;
   }
 
-  Future<void> _saveApp(String pkg, String name) async {
-    if (_busy || _library == null) return;
-    setState(() { _busy = true; _status = 'Saving ' + name + '…'; });
+  Future<void> _saveApp(String pkg, String name) {
+    if (_saved.containsKey(pkg)) return Future<void>.value();
+    final existing = _saveTasks[pkg];
+    if (existing != null) return existing;
+
+    late final Future<void> task;
+    task = _performSaveApp(pkg, name).whenComplete(() {
+      _saveTasks.remove(pkg);
+    });
+    _saveTasks[pkg] = task;
+    return task;
+  }
+
+  Future<void> _performSaveApp(String pkg, String name) async {
+    if (_library == null) throw StateError('The Saved Apps folder is not ready.');
+    final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
+    await folder.create(recursive: true);
+    final items = await _export([pkg]);
+    for (final item in items) {
+      if (item['packageName'] != pkg ||
+          item['path'] is! String ||
+          item['relativePath'] is! String) continue;
+      final filename = (item['relativePath'] as String).split('/').last;
+      await File(item['path'] as String).copy(
+        folder.path + Platform.pathSeparator + filename,
+      );
+    }
+    if (!await File(folder.path + Platform.pathSeparator + 'base.apk').exists()) {
+      throw StateError('The base APK could not be saved.');
+    }
+    if (!mounted) return;
+    setState(() => _saved[pkg] = name);
+  }
+
+  Future<void> _toggleAppSelection(String pkg, String name) async {
+    if (_selected.contains(pkg)) {
+      setState(() => _selected.remove(pkg));
+      _updateSelectionCount();
+      return;
+    }
+    setState(() => _selected.add(pkg));
+    _updateSelectionCount();
+
+    // Selecting an app automatically stores its complete APK set locally.
+    // The same in-flight task is reused if Send is tapped before saving ends.
     try {
-      final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
-      await folder.create(recursive: true);
-      final items = await _export([pkg]);
-      for (final item in items) {
-        if (item['packageName'] != pkg || item['path'] is! String || item['relativePath'] is! String) continue;
-        final filename = (item['relativePath'] as String).split('/').last;
-        await File(item['path'] as String).copy(folder.path + Platform.pathSeparator + filename);
-      }
-      if (!await File(folder.path + Platform.pathSeparator + 'base.apk').exists()) {
-        throw StateError('The base APK could not be saved.');
-      }
-      if (!mounted) return;
-      setState(() { _saved[pkg] = name; _status = name + ' saved in Saved Apps.'; });
-    } catch (e) { _message('Could not save app: ' + e.toString()); }
-    finally { if (mounted) setState(() => _busy = false); }
+      await _saveApp(pkg, name);
+    } catch (e) {
+      if (mounted) _message('Could not save $name automatically: $e');
+    }
   }
 
   Future<void> _send() async {
@@ -132,18 +164,43 @@ class _AppsScreenState extends State<AppsScreen> {
       return;
     }
     if (_selected.isEmpty || _busy) return;
-    setState(() { _busy = true; _status = 'Preparing selected apps…'; });
+    setState(() { _busy = true; _status = 'Saving and preparing selected apps…'; });
     try {
-      final packages = _apps.where((a) => a.packageName != null && _selected.contains(a.packageName))
-          .map((a) => a.packageName!).toList();
-      final items = await _export(packages);
+      final packages = _apps
+          .where((a) => a.packageName != null && _selected.contains(a.packageName))
+          .map((a) => a.packageName!)
+          .toList();
+
+      // Finish any automatic saves started when the apps were selected.
+      await Future.wait(packages.map((pkg) {
+        final app = _apps.firstWhere((a) => a.packageName == pkg);
+        return _saveApp(pkg, app.appName ?? pkg);
+      }));
+
       final files = <File>[], paths = <String>[];
-      for (final item in items) {
-        if (item['path'] is String && item['relativePath'] is String) {
-          files.add(File(item['path'] as String));
-          paths.add(item['relativePath'] as String);
+      for (final pkg in packages) {
+        final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
+        final savedFiles = <File>[];
+        await for (final entity in folder.list(recursive: true, followLinks: false)) {
+          if (entity is File && entity.path.toLowerCase().endsWith('.apk')) {
+            savedFiles.add(entity);
+          }
+        }
+        savedFiles.sort((x, y) {
+          final xn = x.uri.pathSegments.last, yn = y.uri.pathSegments.last;
+          if (xn == 'base.apk') return -1;
+          if (yn == 'base.apk') return 1;
+          return xn.compareTo(yn);
+        });
+        if (savedFiles.isEmpty || savedFiles.first.uri.pathSegments.last != 'base.apk') {
+          throw StateError('The saved APK set for $pkg is incomplete.');
+        }
+        for (final file in savedFiles) {
+          files.add(file);
+          paths.add(pkg + '/' + file.uri.pathSegments.last);
         }
       }
+
       final invite = await _service.startSharing(files: files, relativePaths: paths);
       if (!mounted) return;
       setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for devices.'; });
@@ -423,23 +480,40 @@ class _AppsScreenState extends State<AppsScreen> {
               final selected = pkg != null && _selected.contains(pkg);
               final icon = app.iconBytes == null ? const Icon(Icons.android,size:30) :
                 Image.memory(app.iconBytes!,width:38,height:38,fit:BoxFit.contain);
-              return Card(margin: EdgeInsets.zero, clipBehavior: Clip.antiAlias,
-                child: InkWell(onTap: pkg == null ? null : () => setState(() {
-                  if (selected) { _selected.remove(pkg); } else { _selected.add(pkg); }
-                  _updateSelectionCount();
-                }), child: Padding(padding: const EdgeInsets.all(3), child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Stack(children: [icon, if (selected) const Positioned(right:0,top:0,
-                      child: Icon(Icons.check_circle,color:Colors.green,size:16))]),
-                    const SizedBox(height:4),
-                    Text(app.appName ?? pkg ?? 'App', textAlign:TextAlign.center,maxLines:2,
-                      overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:9,fontWeight:FontWeight.w700)),
-                    SizedBox(height:22,child: IconButton(padding:EdgeInsets.zero,
-                      visualDensity:VisualDensity.compact,tooltip:'Save APK',
-                      onPressed: pkg == null || _busy ? null : () => _saveApp(pkg,app.appName ?? pkg),
-                      icon:Icon(_saved.containsKey(pkg) ? Icons.check_circle : Icons.save_alt,
-                        size:17,color:_saved.containsKey(pkg) ? Colors.green : theme.colorScheme.primary))),
-                  ]))));
+              return Card(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                color: selected ? theme.colorScheme.primaryContainer : null,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: selected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
+                    width: selected ? 1.6 : 0.7,
+                  ),
+                ),
+                child: InkWell(
+                  onTap: pkg == null || _busy
+                      ? null
+                      : () => _toggleAppSelection(pkg, app.appName ?? pkg),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        icon,
+                        const SizedBox(height: 6),
+                        Text(
+                          app.appName ?? pkg ?? 'App',
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
             });
         }),
         const SizedBox(height:18),
@@ -457,10 +531,6 @@ class _AppsScreenState extends State<AppsScreen> {
               icon:const Icon(Icons.delete_outline)),
           ]),
         ))),
-        if (_selected.isNotEmpty) Padding(padding: const EdgeInsets.only(top:12),
-          child: SizedBox(width:double.infinity,child:FilledButton.icon(
-            onPressed:_busy ? null : _send,icon:const Icon(Icons.send),
-            label:Text('Send ' + _selected.length.toString() + ' selected app(s)')))),
         ],
       ],
     ]);
