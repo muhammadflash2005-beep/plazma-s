@@ -288,12 +288,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 valueListenable: AppsScreen.selectedCount,
                 builder: (context, count, _) => count == 0
                     ? const SizedBox.shrink()
-                    : SizedBox(
-                        height: 54,
-                        child: FilledButton.icon(
-                          onPressed: AppsScreen.sendSelected,
-                          icon: const Icon(Icons.send_rounded),
-                          label: Text('Send $count selected app${count == 1 ? '' : 's'}'),
+                    : Tooltip(
+                        message: 'Send selected apps',
+                        child: Material(
+                          color: Theme.of(context).colorScheme.primary,
+                          elevation: 7,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: AppsScreen.sendSelected,
+                            child: const SizedBox(
+                              width: 58,
+                              height: 58,
+                              child: Icon(Icons.send_rounded, color: Colors.white, size: 25),
+                            ),
+                          ),
                         ),
                       ),
               ),
