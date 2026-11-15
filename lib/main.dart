@@ -13,6 +13,7 @@ import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
+import 'features/music/music_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
@@ -251,6 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               FilesScreen(transferMode: _transferMode),
                               const AppsScreen(),
                               const ImagesScreen(),
+                              const MusicScreen(),
                               const DevicesScreen(),
                               _secondaryContent(),
                               _settingsContent(),
@@ -269,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
                         NavigationDestination(icon: Icon(Icons.photo_library_rounded), label: 'Images'),
+                        NavigationDestination(icon: Icon(Icons.library_music_rounded), label: 'Music'),
                         NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                         NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
@@ -379,21 +382,45 @@ class _HomeScreenState extends State<HomeScreen> {
         Text('Your files. Your devices.\nOne local connection.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
         const SizedBox(height: 10),
-        Text('Connect two Android phones directly using a private Wi-Fi hotspot. No internet or mobile data needed.',
+        Text('Connect computers and Android phones over a shared local Wi-Fi network or hotspot. No internet or mobile data is required.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
         const SizedBox(height: 22),
         _notice(),
         const SizedBox(height: 22),
         Text('Available connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
-        SizedBox(
-          width: wide ? 350 : double.infinity,
-          child: _TransferModeCard(
-            icon: Icons.phone_android_rounded,
-            title: 'Android to Android',
-            subtitle: 'Send files and installed apps between Android phones using QR pairing.',
-            onTap: () => _openTransfer(TransferMode.androidToAndroid),
-          ),
+        Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: [
+            SizedBox(
+              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
+              child: _TransferModeCard(
+                icon: Icons.computer_rounded,
+                title: 'PC to PC',
+                subtitle: 'Transfer files between Windows, macOS and Linux computers on the same network.',
+                onTap: () => _openTransfer(TransferMode.pcToPc),
+              ),
+            ),
+            SizedBox(
+              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
+              child: _TransferModeCard(
+                icon: Icons.devices_rounded,
+                title: 'Android to PC',
+                subtitle: 'Send files between an Android phone and a computer in either direction.',
+                onTap: () => _openTransfer(TransferMode.pcToAndroid),
+              ),
+            ),
+            SizedBox(
+              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
+              child: _TransferModeCard(
+                icon: Icons.phone_android_rounded,
+                title: 'Android to Android',
+                subtitle: 'Send files and installed apps between Android phones using QR pairing.',
+                onTap: () => _openTransfer(TransferMode.androidToAndroid),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 24),
         _roomActions(wide),
@@ -422,7 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 10),
             const Expanded(child: Text(
-              'Android-to-Android sharing uses a private local Wi-Fi hotspot created by the sending phone. No internet or mobile data is required. PC transfers are not available in this version.',
+              'PC-to-PC and Android-to-PC transfers use your current local Wi-Fi or hotspot. Android-to-Android can also create a private hotspot automatically. No cloud relay or internet connection is used.',
               style: TextStyle(height: 1.4, fontSize: 13),
             )),
           ]),
@@ -436,14 +463,14 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.send_rounded,
             title: 'Send files',
-            subtitle: 'Create a private Wi-Fi hotspot and share files with a QR code.',
+            subtitle: 'Share over your local Wi-Fi or create a private Android hotspot, then show a QR code.',
             buttonText: 'Choose files',
             onPressed: () => _openTransfer(TransferMode.androidToAndroid),
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.qr_code_scanner_rounded,
             title: 'Receive files',
-            subtitle: 'Scan the sender’s QR code and receive directly over Wi-Fi.',
+            subtitle: 'Scan or enter the sender’s connection code and receive over your local network.',
             buttonText: 'Scan QR code',
             onPressed: _showJoinDialog,
             outlined: true,
@@ -610,9 +637,10 @@ class _Sidebar extends StatelessWidget {
       _navItem(context, Icons.folder_rounded, 'Files', 1),
       _navItem(context, Icons.apps_rounded, 'Apps', 2),
       _navItem(context, Icons.photo_library_rounded, 'Images', 3),
-      _navItem(context, Icons.devices_rounded, 'Devices', 4),
-      _navItem(context, Icons.history_rounded, 'History', 5),
-      _navItem(context, Icons.settings_rounded, 'Settings', 6),
+      _navItem(context, Icons.library_music_rounded, 'Music', 4),
+      _navItem(context, Icons.devices_rounded, 'Devices', 5),
+      _navItem(context, Icons.history_rounded, 'History', 6),
+      _navItem(context, Icons.settings_rounded, 'Settings', 7),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),

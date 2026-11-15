@@ -6,13 +6,13 @@ enum TransferMode {
   String get label => switch (this) {
         TransferMode.pcToPc => 'PC to PC',
         TransferMode.androidToAndroid => 'Android to Android',
-        TransferMode.pcToAndroid => 'PC to Android',
+        TransferMode.pcToAndroid => 'Android ↔ PC',
       };
 
   String get description => switch (this) {
         TransferMode.pcToPc => 'Computer-to-computer transfers',
         TransferMode.androidToAndroid => 'Android phone and tablet transfers',
-        TransferMode.pcToAndroid => 'Computer and Android transfers in either direction',
+        TransferMode.pcToAndroid => 'Android phone and computer transfers in either direction',
       };
 
   bool supportsLocal(String platform) {

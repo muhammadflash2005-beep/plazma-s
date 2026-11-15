@@ -136,24 +136,35 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _startSharing() async {
-    if (!Platform.isAndroid) {
-      _message('Xender-style hotspot sharing is currently available on Android phones.');
-      return;
-    }
     if (_files.isEmpty || _busy) return;
     setState(() {
       _busy = true;
-      _status = 'Starting secure local Wi-Fi…';
+      _status = Platform.isAndroid
+          ? 'Starting secure local Wi-Fi…'
+          : 'Preparing a local network share…';
     });
     try {
       final invite = await _service.startSharing(
         files: List<File>.from(_files),
         relativePaths: List<String>.from(_relativePaths),
+        onTransferCompleted: () async {
+          for (var index = 0; index < _files.length; index++) {
+            final file = _files[index];
+            await TransferHistoryStore.add(
+              name: _relativePaths[index].split('/').last,
+              type: 'file',
+              direction: 'sent',
+              path: file.path,
+              bytes: await file.length(),
+              peer: 'Nearby Plazma S device',
+            );
+          }
+        },
       );
       if (!mounted) return;
       setState(() {
         _invite = invite;
-        _status = 'Waiting for the other phone to scan this QR code';
+        _status = 'Waiting for the other device to scan this QR code';
       });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
@@ -168,6 +179,51 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<PlazmaConnectionInvite?> _scanInvite() async {
+    if (!Platform.isAndroid) {
+      final controller = TextEditingController();
+      final raw = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Enter connection code'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('On the sending device, copy the Plazma S connection code and paste it below. Make sure both devices are connected to the same Wi-Fi or hotspot.'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Plazma S connection code',
+                    hintText: 'plazmas://connect?...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('Connect'),
+            ),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (raw == null) return null;
+      final invite = PlazmaConnectionInvite.tryParse(raw);
+      if (invite == null) _message('That is not a valid Plazma S connection code.');
+      return invite;
+    }
     return showDialog<PlazmaConnectionInvite>(
       context: context,
       builder: (dialogContext) {
@@ -179,7 +235,7 @@ class _FilesScreenState extends State<FilesScreen> {
             height: 340,
             child: Column(
               children: [
-                const Text('Scan the QR code shown on the sending phone.'),
+                const Text('Scan the QR code shown by the sending device.'),
                 const SizedBox(height: 14),
                 Expanded(
                   child: ClipRRect(
@@ -220,16 +276,12 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _joinSender() async {
-    if (!Platform.isAndroid) {
-      _message('Xender-style Wi-Fi joining is currently available on Android phones.');
-      return;
-    }
     if (_busy) return;
     final invite = await _scanInvite();
     if (invite == null || !mounted) return;
     setState(() {
       _busy = true;
-      _status = 'Connecting to sender Wi-Fi…';
+      _status = 'Connecting to the sender…';
     });
     try {
       final files = await _service.joinAndList(invite);
@@ -469,7 +521,9 @@ class _FilesScreenState extends State<FilesScreen> {
               Text('Send', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             ]),
             const SizedBox(height: 8),
-            const Text('Choose files or an entire folder. Plazma S will create a private Wi-Fi hotspot and show a QR code for the receiving phone.'),
+            Text(Platform.isAndroid
+                ? 'Choose files or a folder. Plazma S will create a private Wi-Fi hotspot and show a QR code.'
+                : 'Choose files or a folder. Plazma S will share them over your current Wi-Fi or wired LAN and show a QR code.'),
             const SizedBox(height: 14),
             Wrap(spacing: 10, runSpacing: 10, children: [
               OutlinedButton.icon(
@@ -531,7 +585,7 @@ class _FilesScreenState extends State<FilesScreen> {
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(children: [
-            const Text('Scan this code on the receiving phone', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+            const Text('Scan this code on the receiving device', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -539,7 +593,19 @@ class _FilesScreenState extends State<FilesScreen> {
               child: QrImageView(data: _invite!.toQrValue(), size: 230),
             ),
             const SizedBox(height: 12),
-            Text('Wi-Fi: ${_invite!.ssid}', style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(
+              _invite!.ssid.isEmpty
+                  ? 'Network address: ${_invite!.host}:${_invite!.port}'
+                  : 'Wi-Fi: ${_invite!.ssid}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
+            TextButton.icon(
+              onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())),
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('Copy connection code'),
+            ),
             const SizedBox(height: 4),
             const Text('The transfer stays active while you browse other Plazma S sections.', textAlign: TextAlign.center),
             const SizedBox(height: 14),
@@ -562,14 +628,16 @@ class _FilesScreenState extends State<FilesScreen> {
               Text('Receive', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             ]),
             const SizedBox(height: 8),
-            const Text('Tap Receive and scan the QR code on the sender phone. Android will ask you to approve joining its local Wi-Fi network.'),
+            Text(Platform.isAndroid
+                ? 'Tap Receive and scan the sender QR code. If it is a PC share, connect to the same Wi-Fi or hotspot first.'
+                : 'Tap Receive, then paste the connection code from the sender. Both PCs must be on the same Wi-Fi or wired LAN. If the sender is an Android phone, connect this PC to its hotspot first.'),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: _busy ? null : _joinSender,
                 icon: const Icon(Icons.qr_code_scanner_rounded),
-                label: const Text('Scan to receive'),
+                label: Text(Platform.isAndroid ? 'Scan to receive' : 'Enter connection code'),
               ),
             ),
           ]),

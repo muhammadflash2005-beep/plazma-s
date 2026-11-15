@@ -22,7 +22,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Share files'), findsOneWidget);
-    expect(find.text('Scan to receive'), findsOneWidget);
+    expect(find.text('Enter connection code'), findsOneWidget);
     expect(find.text('Add files'), findsOneWidget);
     expect(find.text('Start sharing'), findsOneWidget);
   });

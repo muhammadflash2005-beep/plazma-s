@@ -53,12 +53,11 @@ class PlazmaConnectionInvite {
         (octets[0] == 10 ||
             (octets[0] == 192 && octets[1] == 168) ||
             (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31));
+    final usesHotspot = (ssid?.isNotEmpty ?? false) || (password?.isNotEmpty ?? false);
     if (ssid == null ||
-        ssid.isEmpty ||
-        ssid.length > 32 ||
         password == null ||
-        password.length < 8 ||
-        password.length > 63 ||
+        (usesHotspot && (ssid.isEmpty || ssid.length > 32 ||
+            password.length < 8 || password.length > 63)) ||
         !isPrivateIpv4 ||
         port == null ||
         port < 1 ||

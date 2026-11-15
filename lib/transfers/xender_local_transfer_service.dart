@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -96,6 +97,7 @@ class XenderLocalTransferService {
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
+  Future<void> Function()? _onTransferCompleted;
 
   PlazmaConnectionInvite? get invite => _invite;
   bool get isSharing => _server != null;
@@ -103,6 +105,7 @@ class XenderLocalTransferService {
   Future<PlazmaConnectionInvite> startSharing({
     required List<File> files,
     required List<String> relativePaths,
+    Future<void> Function()? onTransferCompleted,
   }) async {
     if (_server != null) throw StateError('A sharing session is already running.');
     if (files.isEmpty || files.length != relativePaths.length) {
@@ -134,16 +137,32 @@ class XenderLocalTransferService {
       });
     }
 
-    final invite = await _wifi.createInvite(port: 45454);
+    final isAndroidHost = Platform.isAndroid;
+    final token = List.generate(
+      16,
+      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final invite = isAndroidHost
+        ? await _wifi.createInvite(port: 45454)
+        : PlazmaConnectionInvite(
+            ssid: '',
+            password: '',
+            host: await _localIpv4Address(),
+            port: 45454,
+            token: token,
+          );
     HttpServer? server;
     try {
-      // Bind to the address advertised in the QR invite. Binding to 0.0.0.0
-      // can silently accept on the sender's normal LAN while the receiver is
-      // attached to the isolated local-only hotspot.
-      server = await HttpServer.bind(InternetAddress(invite.host), invite.port);
+      // Android binds to its dedicated hotspot address. Desktop binds all
+      // interfaces so Android and other PCs can reach it on the selected LAN.
+      server = await HttpServer.bind(
+        isAndroidHost ? InternetAddress(invite.host) : InternetAddress.anyIPv4,
+        invite.port,
+      );
       _files = checkedFiles;
       _manifest = manifest;
       _invite = invite;
+      _onTransferCompleted = onTransferCompleted;
       _server = server;
       server.listen(
         _handleRequest,
@@ -155,7 +174,7 @@ class XenderLocalTransferService {
       return invite;
     } catch (_) {
       await server?.close(force: true);
-      await _wifi.stop();
+      if (isAndroidHost) await _wifi.stop();
       rethrow;
     }
   }
@@ -171,6 +190,14 @@ class XenderLocalTransferService {
       if (request.method == 'POST' && request.uri.path == '/complete') {
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
+        final onCompleted = _onTransferCompleted;
+        if (onCompleted != null) {
+          try {
+            await onCompleted();
+          } catch (error) {
+            debugPrint('Could not record completed outgoing transfer: $error');
+          }
+        }
         unawaited(stopSharing());
         return;
       }
@@ -245,7 +272,9 @@ class XenderLocalTransferService {
   }
 
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
-    await _wifi.join(invite);
+    if (Platform.isAndroid && invite.ssid.isNotEmpty) {
+      await _wifi.join(invite);
+    }
     await _startForegroundService();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
@@ -386,6 +415,28 @@ class XenderLocalTransferService {
     }
   }
 
+  Future<String> _localIpv4Address() async {
+    final interfaces = await NetworkInterface.list(
+      includeLoopback: false,
+      type: InternetAddressType.IPv4,
+    );
+    for (final interface in interfaces) {
+      for (final address in interface.addresses) {
+        final parts = address.address.split('.').map(int.tryParse).toList();
+        if (parts.length != 4 || parts.any((part) => part == null)) continue;
+        final a = parts[0]!;
+        final b = parts[1]!;
+        final isPrivate = a == 10 ||
+            (a == 192 && b == 168) ||
+            (a == 172 && b >= 16 && b <= 31);
+        if (isPrivate) return address.address;
+      }
+    }
+    throw const SocketException(
+      'No private IPv4 address found. Connect this PC to the same Wi-Fi or hotspot as the receiving device.',
+    );
+  }
+
   Uri _endpoint(PlazmaConnectionInvite invite, String path, [Map<String, String>? extra]) {
     return Uri(
       scheme: 'http',
@@ -421,19 +472,23 @@ class XenderLocalTransferService {
   String _displayName(String path) => path.split('/').last;
 
   Future<void> stopSharing() async {
+    final invite = _invite;
     final server = _server;
     _server = null;
     _invite = null;
+    _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
     await server?.close(force: true);
-    await _wifi.stop();
+    if (Platform.isAndroid && invite?.ssid.isNotEmpty == true) {
+      await _wifi.stop();
+    }
     TransferOverlayController.clear();
     await stopForegroundService();
   }
 
   Future<void> disconnect() async {
-    await _wifi.disconnect();
+    if (Platform.isAndroid) await _wifi.disconnect();
     await stopForegroundService();
   }
 }

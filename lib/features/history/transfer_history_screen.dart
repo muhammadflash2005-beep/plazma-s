@@ -1,7 +1,10 @@
 // Flutter stable 3.50 currently deprecates the umbrella Material import during its API migration.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../transfers/transfer_history.dart';
 
@@ -16,6 +19,13 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   List<TransferHistoryEntry> _entries = [];
   bool _loading = true;
 
+  static const _audioExtensions = {
+    'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff',
+  };
+  static const _imageExtensions = {
+    'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
+  };
+
   @override
   void initState() {
     super.initState();
@@ -29,6 +39,18 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
       _entries = entries;
       _loading = false;
     });
+  }
+
+  String _category(TransferHistoryEntry entry) {
+    if (entry.type == 'app') return 'app';
+    if (entry.type == 'music') return 'music';
+    if (entry.type == 'image') return 'image';
+    final extension = entry.name.contains('.')
+        ? entry.name.split('.').last.toLowerCase()
+        : '';
+    if (_audioExtensions.contains(extension)) return 'music';
+    if (_imageExtensions.contains(extension)) return 'image';
+    return 'file';
   }
 
   String _size(int bytes) {
@@ -49,24 +71,127 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     return '$date · $time';
   }
 
-  Widget _section({
+  Future<void> _installApp(TransferHistoryEntry entry) async {
+    if (!Platform.isAndroid) {
+      _message('Installing Android apps is available on Android devices.');
+      return;
+    }
+    final folder = Directory(entry.path);
+    if (!await folder.exists()) {
+      _message('This saved app is no longer available on this device.');
+      return;
+    }
+    final apks = <File>[];
+    await for (final item in folder.list(followLinks: false)) {
+      if (item is File && item.path.toLowerCase().endsWith('.apk')) {
+        apks.add(item);
+      }
+    }
+    apks.sort((a, b) {
+      final an = a.uri.pathSegments.last;
+      final bn = b.uri.pathSegments.last;
+      int rank(String name) {
+        if (name == 'base.apk') return 0;
+        final match = RegExp(r'^split_(\d+)\.apk$').firstMatch(name);
+        return int.tryParse(match?.group(1) ?? '') ?? 999999;
+      }
+      return rank(an).compareTo(rank(bn));
+    });
+    if (apks.isEmpty || apks.first.uri.pathSegments.last != 'base.apk') {
+      _message('The saved app package is incomplete and cannot be installed.');
+      return;
+    }
+    try {
+      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+        'installApkSet',
+        {'packageName': entry.name, 'paths': apks.map((file) => file.path).toList()},
+      );
+      _message('Android installer opened. Review and approve the installation.');
+    } catch (error) {
+      _message('Could not open the installer: $error');
+    }
+  }
+
+  void _message(String value) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
+    }
+  }
+
+  Widget _categorySection(
+    String direction,
+    String category,
+    String title,
+    IconData icon,
+  ) {
+    final theme = Theme.of(context);
+    final items = _entries
+        .where((entry) => entry.direction == direction && _category(entry) == category)
+        .toList()
+      ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 5),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(title.toUpperCase(),
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  )),
+              const Spacer(),
+              Text('${items.length}',
+                  style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w800)),
+            ],
+          ),
+        ),
+        if (items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 5, 4, 9),
+            child: Text('No $title transfers yet.',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+          )
+        else
+          ...items.map((entry) => ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+                leading: CircleAvatar(
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(icon, color: theme.colorScheme.onPrimaryContainer),
+                ),
+                title: Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                  '${entry.peer} · ${_date(entry.completedAt)}\n${_size(entry.bytes)}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: category == 'app' && direction == 'received'
+                    ? IconButton(
+                        tooltip: 'Install app',
+                        onPressed: () => _installApp(entry),
+                        icon: const Icon(Icons.install_mobile_rounded),
+                      )
+                    : null,
+              )),
+      ],
+    );
+  }
+
+  Widget _directionCard({
     required String title,
     required String direction,
     required IconData icon,
   }) {
+    final entries = _entries.where((entry) => entry.direction == direction).toList();
     final theme = Theme.of(context);
-    final files = _entries
-        .where((entry) => entry.direction == direction && entry.type == 'file')
-        .toList();
-    final apps = _entries
-        .where((entry) => entry.direction == direction && entry.type == 'app')
-        .toList();
-    final all = [...files, ...apps]
-      ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
-
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -76,18 +201,13 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(title,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      )),
+                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
                 ),
-                Text('${all.length}',
-                    style: TextStyle(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w800,
-                    )),
+                Text('${entries.length}',
+                    style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w800)),
                 IconButton(
                   tooltip: 'Clear $title',
-                  onPressed: all.isEmpty
+                  onPressed: entries.isEmpty
                       ? null
                       : () async {
                           await TransferHistoryStore.clear(direction: direction);
@@ -98,55 +218,10 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
               ],
             ),
             const Divider(),
-            Text('FILES · ${files.length}',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.5,
-                )),
-            if (files.isEmpty)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(4, 10, 4, 14),
-                child: Text('No file transfers yet.'),
-              )
-            else
-              ...files.map((entry) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.insert_drive_file_outlined),
-                    title: Text(entry.name,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                      '${entry.peer} · ${_date(entry.completedAt)}\n'
-                      '${_size(entry.bytes)}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  )),
-            const SizedBox(height: 8),
-            Text('APPS · ${apps.length}',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.5,
-                )),
-            if (apps.isEmpty)
-              const Padding(
-                padding: EdgeInsets.fromLTRB(4, 10, 4, 14),
-                child: Text('No app transfers yet. App package sending and receiving are not connected yet.'),
-              )
-            else
-              ...apps.map((entry) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.android_rounded),
-                    title: Text(entry.name,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                      '${entry.peer} · ${_date(entry.completedAt)}\n'
-                      '${_size(entry.bytes)}',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  )),
+            _categorySection(direction, 'file', 'Files', Icons.insert_drive_file_outlined),
+            _categorySection(direction, 'app', 'Apps', Icons.android_rounded),
+            _categorySection(direction, 'music', 'Music', Icons.music_note_rounded),
+            _categorySection(direction, 'image', 'Images', Icons.image_outlined),
           ],
         ),
       ),
@@ -163,9 +238,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
           children: [
             Expanded(
               child: Text('Transfer history',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  )),
+                  style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
             ),
             IconButton(
               tooltip: 'Refresh history',
@@ -175,21 +248,13 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
           ],
         ),
         const SizedBox(height: 6),
-        Text('A record of completed file and app transfers on this device.',
+        Text('Your sent and received files, apps, music and images stay listed here.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 16),
         if (_loading) const LinearProgressIndicator(),
-        _section(
-          title: 'Sent Files / Apps',
-          direction: 'sent',
-          icon: Icons.north_east_rounded,
-        ),
+        _directionCard(title: 'Sent', direction: 'sent', icon: Icons.north_east_rounded),
         const SizedBox(height: 12),
-        _section(
-          title: 'Received Files / Apps',
-          direction: 'received',
-          icon: Icons.south_west_rounded,
-        ),
+        _directionCard(title: 'Received', direction: 'received', icon: Icons.south_west_rounded),
       ],
     );
   }
