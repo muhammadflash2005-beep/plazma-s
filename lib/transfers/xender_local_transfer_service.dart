@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../network/android_wifi_session_service.dart';
+import '../rooms/room_id.dart';
 import 'transfer_overlay_controller.dart';
 
 class SharedLocalFile {
@@ -96,6 +97,15 @@ class XenderLocalTransferService {
   List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
   Future<void> Function()? _onTransferCompleted;
+  final Map<String, Map<String, String>> _members = {};
+  final Set<String> _completedMembers = {};
+  String? _joinedDeviceId;
+  PlazmaConnectionInvite? _joinedInvite;
+  String? _roomId;
+
+  List<Map<String, String>> get roomMembers => List.unmodifiable(_members.values);
+  int get joinedDeviceCount => _members.length + 1;
+  int get completedDeviceCount => _completedMembers.length;
 
   PlazmaConnectionInvite? get invite => _invite;
   bool get isSharing => _server != null;
@@ -141,12 +151,14 @@ class XenderLocalTransferService {
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
+    final roomId = RoomId.generate();
     final invite = PlazmaConnectionInvite(
       ssid: '',
       password: '',
       host: await _localIpv4Address(),
       port: 45454,
       token: token,
+      roomId: roomId,
     );
     HttpServer? server;
     try {
@@ -156,6 +168,9 @@ class XenderLocalTransferService {
       _files = checkedFiles;
       _manifest = manifest;
       _invite = invite;
+      _roomId = roomId;
+      _members.clear();
+      _completedMembers.clear();
       _onTransferCompleted = onTransferCompleted;
       _server = server;
       server.listen(
@@ -180,7 +195,404 @@ class XenderLocalTransferService {
       return;
     }
     try {
+      if (request.method == 'POST' && request.uri.path == '/join') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        if (decoded is! Map<String, dynamic>) {
+          request.response.statusCode = HttpStatus.badRequest;
+          await request.response.close();
+          return;
+        }
+        final deviceId = decoded['deviceId'];
+        final deviceName = decoded['deviceName'];
+        final platform = decoded['platform'];
+        if (deviceId is! String || !RegExp(r'^[a-f0-9]{32}
+        request.response.statusCode = HttpStatus.methodNotAllowed;
+        await request.response.close();
+        return;
+      }
+      if (request.uri.path == '/manifest') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.headers.set('Cache-Control', 'no-store');
+        request.response.write(jsonEncode({'version': 1, 'files': _manifest}));
+        await request.response.close();
+        return;
+      }
+      if (request.uri.path == '/download') {
+        final id = int.tryParse(request.uri.queryParameters['id'] ?? '');
+        if (id == null || id < 0 || id >= _files.length) {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+        final file = _files[id];
+        if (!await file.exists()) {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+        final length = await file.length();
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        var offset = 0;
+        if (range != null) {
+          final match = RegExp(r'^bytes=(\d+)-$').firstMatch(range.trim());
+          if (match == null) {
+            request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+            await request.response.close();
+            return;
+          }
+          offset = int.parse(match.group(1)!);
+          if (offset >= length) {
+            request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+            await request.response.close();
+            return;
+          }
+          request.response.statusCode = HttpStatus.partialContent;
+          request.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $offset-${length - 1}/$length',
+          );
+        } else {
+          request.response.statusCode = HttpStatus.ok;
+        }
+        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+        request.response.headers.contentType = ContentType.binary;
+        request.response.headers.contentLength = length - offset;
+        request.response.headers.set('Cache-Control', 'no-store');
+        await request.response.addStream(file.openRead(offset));
+        await request.response.close();
+        return;
+      }
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+    } catch (error) {
+      debugPrint('Plazma request failed: $error');
+      try {
+        request.response.statusCode = HttpStatus.internalServerError;
+        await request.response.close();
+      } catch (_) {}
+    }
+  }
+
+  Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
+    // The receiver must already be connected to the same Wi-Fi/LAN.
+    await _startForegroundService();
+    final deviceId = List.generate(
+      16,
+      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    _joinedDeviceId = deviceId;
+    _joinedInvite = invite;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final joinRequest = await client.postUrl(_endpoint(invite, '/join'));
+      joinRequest.headers.contentType = ContentType.json;
+      joinRequest.write(jsonEncode({
+        'deviceId': deviceId,
+        'deviceName': Platform.localHostname,
+        'platform': Platform.operatingSystem,
+      }));
+      final joinResponse = await joinRequest.close().timeout(const Duration(seconds: 15));
+      if (joinResponse.statusCode != HttpStatus.ok) {
+        final reason = await utf8.decoder.bind(joinResponse).join();
+        throw HttpException(reason.isEmpty
+            ? 'Could not join this room (HTTP ${joinResponse.statusCode}).'
+            : reason);
+      }
+      await joinResponse.drain<void>();
+      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      final response = await request.close().timeout(const Duration(seconds: 60));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('Could not read the sender file list (HTTP ${response.statusCode}).');
+      }
+      final body = await utf8.decoder.bind(response).join();
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic> ||
+          decoded['version'] != 1 ||
+          decoded['files'] is! List) {
+        throw const FormatException('The sender returned an unsupported file list.');
+      }
+      return (decoded['files'] as List)
+          .whereType<Map>()
+          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> downloadAll({
+    required PlazmaConnectionInvite invite,
+    required List<SharedLocalFile> files,
+    required Directory destination,
+    required void Function(LocalTransferProgress progress) onProgress,
+  }) async {
+    await destination.create(recursive: true);
+    final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
+    var totalBytes = 0;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      for (final item in files) {
+        final relative = _safeRelativePath(item.relativePath);
+        final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
+        await target.parent.create(recursive: true);
+        if (await target.exists()) {
+          final existingSize = await target.length();
+          final existingDigest = await sha256.bind(target.openRead()).first;
+          if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          throw FileSystemException('A different file with this name already exists.', target.path);
+        }
+        final partial = File('${target.path}.plazma-partial');
+        var offset = await partial.exists() ? await partial.length() : 0;
+        if (offset > item.size) {
+          await partial.delete();
+          offset = 0;
+        }
+        if (offset == item.size && offset > 0) {
+          final digest = await sha256.bind(partial.openRead()).first;
+          if (digest.toString() == item.sha256) {
+            await partial.rename(target.path);
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          await partial.delete();
+          offset = 0;
+        }
+        final request = await client.getUrl(
+          _endpoint(invite, '/download', {'id': item.id.toString()}),
+        );
+        if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
+        final response = await request.close().timeout(const Duration(seconds: 30));
+        final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
+        if (response.statusCode != expectedStatus) {
+          throw HttpException(
+            'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
+          );
+        }
+        final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+        var fileBytes = offset;
+        totalBytes += offset;
+        onProgress(LocalTransferProgress(
+          fileName: item.name,
+          fileBytes: fileBytes,
+          fileSize: item.size,
+          totalBytes: totalBytes,
+          totalSize: totalSize,
+        ));
+        try {
+          await for (final chunk in response) {
+            sink.add(chunk);
+            fileBytes += chunk.length;
+            totalBytes += chunk.length;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: fileBytes,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+          }
+          await sink.flush();
+          await sink.close();
+          final receivedDigest = await sha256.bind(partial.openRead()).first;
+          if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
+            await partial.delete();
+            throw FileSystemException(
+              'The received file failed its size or SHA-256 integrity check.',
+              partial.path,
+            );
+          }
+          await partial.rename(target.path);
+        } catch (_) {
+          await sink.close();
+          rethrow;
+        }
+      }
+      final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
+        if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
+      }));
+      final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      if (completeResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('The sender did not acknowledge transfer completion.');
+      }
+      await completeResponse.drain<void>();
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<String> _localIpv4Address() async {
+    final interfaces = await NetworkInterface.list(
+      includeLoopback: false,
+      type: InternetAddressType.IPv4,
+    );
+    for (final interface in interfaces) {
+      for (final address in interface.addresses) {
+        final parts = address.address.split('.').map(int.tryParse).toList();
+        if (parts.length != 4 || parts.any((part) => part == null)) continue;
+        final a = parts[0]!;
+        final b = parts[1]!;
+        final isPrivate = a == 10 ||
+            (a == 192 && b == 168) ||
+            (a == 172 && b >= 16 && b <= 31);
+        if (isPrivate) return address.address;
+      }
+    }
+    throw const SocketException(
+      'No private IPv4 address found. Connect this PC to the same Wi-Fi or hotspot as the receiving device.',
+    );
+  }
+
+  Uri _endpoint(PlazmaConnectionInvite invite, String path, [Map<String, String>? extra]) {
+    return Uri(
+      scheme: 'http',
+      host: invite.host,
+      port: invite.port,
+      path: path,
+      queryParameters: {'token': invite.token, ...?extra},
+    );
+  }
+
+  bool _authorized(HttpRequest request, String token) {
+    final supplied = request.uri.queryParameters['token'];
+    if (supplied == null || supplied.length != token.length) return false;
+    var difference = 0;
+    for (var i = 0; i < token.length; i++) {
+      difference |= supplied.codeUnitAt(i) ^ token.codeUnitAt(i);
+    }
+    return difference == 0;
+  }
+
+  String _safeRelativePath(String value) {
+    final normalized = value.replaceAll('\\', '/');
+    final parts = normalized.split('/');
+    if (normalized.isEmpty ||
+        normalized.startsWith('/') ||
+        parts.any((part) => part.isEmpty || part == '.' || part == '..') ||
+        RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
+      throw const FormatException('Unsafe file path received.');
+    }
+    return normalized;
+  }
+
+  String _displayName(String path) => path.split('/').last;
+
+  Future<void> stopSharing() async {
+    final server = _server;
+    _server = null;
+    _invite = null;
+    _onTransferCompleted = null;
+    _files = const [];
+    _manifest = const [];
+    _roomId = null;
+    _members.clear();
+    _completedMembers.clear();
+    await server?.close(force: true);
+    TransferOverlayController.clear();
+    await stopForegroundService();
+  }
+
+  Future<void> disconnect() async {
+    final invite = _joinedInvite;
+    final deviceId = _joinedDeviceId;
+    _joinedInvite = null;
+    _joinedDeviceId = null;
+    if (invite != null && deviceId != null) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.postUrl(_endpoint(invite, '/leave'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'deviceId': deviceId}));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+      } catch (_) {
+        // The room may already have been closed by its host.
+      } finally {
+        client.close(force: true);
+      }
+    }
+    // Plazma S does not change the device's Wi-Fi connection.
+    await stopForegroundService();
+  }
+}
+).hasMatch(deviceId) ||
+            deviceName is! String || deviceName.trim().isEmpty || deviceName.length > 80 ||
+            platform is! String || platform.trim().isEmpty || platform.length > 40) {
+          request.response.statusCode = HttpStatus.badRequest;
+          await request.response.close();
+          return;
+        }
+        if (!_members.containsKey(deviceId) && _members.length >= 7) {
+          request.response.statusCode = HttpStatus.conflict;
+          request.response.write('This room already has seven recipients.');
+          await request.response.close();
+          return;
+        }
+        _members[deviceId] = {
+          'deviceId': deviceId,
+          'deviceName': deviceName.trim(),
+          'platform': platform.trim(),
+          'status': _completedMembers.contains(deviceId) ? 'completed' : 'joined',
+        };
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'roomId': _roomId,
+          'joinedCount': _members.length + 1,
+          'maxMembers': 8,
+        }));
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'POST' && request.uri.path == '/leave') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        if (deviceId is String) {
+          _members.remove(deviceId);
+          _completedMembers.remove(deviceId);
+        }
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'GET' && request.uri.path == '/room') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'roomId': _roomId,
+          'joinedCount': _members.length + 1,
+          'maxMembers': 8,
+          'completedCount': _completedMembers.length,
+          'members': _members.values.toList(),
+        }));
+        await request.response.close();
+        return;
+      }
       if (request.method == 'POST' && request.uri.path == '/complete') {
+        final deviceId = request.uri.queryParameters['deviceId'];
+        if (deviceId != null && _members.containsKey(deviceId)) {
+          _completedMembers.add(deviceId);
+          _members[deviceId]!['status'] = 'completed';
+        }
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         final onCompleted = _onTransferCompleted;
@@ -191,8 +603,7 @@ class XenderLocalTransferService {
             debugPrint('Could not record completed outgoing transfer: $error');
           }
         }
-        // A room can have several receivers. Completing one recipient must
-        // never close the host or interrupt the remaining recipients.
+        // Keep the room open until its host explicitly stops sharing.
         return;
       }
       if (request.method != 'GET') {
