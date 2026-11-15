@@ -246,16 +246,49 @@ class XenderLocalTransferService {
           throw FileSystemException('A different file with this name already exists.', target.path);
         }
         final partial = File('${target.path}.plazma-partial');
-        if (await partial.exists()) await partial.delete();
+        var offset = await partial.exists() ? await partial.length() : 0;
+        if (offset > item.size) {
+          await partial.delete();
+          offset = 0;
+        }
+        if (offset == item.size && offset > 0) {
+          final digest = await sha256.bind(partial.openRead()).first;
+          if (digest.toString() == item.sha256) {
+            await partial.rename(target.path);
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          await partial.delete();
+          offset = 0;
+        }
         final request = await client.getUrl(
           _endpoint(invite, '/download', {'id': item.id.toString()}),
         );
+        if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
         final response = await request.close().timeout(const Duration(seconds: 30));
-        if (response.statusCode != HttpStatus.ok) {
-          throw HttpException('Download failed for ${item.name} (HTTP ${response.statusCode}).');
+        final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
+        if (response.statusCode != expectedStatus) {
+          throw HttpException(
+            'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
+          );
         }
-        final sink = partial.openWrite();
-        var fileBytes = 0;
+        final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+        var fileBytes = offset;
+        totalBytes += offset;
+        onProgress(LocalTransferProgress(
+          fileName: item.name,
+          fileBytes: fileBytes,
+          fileSize: item.size,
+          totalBytes: totalBytes,
+          totalSize: totalSize,
+        ));
         try {
           await for (final chunk in response) {
             sink.add(chunk);
@@ -273,6 +306,7 @@ class XenderLocalTransferService {
           await sink.close();
           final receivedDigest = await sha256.bind(partial.openRead()).first;
           if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
+            await partial.delete();
             throw FileSystemException(
               'The received file failed its size or SHA-256 integrity check.',
               partial.path,
@@ -281,7 +315,6 @@ class XenderLocalTransferService {
           await partial.rename(target.path);
         } catch (_) {
           await sink.close();
-          if (await partial.exists()) await partial.delete();
           rethrow;
         }
       }
