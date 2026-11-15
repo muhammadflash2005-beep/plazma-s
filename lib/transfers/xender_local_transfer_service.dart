@@ -461,6 +461,7 @@ class XenderLocalTransferService {
   String _displayName(String path) => path.split('/').last;
 
   Future<void> stopSharing() async {
+    final invite = _invite;
     final server = _server;
     _server = null;
     _invite = null;
