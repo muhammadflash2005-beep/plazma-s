@@ -58,6 +58,7 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
               <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
               <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
@@ -327,12 +328,17 @@ jobs:
                                   password = config?.preSharedKey?.trim('"') ?: ""
                               }
                               runOnUiThread {
-                                  val host = findHotspotAddress()
-                                  if (host == null) {
-                                      result.error("HOTSPOT_ADDRESS_UNAVAILABLE", "Android started the hotspot but its local IP address could not be detected.", null)
-                                  } else {
-                                      result.success(mapOf("ssid" to ssid, "password" to password, "host" to host))
+                                  fun respondWhenReady(attempt: Int) {
+                                      val host = findHotspotAddress()
+                                      if (host != null) {
+                                          result.success(mapOf("ssid" to ssid, "password" to password, "host" to host))
+                                      } else if (attempt < 10) {
+                                          Handler(Looper.getMainLooper()).postDelayed({ respondWhenReady(attempt + 1) }, 500)
+                                      } else {
+                                          result.error("HOTSPOT_ADDRESS_UNAVAILABLE", "Android started the hotspot but its local IP address could not be detected after 5 seconds.", null)
+                                      }
                                   }
+                                  respondWhenReady(0)
                               }
                           }
 
