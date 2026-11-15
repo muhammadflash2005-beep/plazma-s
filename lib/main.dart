@@ -376,6 +376,21 @@ class _HomeScreenState extends State<HomeScreen> {
         _tab = 1;
       });
 
+  Widget _notice() => Card(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 10),
+            const Expanded(child: Text(
+              'All devices must already be connected to the same Wi-Fi network. Plazma S does not create or switch hotspots. Rooms support up to one sender and seven recipients across Android and PC.',
+              style: TextStyle(height: 1.4, fontSize: 13),
+            )),
+          ]),
+        ),
+      );
+
   Widget _topCategoryNavigation() {
     const labels = ['Apps', 'Images', 'Music', 'Videos', 'Files'];
     const icons = [Icons.apps_rounded, Icons.photo_library_rounded, Icons.library_music_rounded, Icons.video_library_rounded, Icons.folder_rounded];
