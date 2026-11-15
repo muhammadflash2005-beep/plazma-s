@@ -101,7 +101,7 @@ class _MusicScreenState extends State<MusicScreen> {
               },
             ));
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
       MusicScreen.selectedCount.value = 0;
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -299,7 +299,7 @@ class _MusicScreenState extends State<MusicScreen> {
         FilledButton.icon(onPressed: _busy ? null : _downloadMusic,
           icon: const Icon(Icons.download), label: const Text('Receive music')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.music,
