@@ -640,15 +640,15 @@ class _FilesScreenState extends State<FilesScreen> {
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
-                  child: Icon(member['platform'] == 'android'
+                  child: Icon(member.platform == 'android'
                       ? Icons.phone_android_rounded
                       : Icons.computer_rounded),
                 ),
-                title: Text(member['deviceName'] ?? 'Connected device'),
-                subtitle: Text(member['platform'] ?? 'Device'),
+                title: Text(member.deviceName),
+                subtitle: Text(member.platform),
                 trailing: Icon(
-                  member['status'] == 'completed' ? Icons.check_circle : Icons.wifi,
-                  color: member['status'] == 'completed' ? Colors.green : theme.colorScheme.primary,
+                  member.completed ? Icons.check_circle : Icons.wifi,
+                  color: member.completed ? Colors.green : theme.colorScheme.primary,
                 ),
               )),
             const SizedBox(height: 4),
