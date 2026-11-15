@@ -68,7 +68,7 @@ jobs:
               <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
               <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
           """
-          s = s.replace("<application", permissions + "\\n    <application", 1)
+          s = s.replace("<application", permissions + "\\n    <application android:usesCleartextTraffic="true"", 1)
           provider = """
               <provider
                   android:name="androidx.core.content.FileProvider"
