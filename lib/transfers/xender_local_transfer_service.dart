@@ -495,7 +495,21 @@ class XenderLocalTransferService {
       includeLoopback: false,
       type: InternetAddressType.IPv4,
     );
+    final candidates = <({int priority, String address})>[];
     for (final interface in interfaces) {
+      final name = interface.name.toLowerCase();
+      // Avoid VPN, virtual-machine, container, Wi-Fi Direct and cellular
+      // interfaces when advertising a room address to devices on the LAN.
+      if (RegExp(r'tun|vpn|wireguard|wg|utun|tailscale|docker|veth|bridge|vmnet|rmnet|p2p').hasMatch(name)) {
+        continue;
+      }
+      final priority = name.contains('wlan') || name.contains('wifi') ||
+              name.contains('wi-fi') || name == 'en0' || name.startsWith('wl')
+          ? 0
+          : name.contains('ethernet') || name.startsWith('eth') ||
+                  name.startsWith('enp') || name.startsWith('eno')
+              ? 1
+              : 2;
       for (final address in interface.addresses) {
         final parts = address.address.split('.').map(int.tryParse).toList();
         if (parts.length != 4 || parts.any((part) => part == null)) continue;
@@ -504,9 +518,11 @@ class XenderLocalTransferService {
         final isPrivate = a == 10 ||
             (a == 192 && b == 168) ||
             (a == 172 && b >= 16 && b <= 31);
-        if (isPrivate) return address.address;
+        if (isPrivate) candidates.add((priority: priority, address: address.address));
       }
     }
+    candidates.sort((a, b) => a.priority.compareTo(b.priority));
+    if (candidates.isNotEmpty) return candidates.first.address;
     throw const SocketException(
       'No private IPv4 address found. Connect this device to the same Wi-Fi network as the other devices.',
     );
