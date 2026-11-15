@@ -145,7 +145,7 @@ class _VideosScreenState extends State<VideosScreen> {
         return name.endsWith('.mp4') || name.endsWith('.mkv') ||
             name.endsWith('.mov') || name.endsWith('.avi') ||
             name.endsWith('.webm') || name.endsWith('.3gp') ||
-            name.endsWith('.m4v') || name.endsWith('.wmv');
+            name.endsWith('.m4v') || name.endsWith('.wmv') || name.endsWith('.flv');
       }).toList();
       if (videos.isEmpty) throw StateError('No videos were found in this share.');
       if (!mounted) return;
@@ -223,7 +223,7 @@ class _VideosScreenState extends State<VideosScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Images', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+      Text('Videos', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
       Text('Choose photos, preview your selection, and share them directly with another phone.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
