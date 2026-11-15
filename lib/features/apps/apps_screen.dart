@@ -127,7 +127,9 @@ class _AppsScreenState extends State<AppsScreen> {
     for (final item in items) {
       if (item['packageName'] != pkg ||
           item['path'] is! String ||
-          item['relativePath'] is! String) continue;
+          item['relativePath'] is! String) {
+        continue;
+      }
       final filename = (item['relativePath'] as String).split('/').last;
       await File(item['path'] as String).copy(
         folder.path + Platform.pathSeparator + filename,
