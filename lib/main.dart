@@ -13,6 +13,7 @@ import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
+import 'features/music/music_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
@@ -251,6 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               FilesScreen(transferMode: _transferMode),
                               const AppsScreen(),
                               const ImagesScreen(),
+                              const MusicScreen(),
                               const DevicesScreen(),
                               _secondaryContent(),
                               _settingsContent(),
@@ -269,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
                         NavigationDestination(icon: Icon(Icons.photo_library_rounded), label: 'Images'),
+                        NavigationDestination(icon: Icon(Icons.library_music_rounded), label: 'Music'),
                         NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                         NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
@@ -634,9 +637,10 @@ class _Sidebar extends StatelessWidget {
       _navItem(context, Icons.folder_rounded, 'Files', 1),
       _navItem(context, Icons.apps_rounded, 'Apps', 2),
       _navItem(context, Icons.photo_library_rounded, 'Images', 3),
-      _navItem(context, Icons.devices_rounded, 'Devices', 4),
-      _navItem(context, Icons.history_rounded, 'History', 5),
-      _navItem(context, Icons.settings_rounded, 'Settings', 6),
+      _navItem(context, Icons.library_music_rounded, 'Music', 4),
+      _navItem(context, Icons.devices_rounded, 'Devices', 5),
+      _navItem(context, Icons.history_rounded, 'History', 6),
+      _navItem(context, Icons.settings_rounded, 'Settings', 7),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
