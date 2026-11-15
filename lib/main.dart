@@ -214,19 +214,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
-  List<String> _pendingSharePaths = const [];
   TransferMode? _transferMode;
 
   @override
   void dispose() {
     super.dispose();
-  }
-
-  void _createRoomForSelectedApps(List<String> paths) {
-    setState(() {
-      _pendingSharePaths = List<String>.from(paths);
-      _tab = 1;
-    });
   }
 
   void _showJoinDialog() => _openTransfer(TransferMode.androidToAndroid);
@@ -255,8 +247,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             index: _tab,
                             children: [
                               _homeContent(wide),
-                              FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
-                              AppsScreen(onSendSelected: _createRoomForSelectedApps),
+                              FilesScreen(transferMode: _transferMode),
+                              const AppsScreen(),
                               const DevicesScreen(),
                               _secondaryContent(),
                               _settingsContent(),
@@ -299,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () => setState(() => _tab = 1),
+                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 2 : 1),
                     child: SizedBox(
                       width: 58,
                       height: 58,
