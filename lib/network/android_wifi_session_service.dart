@@ -58,16 +58,19 @@ class PlazmaConnectionInvite {
         (octets[0] == 10 ||
             (octets[0] == 192 && octets[1] == 168) ||
             (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31));
-    // Empty SSID/password values identify the same-Wi-Fi room format.
-    // Legacy QR codes with hotspot credentials remain parseable for rollback.
+    const roomAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final validRoomId = roomId.isEmpty ||
+        (roomId.length == 6 && roomId.split('').every(roomAlphabet.contains));
     if (ssid == null ||
         password == null ||
+        !validRoomId ||
         !isPrivateIpv4 ||
         port == null ||
         port < 1 ||
         port > 65535 ||
         token == null ||
-        !RegExp(r'^[a-f0-9]{32}
+        token.length != 32 ||
+        !token.split('').every('0123456789abcdef'.contains)) {
       return null;
     }
     return PlazmaConnectionInvite(
@@ -77,147 +80,6 @@ class PlazmaConnectionInvite {
       port: port,
       token: token,
       roomId: roomId,
-    );
-  }
-}
-
-/// Android bridge for hosting and joining a private, internet-free Wi-Fi
-/// session. The native side owns the Wi-Fi NetworkCallback so the connection
-/// remains bound to the selected Wi-Fi network for the transfer session.
-class AndroidWifiSessionService {
-  static const MethodChannel _channel = MethodChannel('com.plazma.s/hotspot');
-
-  Future<PlazmaConnectionInvite> createInvite({int port = 45454}) async {
-    if (port < 1 || port > 65535) {
-      throw ArgumentError.value(port, 'port', 'Must be between 1 and 65535.');
-    }
-    final token = List.generate(
-      16,
-      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
-    ).join();
-    final result = await _channel.invokeMapMethod<String, Object?>(
-      'startHotspot',
-    );
-    if (result == null) {
-      throw PlatformException(
-        code: 'EMPTY_RESULT',
-        message: 'Android did not return hotspot details.',
-      );
-    }
-    final ssid = result['ssid'] as String? ?? '';
-    final password = result['password'] as String? ?? '';
-    final host = result['host'] as String? ?? '';
-    if (ssid.isEmpty || password.isEmpty || host.isEmpty) {
-      await stop();
-      throw PlatformException(
-        code: 'INCOMPLETE_HOTSPOT',
-        message: 'Android started Wi-Fi but did not provide complete local connection details.',
-      );
-    }
-    return PlazmaConnectionInvite(
-      ssid: ssid,
-      password: password,
-      host: host,
-      port: port,
-      token: token,
-    );
-  }
-
-  Future<void> join(PlazmaConnectionInvite invite) async {
-    await _channel.invokeMethod<void>('joinHotspot', {
-      'ssid': invite.ssid,
-      'password': invite.password,
-    });
-  }
-
-  Future<void> stop() => _channel.invokeMethod<void>('stopHotspot');
-
-  Future<void> disconnect() =>
-      _channel.invokeMethod<void>('disconnectHotspot');
-
-  Future<void> openWifiSettings() =>
-      _channel.invokeMethod<void>('openWifiSettings');
-}
-).hasMatch(token) ||
-        (roomId.isNotEmpty && !RegExp(r'^[A-HJ-NP-Z2-9]{6}
-      return null;
-    }
-    return PlazmaConnectionInvite(
-      ssid: ssid,
-      password: password,
-      host: host!,
-      port: port,
-      token: token,
-    );
-  }
-}
-
-/// Android bridge for hosting and joining a private, internet-free Wi-Fi
-/// session. The native side owns the Wi-Fi NetworkCallback so the connection
-/// remains bound to the selected Wi-Fi network for the transfer session.
-class AndroidWifiSessionService {
-  static const MethodChannel _channel = MethodChannel('com.plazma.s/hotspot');
-
-  Future<PlazmaConnectionInvite> createInvite({int port = 45454}) async {
-    if (port < 1 || port > 65535) {
-      throw ArgumentError.value(port, 'port', 'Must be between 1 and 65535.');
-    }
-    final token = List.generate(
-      16,
-      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
-    ).join();
-    final result = await _channel.invokeMapMethod<String, Object?>(
-      'startHotspot',
-    );
-    if (result == null) {
-      throw PlatformException(
-        code: 'EMPTY_RESULT',
-        message: 'Android did not return hotspot details.',
-      );
-    }
-    final ssid = result['ssid'] as String? ?? '';
-    final password = result['password'] as String? ?? '';
-    final host = result['host'] as String? ?? '';
-    if (ssid.isEmpty || password.isEmpty || host.isEmpty) {
-      await stop();
-      throw PlatformException(
-        code: 'INCOMPLETE_HOTSPOT',
-        message: 'Android started Wi-Fi but did not provide complete local connection details.',
-      );
-    }
-    return PlazmaConnectionInvite(
-      ssid: ssid,
-      password: password,
-      host: host,
-      port: port,
-      token: token,
-    );
-  }
-
-  Future<void> join(PlazmaConnectionInvite invite) async {
-    await _channel.invokeMethod<void>('joinHotspot', {
-      'ssid': invite.ssid,
-      'password': invite.password,
-    });
-  }
-
-  Future<void> stop() => _channel.invokeMethod<void>('stopHotspot');
-
-  Future<void> disconnect() =>
-      _channel.invokeMethod<void>('disconnectHotspot');
-
-  Future<void> openWifiSettings() =>
-      _channel.invokeMethod<void>('openWifiSettings');
-}
-).hasMatch(roomId))) {
-      return null;
-    }
-    return PlazmaConnectionInvite(
-      ssid: ssid,
-      password: password,
-      host: host!,
-      port: port,
-      token: token,
     );
   }
 }
