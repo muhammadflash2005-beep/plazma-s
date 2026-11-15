@@ -12,6 +12,7 @@ import 'updates/app_update_card.dart';
 import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
+import 'features/images/images_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
@@ -249,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               _homeContent(wide),
                               FilesScreen(transferMode: _transferMode),
                               const AppsScreen(),
+                              const ImagesScreen(),
                               const DevicesScreen(),
                               _secondaryContent(),
                               _settingsContent(),
@@ -266,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
                         NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
+                        NavigationDestination(icon: Icon(Icons.photo_library_rounded), label: 'Images'),
                         NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                         NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
@@ -277,6 +280,25 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
           ),
+          if (_tab == 2)
+            Positioned(
+              left: wide ? 300 : 16,
+              right: 16,
+              bottom: wide ? 92 : 158,
+              child: ValueListenableBuilder<int>(
+                valueListenable: AppsScreen.selectedCount,
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : SizedBox(
+                        height: 54,
+                        child: FilledButton.icon(
+                          onPressed: AppsScreen.sendSelected,
+                          icon: const Icon(Icons.send_rounded),
+                          label: Text('Send $count selected app${count == 1 ? '' : 's'}'),
+                        ),
+                      ),
+              ),
+            ),
           Positioned(
             right: 16,
             bottom: wide ? 24 : 92,
