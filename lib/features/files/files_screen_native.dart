@@ -14,9 +14,10 @@ import '../../transfers/transfer_mode.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class FilesScreen extends StatefulWidget {
-  const FilesScreen({this.transferMode, super.key});
+  const FilesScreen({this.transferMode, this.initialPaths = const [], super.key});
 
   final TransferMode? transferMode;
+  final List<String> initialPaths;
 
   @override
   State<FilesScreen> createState() => _FilesScreenState();
@@ -35,6 +36,37 @@ class _FilesScreenState extends State<FilesScreen> {
   double _progress = 0;
   bool _busy = false;
   bool _downloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _addInitialPaths(widget.initialPaths);
+  }
+
+  @override
+  void didUpdateWidget(covariant FilesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialPaths != widget.initialPaths) {
+      _addInitialPaths(widget.initialPaths);
+    }
+  }
+
+  void _addInitialPaths(List<String> paths) {
+    var added = 0;
+    for (final path in paths) {
+      if (_files.any((file) => file.path == path)) continue;
+      final file = File(path);
+      if (!file.existsSync()) continue;
+      final segments = path.split(Platform.pathSeparator);
+      final relative = segments.length >= 2
+          ? '${segments[segments.length - 2]}/${segments.last}'
+          : segments.last;
+      _files.add(file);
+      _relativePaths.add(relative);
+      added++;
+    }
+    if (added > 0) _status = 'Added $added exported APK file(s) from selected apps';
+  }
 
   @override
   void dispose() {

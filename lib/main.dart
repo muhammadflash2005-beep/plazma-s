@@ -214,7 +214,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
-  int _selectedAppsCount = 0;
+  List<String> _pendingSharePaths = const [];
   TransferMode? _transferMode;
 
   @override
@@ -222,14 +222,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _createRoomForSelectedApps(int count) {
+  void _createRoomForSelectedApps(List<String> paths) {
     setState(() {
-      _selectedAppsCount = 0;
+      _pendingSharePaths = List<String>.from(paths);
       _tab = 1;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Installed-app export is the next transfer feature. File sharing is ready in the Files tab.')),
-    );
   }
 
   void _showJoinDialog() => _openTransfer(TransferMode.androidToAndroid);
@@ -254,12 +251,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
                           child: switch (_tab) {
                             0 => _homeContent(wide),
-                            1 => FilesScreen(transferMode: _transferMode),
-                            2 => AppsScreen(
-                                onSendSelected: _createRoomForSelectedApps,
-                                onSelectionChanged: (count) =>
-                                    setState(() => _selectedAppsCount = count),
-                              ),
+                            1 => FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
+                            2 => AppsScreen(onSendSelected: _createRoomForSelectedApps),
                             3 => const DevicesScreen(),
                             4 => _secondaryContent(),
                             _ => _settingsContent(),
@@ -268,33 +261,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  if (_tab == 2 && _selectedAppsCount > 0)
-                    Material(
-                      color: Theme.of(context).colorScheme.surface,
-                      elevation: 10,
-                      child: SafeArea(
-                        top: false,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(22, 10, 22, 10),
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 1180),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: () => _createRoomForSelectedApps(_selectedAppsCount),
-                                  icon: const Icon(Icons.send_rounded),
-                                  label: Text('Send $_selectedAppsCount selected app(s)'),
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(50),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                   if (!wide)
                     NavigationBar(
                       selectedIndex: _tab,

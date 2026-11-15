@@ -2,13 +2,13 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 
 class AppsScreen extends StatefulWidget {
-  const AppsScreen({required this.onSendSelected, required this.onSelectionChanged, super.key});
+  const AppsScreen({required this.onSendSelected, super.key});
 
-  final ValueChanged<int> onSendSelected;
-  final ValueChanged<int> onSelectionChanged;
+  final ValueChanged<List<String>> onSendSelected;
 
   @override
   State<AppsScreen> createState() => _AppsScreenState();
@@ -19,6 +19,7 @@ class _AppsScreenState extends State<AppsScreen> {
   final Set<String> _selected = {};
   bool _loading = false;
   bool _loaded = false;
+  bool _exporting = false;
   String? _error;
 
   @override
@@ -56,7 +57,6 @@ class _AppsScreenState extends State<AppsScreen> {
         _selected.removeWhere((packageName) =>
             !apps.any((app) => app.packageName == packageName));
       });
-      widget.onSelectionChanged(_selected.length);
     } catch (error) {
       if (mounted) setState(() => _error = 'Could not read installed apps: $error');
     } finally {
@@ -64,6 +64,34 @@ class _AppsScreenState extends State<AppsScreen> {
     }
   }
 
+
+  Future<void> _exportSelectedApps() async {
+    if (_selected.isEmpty || _exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final packages = _apps
+          .where((app) => app.packageName != null && _selected.contains(app.packageName))
+          .map((app) => app.packageName!)
+          .toList();
+      final exported = await const MethodChannel('com.plazma.s/apps')
+          .invokeListMethod<dynamic>('exportApks', {'packageNames': packages});
+      final paths = (exported ?? [])
+          .whereType<Map>()
+          .map((item) => item['path'])
+          .whereType<String>()
+          .toList();
+      if (paths.isEmpty) throw StateError('Android did not export any APK files.');
+      widget.onSendSelected(paths);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not export selected apps: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
 
   Widget _appCard(AppInfo app, ThemeData theme) {
     final packageName = app.packageName;
@@ -87,7 +115,6 @@ class _AppsScreenState extends State<AppsScreen> {
                     _selected.add(packageName);
                   }
                 });
-                widget.onSelectionChanged(_selected.length);
               },
         child: Padding(
           padding: const EdgeInsets.fromLTRB(3, 6, 3, 5),
@@ -192,6 +219,17 @@ class _AppsScreenState extends State<AppsScreen> {
           );
         }),
       const SizedBox(height: 16),
+      if (_selected.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _exporting ? null : _exportSelectedApps,
+            icon: const Icon(Icons.send_rounded),
+            label: Text(_exporting ? 'Exporting APKs…' : 'Send ${_selected.length} selected app(s)'),
+          ),
+        ),
+      ],
       Card(
         color: theme.colorScheme.surfaceContainerHighest,
         child: const Padding(
@@ -200,7 +238,7 @@ class _AppsScreenState extends State<AppsScreen> {
             Icon(Icons.info_outline_rounded),
             SizedBox(width: 10),
             Expanded(child: Text(
-              'This first app-sharing step reads app names, icons, versions and base APK paths. Split APKs, reliable package export and sending will be added before app sharing is considered complete.',
+              'Selected apps are exported with their base APK and any split APK parts. The receiving phone will still need to approve installation through Android.',
               style: TextStyle(fontSize: 12, height: 1.45),
             )),
           ]),
