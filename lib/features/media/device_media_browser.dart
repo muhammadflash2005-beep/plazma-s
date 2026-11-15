@@ -45,7 +45,11 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
       _message = null;
     });
     try {
-      final permission = await PhotoManager.requestPermissionExtend();
+      final permission = await PhotoManager.requestPermissionExtend(
+        requestOption: PermissionRequestOption(
+          androidPermission: AndroidPermission(type: _requestType, mediaLocation: false),
+        ),
+      );
       if (!permission.hasAccess) {
         if (mounted) {
           setState(() {
