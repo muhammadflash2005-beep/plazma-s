@@ -374,6 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _homeContent(bool wide) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
