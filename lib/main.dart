@@ -215,7 +215,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _tab = 1;
+  int _tab = 0;
   int _category = 0;
   TransferMode? _transferMode;
   String? _transferAction;
@@ -225,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _showJoinDialog() => setState(() { _transferAction = null; _transferMode = null; _tab = 2; });
+  void _showJoinDialog() => setState(() { _transferAction = null; _transferMode = null; _tab = 1; });
 
   @override
   Widget build(BuildContext context) {
@@ -236,12 +236,12 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: Row(
           children: [
-            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() { _tab = value; if (value != 2) { _transferMode = null; _transferAction = null; } })),
+            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() { _tab = value; if (value != 1) { _transferMode = null; _transferAction = null; } })),
             Expanded(
               child: Column(
                 children: [
                   _TopBar(onJoin: _showJoinDialog),
-                  if (_tab == 1) _topCategoryNavigation(),
+                  if (_tab == 0) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
                       child: ConstrainedBox(
@@ -251,7 +251,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: IndexedStack(
                             index: _tab,
                             children: [
-                              _homeContent(wide),
                               _categoryContent(),
                               _transferAction == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode, initialAction: _transferAction),
                               _meContent(),
@@ -269,7 +268,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         if (value != 2) { _transferMode = null; _transferAction = null; }
                       }),
                       destinations: const [
-                        NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
                         NavigationDestination(icon: Icon(Icons.swap_horiz_rounded), label: 'Transfer'),
                         NavigationDestination(icon: Icon(Icons.person_rounded), label: 'Me'),
@@ -281,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
           ),
-          if (_tab == 1)
+          if (_tab == 0)
             Positioned(
               left: wide ? 300 : 16,
               right: 16,
@@ -314,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 1 : 2),
+                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 0 : 1),
                     child: SizedBox(
                       width: 58,
                       height: 58,
@@ -372,30 +370,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _homeContent(bool wide) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Your devices. One room.\nSend together.',
-            style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
-        const SizedBox(height: 6),
-        Text('Connect Android phones and computers on the same Wi-Fi. Create a room, invite up to seven other devices, and send apps, files, images, music and videos.',
-            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
-        const SizedBox(height: 12),
-        _notice(),
-        const SizedBox(height: 14),
-        Text('Multi-device transfer room', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8),
-        _roomActions(wide),
-      ],
-    );
-  }
-
   void _openTransfer(TransferMode? mode, String action) => setState(() {
         _transferMode = mode;
         _transferAction = action;
-        _tab = 2;
+        _tab = 1;
       });
 
   Widget _notice() => Card(
@@ -411,28 +389,6 @@ class _HomeScreenState extends State<HomeScreen> {
             )),
           ]),
         ),
-      );
-
-  Widget _roomActions(bool wide) => Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: [
-          SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.send_rounded,
-            title: 'Create a room',
-            subtitle: 'Start a room from this PC or Android device. Share the QR code or connection code with up to seven recipients.',
-            buttonText: 'Create room',
-            onPressed: () => _openTransfer(null, 'create'),
-          )),
-          SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.qr_code_scanner_rounded,
-            title: 'Join a room',
-            subtitle: 'Join a room hosted by another PC or Android device. Each recipient receives independently.',
-            buttonText: 'Join room',
-            onPressed: _showJoinDialog,
-            outlined: true,
-          )),
-        ],
       );
 
   Widget _topCategoryNavigation() {
@@ -515,71 +471,26 @@ class _HomeScreenState extends State<HomeScreen> {
       const SizedBox(height: 22),
       Text('Appearance', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 12),
-      GridView.count(
-        crossAxisCount: 3,
-        crossAxisSpacing: 9,
-        mainAxisSpacing: 9,
-        childAspectRatio: 0.76,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
+      Wrap(
+        spacing: 10,
+        runSpacing: 10,
         children: PlazmaTheme.values.map((theme) {
           final isSelected = selected == theme;
-          return Card(
-            clipBehavior: Clip.antiAlias,
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: isSelected
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.outlineVariant,
-                width: isSelected ? 2 : 1,
-              ),
-            ),
+          return Tooltip(
+            message: theme.label,
             child: InkWell(
+              customBorder: const CircleBorder(),
               onTap: () => widget.themes.setTheme(theme),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        _ThemeSwatch(theme: theme),
-                        const Spacer(),
-                        if (isSelected)
-                          Icon(
-                            Icons.check_circle_rounded,
-                            color: Theme.of(context).colorScheme.primary,
-                            size: 18,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      theme.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Expanded(
-                      child: Text(
-                        theme.description,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 9,
-                          height: 1.2,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                    width: 2,
+                  ),
                 ),
+                child: _ThemeSwatch(theme: theme),
               ),
             ),
           );
@@ -605,14 +516,14 @@ class _ThemeSwatch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    width: 42, height: 42,
+    width: 30, height: 30,
     decoration: BoxDecoration(
       color: theme.background,
       borderRadius: BorderRadius.circular(13),
       border: Border.all(color: theme.foreground.withValues(alpha: 0.15)),
     ),
     child: Center(child: Container(
-      width: 22, height: 22,
+      width: 17, height: 17,
       decoration: BoxDecoration(color: theme.primary, shape: BoxShape.circle),
     )),
   );
@@ -660,10 +571,9 @@ class _Sidebar extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(14, 22, 14, 14),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Padding(padding: EdgeInsets.fromLTRB(12, 0, 12, 26), child: Text('WORKSPACE', style: TextStyle(fontSize: 10, letterSpacing: 1.8, fontWeight: FontWeight.w800))),
-      _navItem(context, Icons.home_rounded, 'Home', 0),
-      _navItem(context, Icons.apps_rounded, 'Apps', 1),
-      _navItem(context, Icons.swap_horiz_rounded, 'Transfer', 2),
-      _navItem(context, Icons.person_rounded, 'Me', 3),
+      _navItem(context, Icons.apps_rounded, 'Apps', 0),
+      _navItem(context, Icons.swap_horiz_rounded, 'Transfer', 1),
+      _navItem(context, Icons.person_rounded, 'Me', 2),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),

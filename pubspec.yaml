@@ -1,7 +1,7 @@
 name: plazma_s
 description: Fast, secure, cross-platform local network file and app sharing.
 publish_to: "none"
-version: 0.2.9+15
+version: 0.2.10+16
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -17,6 +17,7 @@ dependencies:
   http: ^1.5.0
   package_info_plus: ^10.2.2
   path_provider: ^2.1.5
+  photo_manager: ^3.7.1
   convert: ^3.1.2
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.0.1
