@@ -82,7 +82,7 @@ jobs:
           """
           service = """
               <service
-                  android:name=".TransferForegroundService"
+                  android:name="com.plazma.plazma_s.TransferForegroundService"
                   android:exported="false"
                   android:foregroundServiceType="dataSync" />
           """
