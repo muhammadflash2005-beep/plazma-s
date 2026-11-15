@@ -376,43 +376,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _tab = 1;
       });
 
-  Widget _notice() => Card(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 10),
-            const Expanded(child: Text(
-              'All devices must already be connected to the same Wi-Fi network. Plazma S does not create or switch hotspots. Rooms support up to one sender and seven recipients across Android and PC.',
-              style: TextStyle(height: 1.4, fontSize: 13),
-            )),
-          ]),
-        ),
-      );
-
-  Widget _roomActions(bool wide) => Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: [
-          SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.send_rounded,
-            title: 'Create a room',
-            subtitle: 'Start a room from this PC or Android device. Share the QR code or connection code with up to seven recipients.',
-            buttonText: 'Create room',
-            onPressed: () => _openTransfer(null, 'create'),
-          )),
-          SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.qr_code_scanner_rounded,
-            title: 'Join a room',
-            subtitle: 'Join a room hosted by another PC or Android device. Each recipient receives independently.',
-            buttonText: 'Join room',
-            onPressed: _showJoinDialog,
-            outlined: true,
-          )),
-        ],
-      );
-
   Widget _topCategoryNavigation() {
     const labels = ['Apps', 'Images', 'Music', 'Videos', 'Files'];
     const icons = [Icons.apps_rounded, Icons.photo_library_rounded, Icons.library_music_rounded, Icons.video_library_rounded, Icons.folder_rounded];
