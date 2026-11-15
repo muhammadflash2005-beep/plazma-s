@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -18,6 +17,8 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class MusicScreen extends StatefulWidget {
+  static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
+  static VoidCallback? sendSelected;
   const MusicScreen({this.enabled = true, super.key});
   final bool enabled;
 
@@ -38,43 +39,34 @@ class _MusicScreenState extends State<MusicScreen> {
   Timer? _roomRefreshTimer;
 
   @override
+  void initState() {
+    super.initState();
+    MusicScreen.sendSelected = _sendMusic;
+  }
+
+  void _updateSelectionCount() => MusicScreen.selectedCount.value = _selected.length;
+
+  @override
   void dispose() {
+    if (MusicScreen.sendSelected == _sendMusic) MusicScreen.sendSelected = null;
+    MusicScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
   }
 
-  Future<void> _pickMusic() async {
-    if (_busy) return;
-    try {
-      // file_picker 13 returns a List<PlatformFile>; multi-select is the default.
-      final result = await FilePicker.pickFiles(type: FileType.audio);
-      if (!mounted || result.isEmpty) return;
-      setState(() {
-        for (final item in result) {
-          final path = item.path;
-          if (path != null && !_selected.any((file) => file.path == path)) {
-            _selected.add(File(path));
-          }
-        }
-        _status = '${_selected.length} song(s) selected';
-      });
-    } catch (e) {
-      _message('Could not open music: $e');
-    }
-  }
-
   Future<void> _sendMusic() async {
     if (_selected.isEmpty || _busy) return;
+    final filesToSend = List<File>.from(_selected);
     setState(() { _busy = true; _status = 'Preparing music…'; });
     try {
-      final names = _selected.map((f) => f.uri.pathSegments.last).toList();
+      final names = filesToSend.map((f) => f.uri.pathSegments.last).toList();
       final invite = await _service.startSharing(
-        files: List<File>.from(_selected),
+        files: filesToSend,
         relativePaths: names,
         onTransferCompleted: () async {
-          for (final file in _selected) {
+          for (final file in filesToSend) {
             await TransferHistoryStore.add(
               name: file.uri.pathSegments.last,
               type: 'music',
@@ -87,14 +79,15 @@ class _MusicScreenState extends State<MusicScreen> {
         },
       );
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
-        fileCount: _selected.length,
+        fileCount: filesToSend.length,
         label: 'Sharing music',
       ));
     } catch (e) {
@@ -288,54 +281,18 @@ class _MusicScreenState extends State<MusicScreen> {
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.music,
+          isSelected: (file) => _selected.any((existing) => existing.path == file.path),
           onSelect: (file) {
-            if (_selected.any((existing) => existing.path == file.path)) return;
             setState(() {
-              _selected.add(file);
-              _status = '${_selected.length} song(s) selected';
+              if (_selected.any((existing) => existing.path == file.path)) {
+                _selected.removeWhere((existing) => existing.path == file.path);
+              } else {
+                _selected.add(file);
+              }
             });
+            _updateSelectionCount();
           },
         ),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: _busy ? null : _pickMusic,
-            icon: const Icon(Icons.library_music_rounded), label: const Text('Choose music'))),
-          const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy ? null : _receiveMusic,
-            icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive'))),
-        ]),
-        const SizedBox(height: 12),
-        if (_selected.isEmpty)
-          const Card(child: Padding(padding: EdgeInsets.all(24),
-            child: Center(child: Column(children: [
-              Icon(Icons.library_music_outlined, size: 44),
-              SizedBox(height: 8),
-              Text('Choose audio files from your device to see them here.'),
-            ]))))
-        else
-          Card(child: Column(children: [
-            for (var index = 0; index < _selected.length; index++)
-              ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                title: Text(_selected[index].uri.pathSegments.last,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text('${(_selected[index].lengthSync() / (1024 * 1024)).toStringAsFixed(1)} MB'),
-                trailing: IconButton(
-                  tooltip: 'Remove song',
-                  onPressed: _busy ? null : () => setState(() => _selected.removeAt(index)),
-                  icon: const Icon(Icons.close_rounded)),
-              ),
-          ])),
-        if (_selected.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          SizedBox(width: double.infinity, child: FilledButton.icon(
-            onPressed: _busy ? null : _sendMusic,
-            icon: const Icon(Icons.send_rounded),
-            label: Text('Send ${_selected.length} song(s)'),
-          )),
-          TextButton(onPressed: _busy ? null : () => setState(() => _selected.clear()),
-            child: const Text('Clear selection')),
-        ],
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),

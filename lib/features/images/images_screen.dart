@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -52,27 +51,6 @@ class _ImagesScreenState extends State<ImagesScreen> {
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
-  }
-
-  Future<void> _pickImages() async {
-    if (_busy) return;
-    try {
-      // file_picker 13 returns a List<PlatformFile>; multi-select is the default.
-      final result = await FilePicker.pickFiles(type: FileType.image);
-      if (!mounted || result.isEmpty) return;
-      setState(() {
-        for (final item in result) {
-          final path = item.path;
-          if (path != null && !_selected.any((file) => file.path == path)) {
-            _selected.add(File(path));
-          }
-        }
-        _status = '${_selected.length} image(s) selected';
-      });
-      _updateSelectionCount();
-    } catch (e) {
-      _message('Could not open images: $e');
-    }
   }
 
   Future<void> _sendImages() async {
@@ -287,54 +265,18 @@ class _ImagesScreenState extends State<ImagesScreen> {
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.images,
+          isSelected: (file) => _selected.any((existing) => existing.path == file.path),
           onSelect: (file) {
-            if (_selected.any((existing) => existing.path == file.path)) return;
             setState(() {
-              _selected.add(file);
-              _status = '${_selected.length} image(s) selected';
+              if (_selected.any((existing) => existing.path == file.path)) {
+                _selected.removeWhere((existing) => existing.path == file.path);
+              } else {
+                _selected.add(file);
+              }
             });
             _updateSelectionCount();
           },
         ),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: _busy ? null : _pickImages,
-            icon: const Icon(Icons.add_photo_alternate), label: const Text('Choose images'))),
-          const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy ? null : _receiveImages,
-            icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive'))),
-        ]),
-        const SizedBox(height: 12),
-        if (_selected.isEmpty)
-          const Card(child: Padding(padding: EdgeInsets.all(24),
-            child: Center(child: Column(children: [
-              Icon(Icons.photo_library_outlined, size: 44),
-              SizedBox(height: 8),
-              Text('Your selected images will appear here.'),
-            ]))))
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _selected.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
-            itemBuilder: (context, index) => Stack(fit: StackFit.expand, children: [
-              ClipRRect(borderRadius: BorderRadius.circular(12),
-                child: Image.file(_selected[index], fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const ColoredBox(
-                    color: Colors.black12, child: Icon(Icons.image_not_supported)))),
-              Positioned(right: 4, top: 4, child: IconButton.filledTonal(
-                visualDensity: VisualDensity.compact,
-                onPressed: _busy ? null : () { setState(() => _selected.removeAt(index)); _updateSelectionCount(); },
-                icon: const Icon(Icons.close, size: 17))),
-            ]),
-          ),
-        if (_selected.isNotEmpty)
-          Align(alignment: Alignment.centerLeft, child: TextButton(
-            onPressed: _busy ? null : () { setState(() => _selected.clear()); _updateSelectionCount(); },
-            child: const Text('Clear selection'),
-          )),
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
