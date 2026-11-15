@@ -215,9 +215,12 @@ class _AppsScreenState extends State<AppsScreen> {
         }
       }
 
-      final invite = await _service.startSharing(files: files, relativePaths: paths);
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
+          : _service.startSharing(files: files, relativePaths: paths));
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for devices.'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
+      _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
