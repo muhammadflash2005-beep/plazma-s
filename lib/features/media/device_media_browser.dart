@@ -181,7 +181,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     setState(() => _loadingMore = true);
     try {
       final start = _assets.length;
-      final end = (start + _pageSize).clamp(0, _totalCount);
+      final end = (start + _pageSize).clamp(0, _totalCount).toInt();
       final next = await album.getAssetListRange(start: start, end: end);
       if (!mounted) return;
       setState(() {
