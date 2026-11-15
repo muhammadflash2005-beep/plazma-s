@@ -40,11 +40,8 @@ class _ImagesScreenState extends State<ImagesScreen> {
   Future<void> _pickImages() async {
     if (_busy) return;
     try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.image,
-        allowMultiple: true,
-        withData: false,
-      );
+      // file_picker 13 returns a List<PlatformFile>; multi-select is the default.
+      final result = await FilePicker.pickFiles(type: FileType.image);
       if (!mounted || result.isEmpty) return;
       setState(() {
         for (final item in result) {
