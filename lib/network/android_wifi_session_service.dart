@@ -11,6 +11,7 @@ class PlazmaConnectionInvite {
     required this.host,
     required this.port,
     required this.token,
+    this.roomId = '',
   });
 
   final String ssid;
@@ -18,6 +19,7 @@ class PlazmaConnectionInvite {
   final String host;
   final int port;
   final String token;
+  final String roomId;
 
   String toQrValue() {
     final uri = Uri(
@@ -29,6 +31,8 @@ class PlazmaConnectionInvite {
         'host': host,
         'port': port.toString(),
         'token': token,
+        if (roomId.isNotEmpty) 'room': roomId,
+        'capacity': '8',
       },
     );
     return uri.toString();
@@ -45,6 +49,7 @@ class PlazmaConnectionInvite {
     final host = query['host'];
     final port = int.tryParse(query['port'] ?? '');
     final token = query['token'];
+    final roomId = query['room'] ?? '';
     final address = host == null ? null : InternetAddress.tryParse(host);
     final octets = address?.type == InternetAddressType.IPv4
         ? address!.address.split('.').map(int.parse).toList()
@@ -53,17 +58,25 @@ class PlazmaConnectionInvite {
         (octets[0] == 10 ||
             (octets[0] == 192 && octets[1] == 168) ||
             (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31));
-    final usesHotspot = (ssid?.isNotEmpty ?? false) || (password?.isNotEmpty ?? false);
+    final hasHotspotCredentials =
+        (ssid?.isNotEmpty ?? false) || (password?.isNotEmpty ?? false);
+    final validHotspotCredentials = !hasHotspotCredentials ||
+        (ssid != null && ssid.isNotEmpty && ssid.length <= 32 &&
+            password != null && password.length >= 8 && password.length <= 63);
+    const roomAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final validRoomId = roomId.isEmpty ||
+        (roomId.length == 6 && roomId.split('').every(roomAlphabet.contains));
     if (ssid == null ||
         password == null ||
-        (usesHotspot && (ssid.isEmpty || ssid.length > 32 ||
-            password.length < 8 || password.length > 63)) ||
+        !validHotspotCredentials ||
+        !validRoomId ||
         !isPrivateIpv4 ||
         port == null ||
         port < 1 ||
         port > 65535 ||
         token == null ||
-        !RegExp(r'^[a-f0-9]{32}$').hasMatch(token)) {
+        token.length != 32 ||
+        !token.split('').every('0123456789abcdef'.contains)) {
       return null;
     }
     return PlazmaConnectionInvite(
@@ -72,6 +85,7 @@ class PlazmaConnectionInvite {
       host: host!,
       port: port,
       token: token,
+      roomId: roomId,
     );
   }
 }

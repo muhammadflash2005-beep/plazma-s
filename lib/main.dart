@@ -14,6 +14,7 @@ import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
 import 'features/music/music_screen.dart';
+import 'features/videos/videos_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
@@ -223,7 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _showJoinDialog() => _openTransfer(TransferMode.androidToAndroid);
+  void _showJoinDialog() => _openTransfer(null);
 
   @override
   Widget build(BuildContext context) {
@@ -252,6 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               FilesScreen(transferMode: _transferMode),
                               const AppsScreen(),
                               const ImagesScreen(),
+                              const VideosScreen(),
                               const MusicScreen(),
                               const DevicesScreen(),
                               _secondaryContent(),
@@ -271,6 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
                         NavigationDestination(icon: Icon(Icons.photo_library_rounded), label: 'Images'),
+                        NavigationDestination(icon: Icon(Icons.video_library_rounded), label: 'Videos'),
                         NavigationDestination(icon: Icon(Icons.library_music_rounded), label: 'Music'),
                         NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
@@ -379,50 +382,16 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Your files. Your devices.\nOne local connection.',
+        Text('Your devices. One room.\nSend together.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
         const SizedBox(height: 10),
-        Text('Connect computers and Android phones over a shared local Wi-Fi network or hotspot. No internet or mobile data is required.',
+        Text('Connect Android phones and computers on the same Wi-Fi. Create a room, invite up to seven other devices, and send apps, files, images, music and videos.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
         const SizedBox(height: 22),
         _notice(),
         const SizedBox(height: 22),
-        Text('Available connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        Text('Multi-device transfer room', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 14,
-          runSpacing: 14,
-          children: [
-            SizedBox(
-              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
-              child: _TransferModeCard(
-                icon: Icons.computer_rounded,
-                title: 'PC to PC',
-                subtitle: 'Transfer files between Windows, macOS and Linux computers on the same network.',
-                onTap: () => _openTransfer(TransferMode.pcToPc),
-              ),
-            ),
-            SizedBox(
-              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
-              child: _TransferModeCard(
-                icon: Icons.devices_rounded,
-                title: 'Android to PC',
-                subtitle: 'Send files between an Android phone and a computer in either direction.',
-                onTap: () => _openTransfer(TransferMode.pcToAndroid),
-              ),
-            ),
-            SizedBox(
-              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
-              child: _TransferModeCard(
-                icon: Icons.phone_android_rounded,
-                title: 'Android to Android',
-                subtitle: 'Send files and installed apps between Android phones using QR pairing.',
-                onTap: () => _openTransfer(TransferMode.androidToAndroid),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
         _roomActions(wide),
         const SizedBox(height: 24),
         Text('Quick access', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
@@ -436,7 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openTransfer(TransferMode mode) => setState(() {
+  void _openTransfer(TransferMode? mode) => setState(() {
         _transferMode = mode;
         _tab = 1;
       });
@@ -449,7 +418,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 10),
             const Expanded(child: Text(
-              'PC-to-PC and Android-to-PC transfers use your current local Wi-Fi or hotspot. Android-to-Android can also create a private hotspot automatically. No cloud relay or internet connection is used.',
+              'All devices must already be connected to the same Wi-Fi network. Plazma S does not create or switch hotspots. Rooms support up to one sender and seven recipients across Android and PC.',
               style: TextStyle(height: 1.4, fontSize: 13),
             )),
           ]),
@@ -462,16 +431,16 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.send_rounded,
-            title: 'Send files',
-            subtitle: 'Share over your local Wi-Fi or create a private Android hotspot, then show a QR code.',
-            buttonText: 'Choose files',
-            onPressed: () => _openTransfer(TransferMode.androidToAndroid),
+            title: 'Create a room',
+            subtitle: 'Start a room from this PC or Android device. Share the QR code or connection code with up to seven recipients.',
+            buttonText: 'Create room',
+            onPressed: () => _openTransfer(null),
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.qr_code_scanner_rounded,
-            title: 'Receive files',
-            subtitle: 'Scan or enter the sender’s connection code and receive over your local network.',
-            buttonText: 'Scan QR code',
+            title: 'Join a room',
+            subtitle: 'Join a room hosted by another PC or Android device. Each recipient receives independently.',
+            buttonText: 'Join room',
             onPressed: _showJoinDialog,
             outlined: true,
           )),
@@ -637,10 +606,11 @@ class _Sidebar extends StatelessWidget {
       _navItem(context, Icons.folder_rounded, 'Files', 1),
       _navItem(context, Icons.apps_rounded, 'Apps', 2),
       _navItem(context, Icons.photo_library_rounded, 'Images', 3),
-      _navItem(context, Icons.library_music_rounded, 'Music', 4),
-      _navItem(context, Icons.devices_rounded, 'Devices', 5),
-      _navItem(context, Icons.history_rounded, 'History', 6),
-      _navItem(context, Icons.settings_rounded, 'Settings', 7),
+      _navItem(context, Icons.video_library_rounded, 'Videos', 4),
+      _navItem(context, Icons.library_music_rounded, 'Music', 5),
+      _navItem(context, Icons.devices_rounded, 'Devices', 6),
+      _navItem(context, Icons.history_rounded, 'History', 7),
+      _navItem(context, Icons.settings_rounded, 'Settings', 8),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
@@ -681,63 +651,6 @@ class _ActionCard extends StatelessWidget {
   ));
 }
 
-
-class _TransferModeCard extends StatelessWidget {
-  const _TransferModeCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: theme.colorScheme.primary, size: 26),
-              ),
-              const SizedBox(height: 14),
-              Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-              const SizedBox(height: 5),
-              Text(
-                subtitle,
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12, height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Text('Choose connection', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w800, fontSize: 12)),
-                  const Spacer(),
-                  Icon(Icons.arrow_forward_rounded, size: 17, color: theme.colorScheme.primary),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _QuickCard extends StatelessWidget {
   const _QuickCard({required this.icon, required this.title, required this.subtitle});

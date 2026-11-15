@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -31,9 +32,11 @@ class _ImagesScreenState extends State<ImagesScreen> {
   bool _busy = false;
   double _progress = 0;
   String? _status;
+  Timer? _roomRefreshTimer;
 
   @override
   void dispose() {
+    _roomRefreshTimer?.cancel();
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
@@ -69,7 +72,11 @@ class _ImagesScreenState extends State<ImagesScreen> {
         relativePaths: names,
       );
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Scan this QR code on the receiving phone.'; });
+      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
         fileCount: _selected.length,
@@ -82,7 +89,28 @@ class _ImagesScreenState extends State<ImagesScreen> {
     }
   }
 
-  Future<PlazmaConnectionInvite?> _scan() => showDialog<PlazmaConnectionInvite>(
+  Future<PlazmaConnectionInvite?> _scan() async {
+    if (!Platform.isAndroid) {
+      final controller = TextEditingController();
+      final raw = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Join transfer room'),
+          content: TextField(controller: controller, minLines: 2, maxLines: 4,
+            decoration: const InputDecoration(labelText: 'Paste Plazma S room code')),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()), child: const Text('Join')),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (raw == null) return null;
+      final invite = PlazmaConnectionInvite.tryParse(raw);
+      if (invite == null) _message('That is not a valid Plazma S room code.');
+      return invite;
+    }
+    return showDialog<PlazmaConnectionInvite>(
     context: context,
     builder: (dialogContext) {
       var handled = false;
@@ -110,6 +138,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       );
     },
   );
+  }
 
   Future<void> _receiveImages() async {
     if (_busy) return;
@@ -181,6 +210,8 @@ class _ImagesScreenState extends State<ImagesScreen> {
   }
 
   Future<void> _stopSharing() async {
+    _roomRefreshTimer?.cancel();
+    _roomRefreshTimer = null;
     await _service.stopSharing();
     TransferOverlayController.clear();
     if (mounted) setState(() { _invite = null; _status = 'Image sharing stopped.'; });
@@ -203,17 +234,30 @@ class _ImagesScreenState extends State<ImagesScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Images', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
-      Text('Choose photos, preview your selection, and share them directly with another phone.',
+      Text('Choose images on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        const Text('Scan to receive these images', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ${_invite!.roomId} · Scan to receive images', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
-        Text('Wi-Fi: ${_invite!.ssid}'),
+        Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
+        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        Row(children: [
+          const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
+          Text('${_service.joinedDeviceCount}/8'),
+        ]),
+        ..._service.roomMembers.map((member) => ListTile(
+          dense: true,
+          leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer),
+          title: Text(member.deviceName),
+          subtitle: Text(member.platform),
+          trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null),
+        )),
         OutlinedButton.icon(onPressed: _busy ? null : _stopSharing,
           icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
       ]))),

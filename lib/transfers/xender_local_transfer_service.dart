@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../network/android_wifi_session_service.dart';
+import '../rooms/room_id.dart';
+import '../rooms/room_registry.dart';
 import 'transfer_overlay_controller.dart';
 
 class SharedLocalFile {
@@ -68,14 +70,12 @@ class LocalTransferProgress {
   double get fraction => totalSize == 0 ? 1 : totalBytes / totalSize;
 }
 
-/// Direct phone-to-phone sharing over a private Android local-only hotspot.
-/// The sender hosts file metadata and download endpoints; the receiver joins
-/// the hotspot from the QR invite and downloads directly over that Wi-Fi link.
+/// Direct device-to-device sharing over the existing Wi-Fi/LAN network.
+/// The sender hosts file metadata and download endpoints; recipients join
+/// using a QR invite and download directly over the local network.
 class XenderLocalTransferService {
-  XenderLocalTransferService({AndroidWifiSessionService? wifi})
-      : _wifi = wifi ?? AndroidWifiSessionService();
+  XenderLocalTransferService();
 
-  final AndroidWifiSessionService _wifi;
   static const MethodChannel _foregroundChannel = MethodChannel('com.plazma.s/transfer_service');
 
   Future<void> _startForegroundService() async {
@@ -98,6 +98,13 @@ class XenderLocalTransferService {
   List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
   Future<void> Function()? _onTransferCompleted;
+  RoomRegistry? _room;
+  String? _joinedDeviceId;
+  PlazmaConnectionInvite? _joinedInvite;
+
+  List<RoomDevice> get roomMembers => _room?.members ?? const [];
+  int get joinedDeviceCount => _room?.joinedCount ?? 1;
+  int get completedDeviceCount => _room?.completedCount ?? 0;
 
   PlazmaConnectionInvite? get invite => _invite;
   bool get isSharing => _server != null;
@@ -137,31 +144,30 @@ class XenderLocalTransferService {
       });
     }
 
-    final isAndroidHost = Platform.isAndroid;
+    // Use the Wi-Fi network already connected on every platform.
+    // Plazma S must never create or join a hotspot.
     final token = List.generate(
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final invite = isAndroidHost
-        ? await _wifi.createInvite(port: 45454)
-        : PlazmaConnectionInvite(
-            ssid: '',
-            password: '',
-            host: await _localIpv4Address(),
-            port: 45454,
-            token: token,
-          );
+    final roomId = RoomId.generate();
+    final invite = PlazmaConnectionInvite(
+      ssid: '',
+      password: '',
+      host: await _localIpv4Address(),
+      port: 45454,
+      token: token,
+      roomId: roomId,
+    );
     HttpServer? server;
     try {
-      // Android binds to its dedicated hotspot address. Desktop binds all
-      // interfaces so Android and other PCs can reach it on the selected LAN.
-      server = await HttpServer.bind(
-        isAndroidHost ? InternetAddress(invite.host) : InternetAddress.anyIPv4,
-        invite.port,
-      );
+      // Bind all IPv4 interfaces so phones and computers on the same LAN
+      // can reach this host regardless of which Wi-Fi adapter is active.
+      server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port);
       _files = checkedFiles;
       _manifest = manifest;
       _invite = invite;
+      _room = RoomRegistry(roomId: roomId);
       _onTransferCompleted = onTransferCompleted;
       _server = server;
       server.listen(
@@ -174,7 +180,6 @@ class XenderLocalTransferService {
       return invite;
     } catch (_) {
       await server?.close(force: true);
-      if (isAndroidHost) await _wifi.stop();
       rethrow;
     }
   }
@@ -188,9 +193,12 @@ class XenderLocalTransferService {
     }
     try {
       if (request.method == 'POST' && request.uri.path == '/complete') {
+        final deviceId = request.uri.queryParameters['deviceId'];
+        final wasFirst = (_room?.completedCount ?? 0) == 0;
+        final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
-        final onCompleted = _onTransferCompleted;
+        final onCompleted = marked && wasFirst ? _onTransferCompleted : null;
         if (onCompleted != null) {
           try {
             await onCompleted();
@@ -198,7 +206,55 @@ class XenderLocalTransferService {
             debugPrint('Could not record completed outgoing transfer: $error');
           }
         }
-        unawaited(stopSharing());
+        // Keep the room open until its host explicitly stops sharing.
+        return;
+      }
+      if (request.method == 'POST' && request.uri.path == '/join') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        if (decoded is! Map<String, dynamic>) {
+          request.response.statusCode = HttpStatus.badRequest;
+          await request.response.close();
+          return;
+        }
+        final deviceId = decoded['deviceId'];
+        final deviceName = decoded['deviceName'];
+        final platform = decoded['platform'];
+        if (deviceId is! String || deviceName is! String || platform is! String ||
+            !(_room?.join(deviceId: deviceId, deviceName: deviceName, platform: platform) ?? false)) {
+          request.response.statusCode = HttpStatus.conflict;
+          request.response.write('Room is full or the device details are invalid.');
+          await request.response.close();
+          return;
+        }
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'roomId': _room?.roomId,
+          'joinedCount': joinedDeviceCount,
+          'maxMembers': 8,
+        }));
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'POST' && request.uri.path == '/leave') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        if (deviceId is String) _room?.leave(deviceId);
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'GET' && request.uri.path == '/room') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'roomId': _room?.roomId,
+          'joinedCount': joinedDeviceCount,
+          'maxMembers': 8,
+          'completedCount': completedDeviceCount,
+          'members': roomMembers.map((member) => member.toJson()).toList(),
+        }));
+        await request.response.close();
         return;
       }
       if (request.method != 'GET') {
@@ -272,12 +328,29 @@ class XenderLocalTransferService {
   }
 
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
-    if (Platform.isAndroid && invite.ssid.isNotEmpty) {
-      await _wifi.join(invite);
-    }
+    // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
+    final deviceId = List.generate(
+      16,
+      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    _joinedDeviceId = deviceId;
+    _joinedInvite = invite;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
+      final joinRequest = await client.postUrl(_endpoint(invite, '/join'));
+      joinRequest.headers.contentType = ContentType.json;
+      joinRequest.write(jsonEncode({
+        'deviceId': deviceId,
+        'deviceName': Platform.localHostname,
+        'platform': Platform.operatingSystem,
+      }));
+      final joinResponse = await joinRequest.close().timeout(const Duration(seconds: 15));
+      if (joinResponse.statusCode != HttpStatus.ok) {
+        final reason = await utf8.decoder.bind(joinResponse).join();
+        throw HttpException(reason.isEmpty ? 'Could not join room.' : reason);
+      }
+      await joinResponse.drain<void>();
       final request = await client.getUrl(_endpoint(invite, '/manifest'));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 60));
@@ -404,7 +477,9 @@ class XenderLocalTransferService {
           rethrow;
         }
       }
-      final completeRequest = await client.postUrl(_endpoint(invite, '/complete'));
+      final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
+        if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
+      }));
       final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
       if (completeResponse.statusCode != HttpStatus.ok) {
         throw HttpException('The sender did not acknowledge transfer completion.');
@@ -420,7 +495,21 @@ class XenderLocalTransferService {
       includeLoopback: false,
       type: InternetAddressType.IPv4,
     );
+    final candidates = <({int priority, String address})>[];
     for (final interface in interfaces) {
+      final name = interface.name.toLowerCase();
+      // Avoid VPN, virtual-machine, container, Wi-Fi Direct and cellular
+      // interfaces when advertising a room address to devices on the LAN.
+      if (RegExp(r'tun|vpn|wireguard|wg|utun|tailscale|docker|veth|bridge|vmnet|rmnet|p2p').hasMatch(name)) {
+        continue;
+      }
+      final priority = name.contains('wlan') || name.contains('wifi') ||
+              name.contains('wi-fi') || name == 'en0' || name.startsWith('wl')
+          ? 0
+          : name.contains('ethernet') || name.startsWith('eth') ||
+                  name.startsWith('enp') || name.startsWith('eno')
+              ? 1
+              : 2;
       for (final address in interface.addresses) {
         final parts = address.address.split('.').map(int.tryParse).toList();
         if (parts.length != 4 || parts.any((part) => part == null)) continue;
@@ -429,11 +518,13 @@ class XenderLocalTransferService {
         final isPrivate = a == 10 ||
             (a == 192 && b == 168) ||
             (a == 172 && b >= 16 && b <= 31);
-        if (isPrivate) return address.address;
+        if (isPrivate) candidates.add((priority: priority, address: address.address));
       }
     }
+    candidates.sort((a, b) => a.priority.compareTo(b.priority));
+    if (candidates.isNotEmpty) return candidates.first.address;
     throw const SocketException(
-      'No private IPv4 address found. Connect this PC to the same Wi-Fi or hotspot as the receiving device.',
+      'No private IPv4 address found. Connect this device to the same Wi-Fi network as the other devices.',
     );
   }
 
@@ -472,23 +563,38 @@ class XenderLocalTransferService {
   String _displayName(String path) => path.split('/').last;
 
   Future<void> stopSharing() async {
-    final invite = _invite;
     final server = _server;
     _server = null;
     _invite = null;
     _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
+    _room = null;
     await server?.close(force: true);
-    if (Platform.isAndroid && invite?.ssid.isNotEmpty == true) {
-      await _wifi.stop();
-    }
     TransferOverlayController.clear();
     await stopForegroundService();
   }
 
   Future<void> disconnect() async {
-    if (Platform.isAndroid) await _wifi.disconnect();
+    final invite = _joinedInvite;
+    final deviceId = _joinedDeviceId;
+    _joinedInvite = null;
+    _joinedDeviceId = null;
+    if (invite != null && deviceId != null) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.postUrl(_endpoint(invite, '/leave'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'deviceId': deviceId}));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+      } catch (_) {
+        // The room may already have been closed by its host.
+      } finally {
+        client.close(force: true);
+      }
+    }
+    // Plazma S never changes the device's Wi-Fi connection.
     await stopForegroundService();
   }
 }

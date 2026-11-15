@@ -2,23 +2,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plazma_s/main.dart';
 
 void main() {
-  testWidgets('home screen exposes the new Send and Receive actions', (tester) async {
+  testWidgets('home screen exposes unified room creation and joining actions', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('plazma'), findsOneWidget);
-    expect(find.text('Send files'), findsOneWidget);
-    expect(find.text('Receive files'), findsOneWidget);
-    expect(find.text('Choose files'), findsOneWidget);
-    expect(find.text('Scan QR code'), findsOneWidget);
+    expect(find.text('Create a room'), findsOneWidget);
+    expect(find.text('Join a room'), findsOneWidget);
+    expect(find.text('Create room'), findsOneWidget);
+    expect(find.text('Join room'), findsOneWidget);
   });
 
-  testWidgets('Receive action opens the QR-based transfer screen', (tester) async {
+  testWidgets('Join action opens the unified transfer room screen', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
-    await tester.ensureVisible(find.text('Scan QR code'));
-    await tester.tap(find.text('Scan QR code'));
+    await tester.ensureVisible(find.text('Join room'));
+    await tester.tap(find.text('Join room'));
     await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Share files'), findsOneWidget);

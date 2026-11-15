@@ -109,6 +109,27 @@ void main() {
       expect(room.members, hasLength(1));
     });
 
+
+    test('default room fits one host and exactly seven recipients', () {
+      final room = makeRoom();
+      for (var index = 1; index <= 7; index++) {
+        final id = 'phone-$index';
+        expect(room.requestJoin(
+          deviceId: id,
+          deviceName: 'Device $index',
+          platform: index.isEven ? 'windows' : 'android',
+        ), isTrue);
+        expect(room.approve(id), isTrue);
+      }
+      expect(room.snapshot().joinedCount, 8);
+      expect(room.snapshot().isFull, isTrue);
+      expect(room.requestJoin(
+        deviceId: 'ninth-device',
+        deviceName: 'Extra device',
+        platform: 'linux',
+      ), isFalse);
+    });
+
     test('closing clears room state and prevents further operations', () {
       final room = makeRoom();
       room.close();
