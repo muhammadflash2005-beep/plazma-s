@@ -248,7 +248,7 @@ class _MusicScreenState extends State<MusicScreen> {
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
-        Text('Wi-Fi: ${_invite!.ssid}'),
+        Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
         OutlinedButton.icon(onPressed: _busy ? null : _stopSharing,
           icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
       ]))),
