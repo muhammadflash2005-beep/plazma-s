@@ -295,19 +295,9 @@ class _VideosScreenState extends State<VideosScreen> {
               } else {
                 _selected.add(file);
               }
-              _status = _selected.isEmpty ? null : '${_selected.length} video(s) selected';
             });
             _updateSelectionCount();
           },
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: _busy ? null : _receiveVideos,
-            icon: const Icon(Icons.qr_code_scanner, size: 18),
-            label: const Text('Receive'),
-          ),
         ),
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
