@@ -140,7 +140,7 @@ class _FilesScreenState extends State<FilesScreen> {
     setState(() {
       _busy = true;
       _status = Platform.isAndroid
-          ? 'Starting secure local Wi-Fi…'
+          ? 'Starting local Wi-Fi room…'
           : 'Preparing a local network share…';
     });
     try {
@@ -485,7 +485,7 @@ class _FilesScreenState extends State<FilesScreen> {
       children: [
         Text('Share files', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
         const SizedBox(height: 6),
-        Text('Connect phones directly. No mobile data or internet required.',
+        Text('Connect devices on the same Wi-Fi network. No hotspot switching or internet required.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 18),
         if (_status != null) _statusCard(theme),
