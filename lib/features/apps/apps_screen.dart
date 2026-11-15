@@ -1,7 +1,6 @@
 // ignore_for_file: deprecated_member_use, prefer_interpolation_to_compose_strings
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
