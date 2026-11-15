@@ -185,6 +185,18 @@ class _VideosScreenState extends State<VideosScreen> {
     }
   }
 
+  Future<void> _refreshVideos() async {
+    if (_receiver == null || _busy) return;
+    try {
+      final all = await _service.refreshManifest(_receiver!);
+      final items = all.where((item) { final n=item.relativePath.toLowerCase(); return n.endsWith('.mp4') || n.endsWith('.mkv') || n.endsWith('.mov') || n.endsWith('.avi') || n.endsWith('.webm') || n.endsWith('.3gp') || n.endsWith('.m4v') || n.endsWith('.wmv') || n.endsWith('.flv'); }).toList();
+      setState(() {
+        _incoming..clear()..addAll(items);
+        _status = '${items.length} video(s) available in this room.';
+      });
+    } catch (e) { _message('Could not refresh shared items: $e'); }
+  }
+
   Future<void> _downloadVideos() async {
     if (_receiver == null || _incoming.isEmpty || _busy) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving videos…'; });
@@ -278,6 +290,7 @@ class _VideosScreenState extends State<VideosScreen> {
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
         Row(children: [Expanded(child: Text('${_incoming.length} video(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
+          TextButton(onPressed: _busy ? null : _refreshVideos, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
         FilledButton.icon(onPressed: _busy ? null : _downloadVideos,
