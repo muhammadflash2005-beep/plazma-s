@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
@@ -44,8 +45,26 @@ class _AppsScreenState extends State<AppsScreen> {
   void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
 
   Future<void> _load() async {
-    if (kIsWeb || !Platform.isAndroid) {
-      setState(() => _error = 'App sharing and installation are available on Android phones.');
+    if (kIsWeb) {
+      setState(() => _error = 'App package transfer is available in the installed Plazma S app.');
+      return;
+    }
+    if (!Platform.isAndroid) {
+      setState(() => _loading = true);
+      try {
+        final root = await getApplicationSupportDirectory();
+        final library = Directory(root.path + Platform.pathSeparator + 'received_installers');
+        await library.create(recursive: true);
+        if (!mounted) return;
+        setState(() {
+          _library = library;
+          _error = 'On this computer, send complete app installers or portable bundles (.exe, .msi, .dmg, .pkg, .AppImage, .deb, .rpm or .zip). Received packages are saved for you to install.';
+        });
+      } catch (e) {
+        if (mounted) setState(() => _error = 'Could not prepare the installer library: ' + e.toString());
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
       return;
     }
     setState(() => _loading = true);
@@ -108,6 +127,10 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _send() async {
+    if (!Platform.isAndroid) {
+      await _sendDesktopInstallers();
+      return;
+    }
     if (_selected.isEmpty || _busy) return;
     setState(() { _busy = true; _status = 'Preparing selected apps…'; });
     try {
@@ -135,7 +158,57 @@ class _AppsScreenState extends State<AppsScreen> {
     finally { if (mounted) setState(() => _busy = false); }
   }
 
-  Future<PlazmaConnectionInvite?> _scan() async => showDialog<PlazmaConnectionInvite>(
+  Future<void> _sendDesktopInstallers() async {
+    if (_busy) return;
+    setState(() { _busy = true; _status = 'Choose application installers or portable app bundles…'; });
+    try {
+      final result = await FilePicker.pickFiles(
+        allowMultiple: true,
+        type: FileType.custom,
+        allowedExtensions: ['exe', 'msi', 'msix', 'appx', 'appimage', 'deb', 'rpm', 'dmg', 'pkg', 'zip'],
+      );
+      if (result == null || result.files.isEmpty) return;
+      final files = <File>[];
+      final paths = <String>[];
+      for (final picked in result.files) {
+        if (picked.path == null) continue;
+        files.add(File(picked.path!));
+        paths.add('Applications/' + picked.name);
+      }
+      if (files.isEmpty) throw StateError('The selected packages are not accessible as files.');
+      final invite = await _service.startSharing(files: files, relativePaths: paths);
+      if (!mounted) return;
+      setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for computers.'; });
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); });
+    } catch (e) {
+      _message('Could not share application installers: ' + e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+  Future<PlazmaConnectionInvite?> _scan() async {
+    if (!Platform.isAndroid) {
+      final controller = TextEditingController();
+      final raw = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Join app-sharing room'),
+          content: TextField(controller: controller, minLines: 2, maxLines: 4,
+            decoration: const InputDecoration(labelText: 'Paste room connection code')),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()), child: const Text('Join')),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (raw == null) return null;
+      final invite = PlazmaConnectionInvite.tryParse(raw);
+      if (invite == null) _message('That is not a valid Plazma S room code.');
+      return invite;
+    }
+    return showDialog<PlazmaConnectionInvite>(
     context: context, builder: (dialogContext) {
       var handled = false;
       return AlertDialog(
@@ -158,6 +231,7 @@ class _AppsScreenState extends State<AppsScreen> {
         actions: [TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel'))],
       );
     });
+  }
 
   Future<void> _receive() async {
     if (_busy) return;
@@ -166,6 +240,16 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() { _busy = true; _status = 'Connecting to sender…'; });
     try {
       final manifest = await _service.joinAndList(invite);
+      if (!Platform.isAndroid) {
+        if (manifest.isEmpty) throw StateError('The sender has not shared any application packages yet.');
+        if (!mounted) return;
+        setState(() {
+          _receiver = invite;
+          _incoming..clear()..['Application installers'] = manifest;
+          _status = manifest.length.toString() + ' application package(s) ready to receive.';
+        });
+        return;
+      }
       final groups = <String,List<SharedLocalFile>>{};
       for (final item in manifest) {
         if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
@@ -189,15 +273,25 @@ class _AppsScreenState extends State<AppsScreen> {
       final all = _incoming.values.expand((v) => v).toList();
       await _service.downloadAll(invite: _receiver!, files: all, destination: _library!,
         onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); });
-      for (final entry in _incoming.entries) {
-        final bytes = entry.value.fold<int>(0, (sum,item) => sum + item.size);
-        _saved[entry.key] = entry.key;
-        await TransferHistoryStore.add(name: entry.key, type: 'app', direction: 'received',
-          path: _library!.path + Platform.pathSeparator + entry.key,
-          bytes: bytes, peer: 'Nearby Plazma S device');
+      if (!Platform.isAndroid) {
+        for (final item in all) {
+          await TransferHistoryStore.add(name: item.name, type: 'app-installer', direction: 'received',
+            path: _library!.path + Platform.pathSeparator + item.relativePath,
+            bytes: item.size, peer: 'Nearby Plazma S device');
+        }
+        if (!mounted) return;
+        setState(() => _status = 'Received ' + all.length.toString() + ' application package(s). Saved in ' + _library!.path);
+      } else {
+        for (final entry in _incoming.entries) {
+          final bytes = entry.value.fold<int>(0, (sum,item) => sum + item.size);
+          _saved[entry.key] = entry.key;
+          await TransferHistoryStore.add(name: entry.key, type: 'app', direction: 'received',
+            path: _library!.path + Platform.pathSeparator + entry.key,
+            bytes: bytes, peer: 'Nearby Plazma S device');
+        }
+        if (!mounted) return;
+        setState(() => _status = 'Received and saved ' + _incoming.length.toString() + ' app(s).');
       }
-      if (!mounted) return;
-      setState(() => _status = 'Received and saved ' + _incoming.length.toString() + ' app(s).');
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) { _message('App transfer failed: ' + e.toString()); }
@@ -302,8 +396,8 @@ class _AppsScreenState extends State<AppsScreen> {
           Expanded(child: FilledButton.icon(onPressed: _busy ? null : _receive,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
           const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy || _selected.isEmpty ? null : _send,
-            icon: const Icon(Icons.send), label: const Text('Send selected'))),
+          Expanded(child: OutlinedButton.icon(onPressed: _busy || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
+            icon: const Icon(Icons.send), label: Text(Platform.isAndroid ? 'Send selected' : 'Send installers'))),
         ]),
         const SizedBox(height: 18),
         Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
