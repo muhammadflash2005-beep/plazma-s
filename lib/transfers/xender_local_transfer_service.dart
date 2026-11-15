@@ -4,8 +4,10 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../network/android_wifi_session_service.dart';
+import 'transfer_overlay_controller.dart';
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -73,6 +75,23 @@ class XenderLocalTransferService {
       : _wifi = wifi ?? AndroidWifiSessionService();
 
   final AndroidWifiSessionService _wifi;
+  static const MethodChannel _foregroundChannel = MethodChannel('com.plazma.s/transfer_service');
+
+  Future<void> _startForegroundService() async {
+    try {
+      await _foregroundChannel.invokeMethod<void>('start');
+    } catch (error) {
+      debugPrint('Could not start Plazma transfer notification service: $error');
+    }
+  }
+
+  Future<void> stopForegroundService() async {
+    try {
+      await _foregroundChannel.invokeMethod<void>('stop');
+    } catch (error) {
+      debugPrint('Could not stop Plazma transfer notification service: $error');
+    }
+  }
   HttpServer? _server;
   List<File> _files = const [];
   List<String> _relativePaths = const [];
@@ -117,6 +136,7 @@ class XenderLocalTransferService {
           debugPrint('Plazma local transfer server error: $error');
         },
       );
+      await _startForegroundService();
       return invite;
     } catch (_) {
       await server?.close(force: true);
@@ -133,6 +153,12 @@ class XenderLocalTransferService {
       return;
     }
     try {
+      if (request.method == 'POST' && request.uri.path == '/complete') {
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        unawaited(stopSharing());
+        return;
+      }
       if (request.method != 'GET') {
         request.response.statusCode = HttpStatus.methodNotAllowed;
         await request.response.close();
@@ -170,10 +196,37 @@ class XenderLocalTransferService {
           await request.response.close();
           return;
         }
+        final length = await file.length();
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        var offset = 0;
+        if (range != null) {
+          final match = RegExp(r'^bytes=(\d+)-$').firstMatch(range.trim());
+          if (match == null) {
+            request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+            await request.response.close();
+            return;
+          }
+          offset = int.parse(match.group(1)!);
+          if (offset >= length) {
+            request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+            await request.response.close();
+            return;
+          }
+          request.response.statusCode = HttpStatus.partialContent;
+          request.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $offset-${length - 1}/$length',
+          );
+        } else {
+          request.response.statusCode = HttpStatus.ok;
+        }
+        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
         request.response.headers.contentType = ContentType.binary;
-        request.response.headers.contentLength = await file.length();
+        request.response.headers.contentLength = length - offset;
         request.response.headers.set('Cache-Control', 'no-store');
-        await request.response.addStream(file.openRead());
+        await request.response.addStream(file.openRead(offset));
         await request.response.close();
         return;
       }
@@ -190,6 +243,7 @@ class XenderLocalTransferService {
 
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
     await _wifi.join(invite);
+    await _startForegroundService();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final request = await client.getUrl(_endpoint(invite, '/manifest'));
@@ -246,16 +300,49 @@ class XenderLocalTransferService {
           throw FileSystemException('A different file with this name already exists.', target.path);
         }
         final partial = File('${target.path}.plazma-partial');
-        if (await partial.exists()) await partial.delete();
+        var offset = await partial.exists() ? await partial.length() : 0;
+        if (offset > item.size) {
+          await partial.delete();
+          offset = 0;
+        }
+        if (offset == item.size && offset > 0) {
+          final digest = await sha256.bind(partial.openRead()).first;
+          if (digest.toString() == item.sha256) {
+            await partial.rename(target.path);
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          await partial.delete();
+          offset = 0;
+        }
         final request = await client.getUrl(
           _endpoint(invite, '/download', {'id': item.id.toString()}),
         );
+        if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
         final response = await request.close().timeout(const Duration(seconds: 30));
-        if (response.statusCode != HttpStatus.ok) {
-          throw HttpException('Download failed for ${item.name} (HTTP ${response.statusCode}).');
+        final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
+        if (response.statusCode != expectedStatus) {
+          throw HttpException(
+            'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
+          );
         }
-        final sink = partial.openWrite();
-        var fileBytes = 0;
+        final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+        var fileBytes = offset;
+        totalBytes += offset;
+        onProgress(LocalTransferProgress(
+          fileName: item.name,
+          fileBytes: fileBytes,
+          fileSize: item.size,
+          totalBytes: totalBytes,
+          totalSize: totalSize,
+        ));
         try {
           await for (final chunk in response) {
             sink.add(chunk);
@@ -273,6 +360,7 @@ class XenderLocalTransferService {
           await sink.close();
           final receivedDigest = await sha256.bind(partial.openRead()).first;
           if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
+            await partial.delete();
             throw FileSystemException(
               'The received file failed its size or SHA-256 integrity check.',
               partial.path,
@@ -281,10 +369,15 @@ class XenderLocalTransferService {
           await partial.rename(target.path);
         } catch (_) {
           await sink.close();
-          if (await partial.exists()) await partial.delete();
           rethrow;
         }
       }
+      final completeRequest = await client.postUrl(_endpoint(invite, '/complete'));
+      final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      if (completeResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('The sender did not acknowledge transfer completion.');
+      }
+      await completeResponse.drain<void>();
     } finally {
       client.close(force: true);
     }
@@ -332,7 +425,12 @@ class XenderLocalTransferService {
     _relativePaths = const [];
     await server?.close(force: true);
     await _wifi.stop();
+    TransferOverlayController.clear();
+    await stopForegroundService();
   }
 
-  Future<void> disconnect() => _wifi.disconnect();
+  Future<void> disconnect() async {
+    await _wifi.disconnect();
+    await stopForegroundService();
+  }
 }

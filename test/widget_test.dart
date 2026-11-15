@@ -4,7 +4,7 @@ import 'package:plazma_s/main.dart';
 void main() {
   testWidgets('home screen exposes the new Send and Receive actions', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('plazma'), findsOneWidget);
     expect(find.text('Send files'), findsOneWidget);
@@ -15,11 +15,11 @@ void main() {
 
   testWidgets('Receive action opens the QR-based transfer screen', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     await tester.ensureVisible(find.text('Scan QR code'));
     await tester.tap(find.text('Scan QR code'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Share files'), findsOneWidget);
     expect(find.text('Scan to receive'), findsOneWidget);
@@ -29,10 +29,10 @@ void main() {
 
   testWidgets('settings exposes all nine Plazma themes', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     await tester.tap(find.text('Settings').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Plazma Light'), findsOneWidget);
     expect(find.text('Plazma Dark'), findsOneWidget);

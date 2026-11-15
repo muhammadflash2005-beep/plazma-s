@@ -12,6 +12,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../network/android_wifi_session_service.dart';
 import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_mode.dart';
+import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class FilesScreen extends StatefulWidget {
@@ -154,6 +155,11 @@ class _FilesScreenState extends State<FilesScreen> {
         _invite = invite;
         _status = 'Waiting for the other phone to scan this QR code';
       });
+      TransferOverlayController.show(TransferOverlaySnapshot(
+        direction: TransferOverlayDirection.sending,
+        fileCount: _files.length,
+        label: 'Waiting for receiver',
+      ));
     } catch (error) {
       _message('Could not start sharing: $error');
     } finally {
@@ -234,6 +240,13 @@ class _FilesScreenState extends State<FilesScreen> {
         _availableFiles = files;
         _status = files.isEmpty ? 'Connected. The sender has no files available.' : 'Connected — ${files.length} file(s) available';
       });
+      if (files.isNotEmpty) {
+        TransferOverlayController.show(TransferOverlaySnapshot(
+          direction: TransferOverlayDirection.receiving,
+          fileCount: files.length,
+          label: 'Ready to receive',
+        ));
+      }
       if (files.isEmpty) {
         _message('Connected, but the sender has not shared any files.');
       }
@@ -279,6 +292,12 @@ class _FilesScreenState extends State<FilesScreen> {
                 : progress.totalBytes / progress.totalSize;
             _status = 'Receiving ${progress.fileName}';
           });
+          TransferOverlayController.show(TransferOverlaySnapshot(
+            direction: TransferOverlayDirection.receiving,
+            fileCount: _availableFiles.length,
+            label: '${(progress.fraction * 100).clamp(0, 100).toStringAsFixed(0)}% · ${progress.fileName}',
+            progress: progress.fraction.clamp(0, 1),
+          ));
         },
       );
       for (final item in _availableFiles) {
@@ -297,8 +316,15 @@ class _FilesScreenState extends State<FilesScreen> {
         _status = 'All ${_availableFiles.length} file(s) received successfully';
         _downloaded = true;
       });
+      TransferOverlayController.clear();
+      await _service.stopForegroundService();
       _message('Transfer complete. Files saved to $destination');
     } catch (error) {
+      TransferOverlayController.show(TransferOverlaySnapshot(
+        direction: TransferOverlayDirection.receiving,
+        fileCount: _availableFiles.length,
+        label: 'Transfer interrupted',
+      ));
       _message('Transfer failed: $error');
       if (mounted) setState(() => _status = 'Transfer failed');
     } finally {
@@ -345,6 +371,7 @@ class _FilesScreenState extends State<FilesScreen> {
 
   Future<void> _stopSharing() async {
     await _service.stopSharing();
+    TransferOverlayController.clear();
     if (!mounted) return;
     setState(() {
       _invite = null;
@@ -353,7 +380,30 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _disconnectReceiver() async {
+    if (_downloading) {
+      _message('A transfer is active. Wait for it to finish before disconnecting.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Disconnect?'),
+        content: const Text('End this Wi-Fi transfer session and disconnect from the sender?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     await _service.disconnect();
+    TransferOverlayController.clear();
     if (!mounted) return;
     setState(() {
       _receiverInvite = null;
@@ -491,7 +541,7 @@ class _FilesScreenState extends State<FilesScreen> {
             const SizedBox(height: 12),
             Text('Wi-Fi: ${_invite!.ssid}', style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text('Keep this screen open while the other phone connects and receives files.', textAlign: TextAlign.center),
+            const Text('The transfer stays active while you browse other Plazma S sections.', textAlign: TextAlign.center),
             const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: _busy ? null : _stopSharing,
