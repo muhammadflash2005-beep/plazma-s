@@ -39,16 +39,72 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
     });
   }
 
+  Future<Map<String, dynamic>> _fetchLatestReleaseMetadata() async {
+    final apiResponse = await http.get(
+      Uri.parse('https://api.github.com/repos/$_repository/releases/latest'),
+      headers: const {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'Plazma-S-Updater',
+      },
+    ).timeout(const Duration(seconds: 25));
+
+    if (apiResponse.statusCode == 200) {
+      return jsonDecode(apiResponse.body) as Map<String, dynamic>;
+    }
+
+    // GitHub's unauthenticated REST API is rate-limited. The public Releases
+    // page is a separate route and can still provide the latest tag and assets.
+    final pageResponse = await http.get(
+      Uri.parse('https://github.com/$_repository/releases/latest'),
+      headers: const {'User-Agent': 'Plazma-S-Updater'},
+    ).timeout(const Duration(seconds: 25));
+    if (pageResponse.statusCode != 200) {
+      throw Exception(
+        'GitHub API returned HTTP ${apiResponse.statusCode}; '
+        'the Releases page returned HTTP ${pageResponse.statusCode}.',
+      );
+    }
+
+    final html = pageResponse.body;
+    final redirectedSegments = pageResponse.request?.url.pathSegments ?? const <String>[];
+    String? tag;
+    final tagIndex = redirectedSegments.indexOf('tag');
+    if (tagIndex >= 0 && tagIndex + 1 < redirectedSegments.length) {
+      tag = redirectedSegments[tagIndex + 1];
+    }
+    tag ??= RegExp(r'/releases/tag/([^"?#/]+)').firstMatch(html)?.group(1);
+    if (tag == null || tag.isEmpty) {
+      throw Exception(
+        'GitHub API returned HTTP ${apiResponse.statusCode}, and the latest release tag could not be read.',
+      );
+    }
+
+    final assets = <Map<String, dynamic>>[];
+    final assetPattern = RegExp(
+      r'href="([^"]*/releases/download/[^"]*/(app-release\\.apk|SHA256SUMS\\.txt))"',
+      caseSensitive: false,
+    );
+    for (final match in assetPattern.allMatches(html)) {
+      final path = match.group(1)!;
+      final name = match.group(2)!;
+      final url = path.startsWith('http') ? path : 'https://github.com$path';
+      assets.add({'name': name, 'browser_download_url': url});
+    }
+    if (assets.length < 2) {
+      throw Exception(
+        'GitHub API returned HTTP ${apiResponse.statusCode}, and the Releases page did not expose both update files.',
+      );
+    }
+
+    return {'tag_name': tag, 'assets': assets, 'body': ''};
+  }
+
   Future<void> _checkForUpdates() async {
     setState(() { _busy = true; _error = null; _progress = null; _status = 'Checking for updates…'; });
     try {
       final package = await PackageInfo.fromPlatform();
-      final response = await http.get(
-        Uri.parse('https://api.github.com/repos/$_repository/releases/latest'),
-        headers: const {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'Plazma-S-Updater'},
-      ).timeout(const Duration(seconds: 25));
-      if (response.statusCode != 200) throw Exception('GitHub returned HTTP ${response.statusCode}. Try again later.');
-      final release = jsonDecode(response.body) as Map<String, dynamic>;
+      final release = await _fetchLatestReleaseMetadata();
       final tag = (release['tag_name'] as String? ?? '').trim();
       final latest = tag.startsWith('v') ? tag.substring(1) : tag;
       if (latest.isEmpty) throw Exception('The latest release has no version tag.');
