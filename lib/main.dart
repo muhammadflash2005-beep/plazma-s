@@ -217,6 +217,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 1;
+  int _category = 0;
   TransferMode? _transferMode;
 
   @override
@@ -240,6 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 children: [
                   _TopBar(onJoin: _showJoinDialog),
+                  if (_tab == 1) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
                       child: ConstrainedBox(
@@ -250,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             index: _tab,
                             children: [
                               _homeContent(wide),
-                              const AppsScreen(),
+                              _categoryContent(),
                               _transferMode == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode),
                               _meContent(),
                             ],
@@ -439,6 +441,37 @@ class _HomeScreenState extends State<HomeScreen> {
           )),
         ],
       );
+
+  Widget _topCategoryNavigation() {
+    const labels = ['Apps', 'Images', 'Music', 'Videos', 'Files'];
+    const icons = [Icons.apps_rounded, Icons.photo_library_rounded, Icons.library_music_rounded, Icons.video_library_rounded, Icons.folder_rounded];
+    return SizedBox(
+      height: 54,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        scrollDirection: Axis.horizontal,
+        itemCount: labels.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) => ChoiceChip(
+          avatar: Icon(icons[index], size: 17),
+          label: Text(labels[index]),
+          selected: _category == index,
+          onSelected: (_) => setState(() => _category = index),
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryContent() => IndexedStack(
+    index: _category,
+    children: const [
+      AppsScreen(),
+      ImagesScreen(),
+      MusicScreen(),
+      VideosScreen(),
+      FilesScreen(),
+    ],
+  );
 
   Widget _transferChooser(bool wide) {
     final theme = Theme.of(context);
