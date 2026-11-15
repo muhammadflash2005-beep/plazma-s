@@ -170,10 +170,232 @@ class XenderLocalTransferService {
           await request.response.close();
           return;
         }
+        final length = await file.length();
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        var offset = 0;
+        if (range != null) {
+          final match = RegExp(r'^bytes=(\\d+)-
+        return;
+      }
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+    } catch (error) {
+      debugPrint('Plazma request failed: $error');
+      try {
+        request.response.statusCode = HttpStatus.internalServerError;
+        await request.response.close();
+      } catch (_) {}
+    }
+  }
+
+  Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
+    await _wifi.join(invite);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      final response = await request.close().timeout(const Duration(seconds: 20));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('Could not read the sender file list (HTTP ${response.statusCode}).');
+      }
+      final body = await utf8.decoder.bind(response).join();
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic> ||
+          decoded['version'] != 1 ||
+          decoded['files'] is! List) {
+        throw const FormatException('The sender returned an unsupported file list.');
+      }
+      return (decoded['files'] as List)
+          .whereType<Map>()
+          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> downloadAll({
+    required PlazmaConnectionInvite invite,
+    required List<SharedLocalFile> files,
+    required Directory destination,
+    required void Function(LocalTransferProgress progress) onProgress,
+  }) async {
+    await destination.create(recursive: true);
+    final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
+    var totalBytes = 0;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      for (final item in files) {
+        final relative = _safeRelativePath(item.relativePath);
+        final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
+        await target.parent.create(recursive: true);
+        if (await target.exists()) {
+          final existingSize = await target.length();
+          final existingDigest = await sha256.bind(target.openRead()).first;
+          if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          throw FileSystemException('A different file with this name already exists.', target.path);
+        }
+        final partial = File('${target.path}.plazma-partial');
+        var offset = await partial.exists() ? await partial.length() : 0;
+        if (offset > item.size) {
+          await partial.delete();
+          offset = 0;
+        }
+        if (offset == item.size && offset > 0) {
+          final digest = await sha256.bind(partial.openRead()).first;
+          if (digest.toString() == item.sha256) {
+            await partial.rename(target.path);
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          await partial.delete();
+          offset = 0;
+        }
+        final request = await client.getUrl(
+          _endpoint(invite, '/download', {'id': item.id.toString()}),
+        );
+        if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
+        final response = await request.close().timeout(const Duration(seconds: 30));
+        final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
+        if (response.statusCode != expectedStatus) {
+          throw HttpException(
+            'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
+          );
+        }
+        final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+        var fileBytes = offset;
+        totalBytes += offset;
+        onProgress(LocalTransferProgress(
+          fileName: item.name,
+          fileBytes: fileBytes,
+          fileSize: item.size,
+          totalBytes: totalBytes,
+          totalSize: totalSize,
+        ));
+        try {
+          await for (final chunk in response) {
+            sink.add(chunk);
+            fileBytes += chunk.length;
+            totalBytes += chunk.length;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: fileBytes,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+          }
+          await sink.flush();
+          await sink.close();
+          final receivedDigest = await sha256.bind(partial.openRead()).first;
+          if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
+            await partial.delete();
+            throw FileSystemException(
+              'The received file failed its size or SHA-256 integrity check.',
+              partial.path,
+            );
+          }
+          await partial.rename(target.path);
+        } catch (_) {
+          await sink.close();
+          rethrow;
+        }
+      }
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Uri _endpoint(PlazmaConnectionInvite invite, String path, [Map<String, String>? extra]) {
+    return Uri(
+      scheme: 'http',
+      host: invite.host,
+      port: invite.port,
+      path: path,
+      queryParameters: {'token': invite.token, ...?extra},
+    );
+  }
+
+  bool _authorized(HttpRequest request, String token) {
+    final supplied = request.uri.queryParameters['token'];
+    if (supplied == null || supplied.length != token.length) return false;
+    var difference = 0;
+    for (var i = 0; i < token.length; i++) {
+      difference |= supplied.codeUnitAt(i) ^ token.codeUnitAt(i);
+    }
+    return difference == 0;
+  }
+
+  String _safeRelativePath(String value) {
+    final normalized = value.replaceAll('\\', '/');
+    final parts = normalized.split('/');
+    if (normalized.isEmpty ||
+        normalized.startsWith('/') ||
+        parts.any((part) => part.isEmpty || part == '.' || part == '..') ||
+        RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
+      throw const FormatException('Unsafe file path received.');
+    }
+    return normalized;
+  }
+
+  String _displayName(String path) => path.split('/').last;
+
+  Future<void> stopSharing() async {
+    final server = _server;
+    _server = null;
+    _invite = null;
+    _files = const [];
+    _relativePaths = const [];
+    await server?.close(force: true);
+    await _wifi.stop();
+  }
+
+  Future<void> disconnect() => _wifi.disconnect();
+}
+).firstMatch(range.trim());
+          if (match == null) {
+            request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+            await request.response.close();
+            return;
+          }
+          offset = int.parse(match.group(1)!);
+          if (offset >= length) {
+            request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+            await request.response.close();
+            return;
+          }
+          request.response.statusCode = HttpStatus.partialContent;
+          request.response.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $offset-${length - 1}/$length',
+          );
+        } else {
+          request.response.statusCode = HttpStatus.ok;
+        }
+        request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
         request.response.headers.contentType = ContentType.binary;
-        request.response.headers.contentLength = await file.length();
+        request.response.headers.contentLength = length - offset;
         request.response.headers.set('Cache-Control', 'no-store');
-        await request.response.addStream(file.openRead());
+        await request.response.addStream(file.openRead(offset));
         await request.response.close();
         return;
       }
