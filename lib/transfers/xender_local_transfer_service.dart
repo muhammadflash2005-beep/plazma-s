@@ -96,6 +96,13 @@ class XenderLocalTransferService {
   List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
   Future<void> Function()? _onTransferCompleted;
+  RoomRegistry? _room;
+  String? _joinedDeviceId;
+  PlazmaConnectionInvite? _joinedInvite;
+
+  List<RoomDevice> get roomMembers => _room?.members ?? const [];
+  int get joinedDeviceCount => _room?.joinedCount ?? 1;
+  int get completedDeviceCount => _room?.completedCount ?? 0;
 
   PlazmaConnectionInvite? get invite => _invite;
   bool get isSharing => _server != null;
@@ -141,12 +148,14 @@ class XenderLocalTransferService {
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
+    final roomId = RoomId.generate();
     final invite = PlazmaConnectionInvite(
       ssid: '',
       password: '',
       host: await _localIpv4Address(),
       port: 45454,
       token: token,
+      roomId: roomId,
     );
     HttpServer? server;
     try {
@@ -156,6 +165,7 @@ class XenderLocalTransferService {
       _files = checkedFiles;
       _manifest = manifest;
       _invite = invite;
+      _room = RoomRegistry(roomId: roomId);
       _onTransferCompleted = onTransferCompleted;
       _server = server;
       server.listen(
@@ -181,9 +191,12 @@ class XenderLocalTransferService {
     }
     try {
       if (request.method == 'POST' && request.uri.path == '/complete') {
+        final deviceId = request.uri.queryParameters['deviceId'];
+        final wasFirst = (_room?.completedCount ?? 0) == 0;
+        final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
-        final onCompleted = _onTransferCompleted;
+        final onCompleted = marked && wasFirst ? _onTransferCompleted : null;
         if (onCompleted != null) {
           try {
             await onCompleted();
@@ -191,7 +204,55 @@ class XenderLocalTransferService {
             debugPrint('Could not record completed outgoing transfer: $error');
           }
         }
-        // One recipient finishing must not close a room used by others.
+        // Keep the room open until its host explicitly stops sharing.
+        return;
+      }
+      if (request.method == 'POST' && request.uri.path == '/join') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        if (decoded is! Map<String, dynamic>) {
+          request.response.statusCode = HttpStatus.badRequest;
+          await request.response.close();
+          return;
+        }
+        final deviceId = decoded['deviceId'];
+        final deviceName = decoded['deviceName'];
+        final platform = decoded['platform'];
+        if (deviceId is! String || deviceName is! String || platform is! String ||
+            !(_room?.join(deviceId: deviceId, deviceName: deviceName, platform: platform) ?? false)) {
+          request.response.statusCode = HttpStatus.conflict;
+          request.response.write('Room is full or the device details are invalid.');
+          await request.response.close();
+          return;
+        }
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'roomId': _room?.roomId,
+          'joinedCount': joinedDeviceCount,
+          'maxMembers': 8,
+        }));
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'POST' && request.uri.path == '/leave') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        if (deviceId is String) _room?.leave(deviceId);
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'GET' && request.uri.path == '/room') {
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'roomId': _room?.roomId,
+          'joinedCount': joinedDeviceCount,
+          'maxMembers': 8,
+          'completedCount': completedDeviceCount,
+          'members': roomMembers.map((member) => member.toJson()).toList(),
+        }));
+        await request.response.close();
         return;
       }
       if (request.method != 'GET') {
@@ -267,8 +328,27 @@ class XenderLocalTransferService {
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
+    final deviceId = List.generate(
+      16,
+      (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    _joinedDeviceId = deviceId;
+    _joinedInvite = invite;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
+      final joinRequest = await client.postUrl(_endpoint(invite, '/join'));
+      joinRequest.headers.contentType = ContentType.json;
+      joinRequest.write(jsonEncode({
+        'deviceId': deviceId,
+        'deviceName': Platform.localHostname,
+        'platform': Platform.operatingSystem,
+      }));
+      final joinResponse = await joinRequest.close().timeout(const Duration(seconds: 15));
+      if (joinResponse.statusCode != HttpStatus.ok) {
+        final reason = await utf8.decoder.bind(joinResponse).join();
+        throw HttpException(reason.isEmpty ? 'Could not join room.' : reason);
+      }
+      await joinResponse.drain<void>();
       final request = await client.getUrl(_endpoint(invite, '/manifest'));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 60));
@@ -395,7 +475,9 @@ class XenderLocalTransferService {
           rethrow;
         }
       }
-      final completeRequest = await client.postUrl(_endpoint(invite, '/complete'));
+      final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
+        if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
+      }));
       final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
       if (completeResponse.statusCode != HttpStatus.ok) {
         throw HttpException('The sender did not acknowledge transfer completion.');
@@ -470,12 +552,31 @@ class XenderLocalTransferService {
     _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
+    _room = null;
     await server?.close(force: true);
     TransferOverlayController.clear();
     await stopForegroundService();
   }
 
   Future<void> disconnect() async {
+    final invite = _joinedInvite;
+    final deviceId = _joinedDeviceId;
+    _joinedInvite = null;
+    _joinedDeviceId = null;
+    if (invite != null && deviceId != null) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.postUrl(_endpoint(invite, '/leave'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'deviceId': deviceId}));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+      } catch (_) {
+        // The room may already have been closed by its host.
+      } finally {
+        client.close(force: true);
+      }
+    }
     // Plazma S never changes the device's Wi-Fi connection.
     await stopForegroundService();
   }
