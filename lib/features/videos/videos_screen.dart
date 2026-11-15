@@ -234,7 +234,7 @@ class _VideosScreenState extends State<VideosScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Videos', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
-      Text('Choose photos, preview your selection, and share them directly with another phone.',
+      Text('Choose images on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
