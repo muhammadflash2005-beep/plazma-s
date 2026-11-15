@@ -296,48 +296,54 @@ class _HomeScreenState extends State<HomeScreen> {
                 return Material(
                   color: colors.surface,
                   elevation: 8,
-                  shape: const StadiumBorder(),
+                  shape: const CircleBorder(),
                   child: InkWell(
-                    customBorder: const StadiumBorder(),
+                    customBorder: const CircleBorder(),
                     onTap: () => setState(() => _tab = 1),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                    child: SizedBox(
+                      width: 58,
+                      height: 58,
+                      child: Stack(
+                        alignment: Alignment.center,
                         children: [
                           SizedBox(
-                            width: 42,
-                            height: 42,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                CircularProgressIndicator(
-                                  value: transfer.progress,
-                                  strokeWidth: 3.5,
-                                  color: colors.primary,
-                                  backgroundColor: colors.primary.withValues(alpha: 0.16),
-                                ),
-                                Text(
-                                  '${transfer.fileCount}',
-                                  style: TextStyle(fontWeight: FontWeight.w800, color: colors.onSurface),
-                                ),
-                              ],
+                            width: 48,
+                            height: 48,
+                            child: CircularProgressIndicator(
+                              value: transfer.progress,
+                              strokeWidth: 3.5,
+                              color: colors.primary,
+                              backgroundColor: colors.primary.withValues(alpha: 0.16),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                transfer.direction == TransferOverlayDirection.sending ? 'Sending files' : 'Receiving files',
-                                style: const TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                              Text(transfer.label, style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
-                            ],
+                          Icon(
+                            transfer.direction == TransferOverlayDirection.sending
+                                ? Icons.upload_rounded
+                                : Icons.download_rounded,
+                            size: 19,
+                            color: colors.primary,
                           ),
-                          const SizedBox(width: 4),
-                          Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
+                          Positioned(
+                            right: 1,
+                            top: 1,
+                            child: Container(
+                              constraints: const BoxConstraints(minWidth: 19, minHeight: 19),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: colors.primary,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                '${transfer.fileCount}',
+                                style: TextStyle(
+                                  color: colors.onPrimary,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
