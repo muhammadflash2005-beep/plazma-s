@@ -554,18 +554,76 @@ class _HomeScreenState extends State<HomeScreen> {
       const SizedBox(height: 22),
       Text('Appearance', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 12),
-      ...PlazmaTheme.values.map((theme) => Card(
-        child: RadioListTile<PlazmaTheme>(
-          value: theme,
-          groupValue: selected,
-          onChanged: (value) {
-            if (value != null) widget.themes.setTheme(value);
-          },
-          title: Text(theme.label, style: const TextStyle(fontWeight: FontWeight.w700)),
-          subtitle: Text(theme.description),
-          secondary: _ThemeSwatch(theme: theme),
-        ),
-      )),
+      GridView.count(
+        crossAxisCount: 3,
+        crossAxisSpacing: 9,
+        mainAxisSpacing: 9,
+        childAspectRatio: 0.76,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        children: PlazmaTheme.values.map((theme) {
+          final isSelected = selected == theme;
+          return Card(
+            clipBehavior: Clip.antiAlias,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.outlineVariant,
+                width: isSelected ? 2 : 1,
+              ),
+            ),
+            child: InkWell(
+              onTap: () => widget.themes.setTheme(theme),
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        _ThemeSwatch(theme: theme),
+                        const Spacer(),
+                        if (isSelected)
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: Theme.of(context).colorScheme.primary,
+                            size: 18,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      theme.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Expanded(
+                      child: Text(
+                        theme.description,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 9,
+                          height: 1.2,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
       const SizedBox(height: 20),
       const AppUpdateCard(),
       const SizedBox(height: 12),
