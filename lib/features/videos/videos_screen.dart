@@ -234,12 +234,12 @@ class _VideosScreenState extends State<VideosScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Videos', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
-      Text('Choose images on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
+      Text('Choose videos on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        const Text('Room ${_invite!.roomId} · Scan to receive videos', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ${_invite!.roomId} · Scan to receive videos', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
