@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -52,27 +51,6 @@ class _ImagesScreenState extends State<ImagesScreen> {
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
-  }
-
-  Future<void> _pickImages() async {
-    if (_busy) return;
-    try {
-      // file_picker 13 returns a List<PlatformFile>; multi-select is the default.
-      final result = await FilePicker.pickFiles(type: FileType.image);
-      if (!mounted || result.isEmpty) return;
-      setState(() {
-        for (final item in result) {
-          final path = item.path;
-          if (path != null && !_selected.any((file) => file.path == path)) {
-            _selected.add(File(path));
-          }
-        }
-        _status = '${_selected.length} image(s) selected';
-      });
-      _updateSelectionCount();
-    } catch (e) {
-      _message('Could not open images: $e');
-    }
   }
 
   Future<void> _sendImages() async {
