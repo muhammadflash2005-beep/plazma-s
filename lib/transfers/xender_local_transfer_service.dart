@@ -74,7 +74,9 @@ class LocalTransferProgress {
 /// The sender hosts file metadata and download endpoints; recipients join
 /// using a QR invite and download directly over the local network.
 class XenderLocalTransferService {
-  XenderLocalTransferService();
+  XenderLocalTransferService._();
+  static final XenderLocalTransferService _shared = XenderLocalTransferService._();
+  factory XenderLocalTransferService() => _shared;
 
   static const MethodChannel _foregroundChannel = MethodChannel('com.plazma.s/transfer_service');
 
@@ -182,6 +184,43 @@ class XenderLocalTransferService {
       await server?.close(force: true);
       rethrow;
     }
+  }
+
+  /// Adds more files to the currently hosted room without changing its QR code.
+  Future<void> addFiles({
+    required List<File> files,
+    required List<String> relativePaths,
+  }) async {
+    if (_server == null || _invite == null) {
+      throw StateError('There is no active sharing room.');
+    }
+    if (files.isEmpty || files.length != relativePaths.length) {
+      throw ArgumentError('Select at least one valid file to add.');
+    }
+    final nextFiles = <File>[];
+    final nextPaths = <String>[];
+    for (var i = 0; i < files.length; i++) {
+      final stat = await files[i].stat();
+      if (stat.type != FileSystemEntityType.file) continue;
+      final path = _safeRelativePath(relativePaths[i]);
+      if (_manifest.any((entry) => entry['relativePath'] == path)) continue;
+      nextFiles.add(files[i]);
+      nextPaths.add(path);
+    }
+    final additions = <Map<String, Object>>[];
+    for (var i = 0; i < nextFiles.length; i++) {
+      final file = nextFiles[i];
+      final digest = await sha256.bind(file.openRead()).first;
+      additions.add({
+        'id': _files.length + i,
+        'name': _displayName(nextPaths[i]),
+        'relativePath': nextPaths[i],
+        'size': await file.length(),
+        'sha256': digest.toString(),
+      });
+    }
+    _files = [..._files, ...nextFiles];
+    _manifest = [..._manifest, ...additions];
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -362,6 +401,28 @@ class XenderLocalTransferService {
       if (decoded is! Map<String, dynamic> ||
           decoded['version'] != 1 ||
           decoded['files'] is! List) {
+        throw const FormatException('The sender returned an unsupported file list.');
+      }
+      return (decoded['files'] as List)
+          .whereType<Map>()
+          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      final response = await request.close().timeout(const Duration(seconds: 30));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('Could not refresh the shared item list (HTTP ${response.statusCode}).');
+      }
+      final decoded = jsonDecode(await utf8.decoder.bind(response).join());
+      if (decoded is! Map<String, dynamic> || decoded['version'] != 1 || decoded['files'] is! List) {
         throw const FormatException('The sender returned an unsupported file list.');
       }
       return (decoded['files'] as List)

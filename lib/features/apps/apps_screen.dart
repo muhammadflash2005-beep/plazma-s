@@ -215,9 +215,12 @@ class _AppsScreenState extends State<AppsScreen> {
         }
       }
 
-      final invite = await _service.startSharing(files: files, relativePaths: paths);
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
+          : _service.startSharing(files: files, relativePaths: paths));
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for devices.'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
+      _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
@@ -336,6 +339,23 @@ class _AppsScreenState extends State<AppsScreen> {
     finally { if (mounted) setState(() => _busy = false); }
   }
 
+  Future<void> _refreshIncomingApps() async {
+    if (_receiver == null || _busy) return;
+    try {
+      final manifest = await _service.refreshManifest(_receiver!);
+      final groups = <String,List<SharedLocalFile>>{};
+      for (final item in manifest) {
+        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        final pkg = item.relativePath.split('/').first;
+        if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
+      }
+      setState(() {
+        _incoming..clear()..addAll(groups);
+        _status = '${groups.length} app(s) available in this room.';
+      });
+    } catch (e) { _message('Could not refresh shared apps: $e'); }
+  }
+
   Future<void> _download() async {
     if (_receiver == null || _library == null || _busy) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving apps…'; });
@@ -422,6 +442,7 @@ class _AppsScreenState extends State<AppsScreen> {
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
         Row(children: [Expanded(child: Text(_incoming.length.toString() + ' app(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
+          TextButton(onPressed: _busy ? null : _refreshIncomingApps, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         ..._incoming.entries.map((e) => ListTile(leading: const Icon(Icons.android),
           title: Text(e.key), subtitle: Text(e.value.length.toString() + ' APK part(s)'))),
@@ -429,7 +450,7 @@ class _AppsScreenState extends State<AppsScreen> {
         FilledButton.icon(onPressed: _busy ? null : _download,
           icon: const Icon(Icons.download), label: const Text('Receive and save apps')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         Row(children: [
           Expanded(child: FilledButton.icon(onPressed: _busy ? null : _receive,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),

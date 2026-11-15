@@ -18,6 +18,8 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class MusicScreen extends StatefulWidget {
+  static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
+  static VoidCallback? sendSelected;
   const MusicScreen({this.enabled = true, super.key});
   final bool enabled;
 
@@ -38,13 +40,22 @@ class _MusicScreenState extends State<MusicScreen> {
   Timer? _roomRefreshTimer;
 
   @override
+  void initState() {
+    super.initState();
+    MusicScreen.sendSelected = _sendMusic;
+  }
+
+  @override
   void dispose() {
+    if (MusicScreen.sendSelected == _sendMusic) MusicScreen.sendSelected = null;
+    MusicScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _pickMusic() async {
     if (_busy) return;
     try {
@@ -68,33 +79,38 @@ class _MusicScreenState extends State<MusicScreen> {
   Future<void> _sendMusic() async {
     if (_selected.isEmpty || _busy) return;
     setState(() { _busy = true; _status = 'Preparing music…'; });
+    final fileCount = _selected.length;
     try {
       final names = _selected.map((f) => f.uri.pathSegments.last).toList();
-      final invite = await _service.startSharing(
-        files: List<File>.from(_selected),
-        relativePaths: names,
-        onTransferCompleted: () async {
-          for (final file in _selected) {
-            await TransferHistoryStore.add(
-              name: file.uri.pathSegments.last,
-              type: 'music',
-              direction: 'sent',
-              path: file.path,
-              bytes: await file.length(),
-              peer: 'Nearby Plazma S device',
-            );
-          }
-        },
-      );
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: List<File>.from(_selected), relativePaths: names)
+              .then((_) => _service.invite!)
+          : _service.startSharing(
+              files: List<File>.from(_selected),
+              relativePaths: names,
+              onTransferCompleted: () async {
+                for (final file in _selected) {
+                  await TransferHistoryStore.add(
+                    name: file.uri.pathSegments.last,
+                    type: 'music',
+                    direction: 'sent',
+                    path: file.path,
+                    bytes: await file.length(),
+                    peer: 'Nearby Plazma S device',
+                  );
+                }
+              },
+            ));
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      MusicScreen.selectedCount.value = 0;
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
-        fileCount: _selected.length,
+        fileCount: fileCount,
         label: 'Sharing music',
       ));
     } catch (e) {
@@ -155,6 +171,7 @@ class _MusicScreenState extends State<MusicScreen> {
   );
   }
 
+  // ignore: unused_element
   Future<void> _receiveMusic() async {
     if (_busy) return;
     final invite = await _scan();
@@ -184,6 +201,18 @@ class _MusicScreenState extends State<MusicScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _refreshMusic() async {
+    if (_receiver == null || _busy) return;
+    try {
+      final all = await _service.refreshManifest(_receiver!);
+      final items = all.where((item) { final n=item.relativePath.toLowerCase(); return n.endsWith('.mp3') || n.endsWith('.m4a') || n.endsWith('.aac') || n.endsWith('.wav') || n.endsWith('.flac') || n.endsWith('.ogg') || n.endsWith('.opus') || n.endsWith('.wma') || n.endsWith('.aiff'); }).toList();
+      setState(() {
+        _incoming..clear()..addAll(items);
+        _status = '${items.length} song(s) available in this room.';
+      });
+    } catch (e) { _message('Could not refresh shared items: $e'); }
   }
 
   Future<void> _downloadMusic() async {
@@ -279,63 +308,30 @@ class _MusicScreenState extends State<MusicScreen> {
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
         Row(children: [Expanded(child: Text('${_incoming.length} song(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
+          TextButton(onPressed: _busy ? null : _refreshMusic, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
         FilledButton.icon(onPressed: _busy ? null : _downloadMusic,
           icon: const Icon(Icons.download), label: const Text('Receive music')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.music,
+          selectedPaths: _selected.map((file) => file.path).toSet(),
           onSelect: (file) {
-            if (_selected.any((existing) => existing.path == file.path)) return;
             setState(() {
-              _selected.add(file);
-              _status = '${_selected.length} song(s) selected';
+              if (_selected.any((existing) => existing.path == file.path)) {
+                _selected.removeWhere((existing) => existing.path == file.path);
+              } else {
+                _selected.add(file);
+              }
+              _status = _selected.isEmpty ? null : '${_selected.length} song(s) selected';
             });
+            MusicScreen.selectedCount.value = _selected.length;
           },
         ),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: _busy ? null : _pickMusic,
-            icon: const Icon(Icons.library_music_rounded), label: const Text('Choose music'))),
-          const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy ? null : _receiveMusic,
-            icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive'))),
-        ]),
         const SizedBox(height: 12),
-        if (_selected.isEmpty)
-          const Card(child: Padding(padding: EdgeInsets.all(24),
-            child: Center(child: Column(children: [
-              Icon(Icons.library_music_outlined, size: 44),
-              SizedBox(height: 8),
-              Text('Choose audio files from your device to see them here.'),
-            ]))))
-        else
-          Card(child: Column(children: [
-            for (var index = 0; index < _selected.length; index++)
-              ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                title: Text(_selected[index].uri.pathSegments.last,
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: Text('${(_selected[index].lengthSync() / (1024 * 1024)).toStringAsFixed(1)} MB'),
-                trailing: IconButton(
-                  tooltip: 'Remove song',
-                  onPressed: _busy ? null : () => setState(() => _selected.removeAt(index)),
-                  icon: const Icon(Icons.close_rounded)),
-              ),
-          ])),
-        if (_selected.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          SizedBox(width: double.infinity, child: FilledButton.icon(
-            onPressed: _busy ? null : _sendMusic,
-            icon: const Icon(Icons.send_rounded),
-            label: Text('Send ${_selected.length} song(s)'),
-          )),
-          TextButton(onPressed: _busy ? null : () => setState(() => _selected.clear()),
-            child: const Text('Clear selection')),
-        ],
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),

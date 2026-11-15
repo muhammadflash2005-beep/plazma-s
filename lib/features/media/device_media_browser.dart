@@ -15,12 +15,14 @@ class DeviceMediaBrowser extends StatefulWidget {
     required this.kind,
     required this.onSelect,
     this.enabled = true,
+    this.selectedPaths = const <String>{},
     super.key,
   });
 
   final MediaKind kind;
   final ValueChanged<File> onSelect;
   final bool enabled;
+  final Set<String> selectedPaths;
 
   @override
   State<DeviceMediaBrowser> createState() => _DeviceMediaBrowserState();
@@ -56,6 +58,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   AssetPathEntity? _album;
   List<AssetEntity> _assets = [];
   final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
+  final Map<String, String> _assetPaths = {};
   int _totalCount = 0;
   bool _loading = false;
   bool _loadingMore = false;
@@ -217,6 +220,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         }
         return;
       }
+      _assetPaths[asset.id] = file.path;
       widget.onSelect(file);
     } catch (error) {
       if (mounted) {
@@ -298,7 +302,10 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                       title: Text(asset.title ?? 'Audio file',
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
-                      trailing: const Icon(Icons.add_circle_outline_rounded),
+                      trailing: Icon(
+                        widget.selectedPaths.contains(_assetPaths[asset.id]) ? Icons.check_circle : Icons.circle_outlined,
+                        color: widget.selectedPaths.contains(asset.id) ? colors.primary : colors.onSurfaceVariant,
+                      ),
                       onTap: () => _select(asset),
                     ),
                 ],
@@ -316,6 +323,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
               ),
               itemBuilder: (context, index) {
                 final asset = _assets[index];
+                final selected = widget.selectedPaths.contains(asset.id);
                 return InkWell(
                   onTap: () => _select(asset),
                   borderRadius: BorderRadius.circular(10),
@@ -344,14 +352,23 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                             child: Icon(Icons.play_circle_fill_rounded,
                                 color: Colors.white, size: 32),
                           ),
-                        Positioned(
-                          right: 5,
-                          bottom: 5,
-                          child: Icon(
-                            Icons.add_circle_rounded,
-                            color: Colors.white.withValues(alpha: .95),
+                        if (selected)
+                          Positioned.fill(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: colors.primary.withValues(alpha: .28),
+                                border: Border.all(color: colors.primary, width: 3),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Align(
+                                alignment: Alignment.topRight,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(Icons.check_circle, color: colors.primary, size: 25),
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   ),

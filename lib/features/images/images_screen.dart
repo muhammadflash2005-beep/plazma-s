@@ -54,6 +54,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _pickImages() async {
     if (_busy) return;
     try {
@@ -81,12 +82,12 @@ class _ImagesScreenState extends State<ImagesScreen> {
     final fileCount = _selected.length;
     try {
       final names = _selected.map((f) => f.uri.pathSegments.last).toList();
-      final invite = await _service.startSharing(
-        files: List<File>.from(_selected),
-        relativePaths: names,
-      );
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: List<File>.from(_selected), relativePaths: names)
+              .then((_) => _service.invite!)
+          : _service.startSharing(files: List<File>.from(_selected), relativePaths: names));
       if (!mounted) return;
-      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · ${_service.roomMembers.length} device(s) connected'; });
       _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -155,6 +156,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
   );
   }
 
+  // ignore: unused_element
   Future<void> _receiveImages() async {
     if (_busy) return;
     final invite = await _scan();
@@ -183,6 +185,18 @@ class _ImagesScreenState extends State<ImagesScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _refreshImages() async {
+    if (_receiver == null || _busy) return;
+    try {
+      final all = await _service.refreshManifest(_receiver!);
+      final items = all.where((item) { final n=item.relativePath.toLowerCase(); return n.endsWith('.jpg') || n.endsWith('.jpeg') || n.endsWith('.png') || n.endsWith('.webp') || n.endsWith('.gif') || n.endsWith('.bmp') || n.endsWith('.heic') || n.endsWith('.heif'); }).toList();
+      setState(() {
+        _incoming..clear()..addAll(items);
+        _status = '${items.length} image(s) available in this room.';
+      });
+    } catch (e) { _message('Could not refresh shared items: $e'); }
   }
 
   Future<void> _downloadImages() async {
@@ -278,63 +292,30 @@ class _ImagesScreenState extends State<ImagesScreen> {
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
         Row(children: [Expanded(child: Text('${_incoming.length} image(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
+          TextButton(onPressed: _busy ? null : _refreshImages, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
         FilledButton.icon(onPressed: _busy ? null : _downloadImages,
           icon: const Icon(Icons.download), label: const Text('Receive images')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.images,
+          selectedPaths: _selected.map((file) => file.path).toSet(),
           onSelect: (file) {
-            if (_selected.any((existing) => existing.path == file.path)) return;
             setState(() {
-              _selected.add(file);
-              _status = '${_selected.length} image(s) selected';
+              if (_selected.any((existing) => existing.path == file.path)) {
+                _selected.removeWhere((existing) => existing.path == file.path);
+              } else {
+                _selected.add(file);
+              }
+              _status = _selected.isEmpty ? null : '${_selected.length} image(s) selected';
             });
             _updateSelectionCount();
           },
         ),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: _busy ? null : _pickImages,
-            icon: const Icon(Icons.add_photo_alternate), label: const Text('Choose images'))),
-          const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy ? null : _receiveImages,
-            icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive'))),
-        ]),
         const SizedBox(height: 12),
-        if (_selected.isEmpty)
-          const Card(child: Padding(padding: EdgeInsets.all(24),
-            child: Center(child: Column(children: [
-              Icon(Icons.photo_library_outlined, size: 44),
-              SizedBox(height: 8),
-              Text('Your selected images will appear here.'),
-            ]))))
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _selected.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
-            itemBuilder: (context, index) => Stack(fit: StackFit.expand, children: [
-              ClipRRect(borderRadius: BorderRadius.circular(12),
-                child: Image.file(_selected[index], fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const ColoredBox(
-                    color: Colors.black12, child: Icon(Icons.image_not_supported)))),
-              Positioned(right: 4, top: 4, child: IconButton.filledTonal(
-                visualDensity: VisualDensity.compact,
-                onPressed: _busy ? null : () { setState(() => _selected.removeAt(index)); _updateSelectionCount(); },
-                icon: const Icon(Icons.close, size: 17))),
-            ]),
-          ),
-        if (_selected.isNotEmpty)
-          Align(alignment: Alignment.centerLeft, child: TextButton(
-            onPressed: _busy ? null : () { setState(() => _selected.clear()); _updateSelectionCount(); },
-            child: const Text('Clear selection'),
-          )),
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
