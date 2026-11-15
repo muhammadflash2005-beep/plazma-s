@@ -2,30 +2,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plazma_s/main.dart';
 
 void main() {
-  testWidgets('home screen shows Plazma S room actions', (tester) async {
+  testWidgets('home screen exposes the new Send and Receive actions', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pumpAndSettle();
 
     expect(find.text('plazma'), findsOneWidget);
-    expect(find.text('Create a room'), findsOneWidget);
-    expect(find.text('Join a room'), findsOneWidget);
+    expect(find.text('Send files'), findsOneWidget);
+    expect(find.text('Receive files'), findsOneWidget);
+    expect(find.text('Choose files'), findsOneWidget);
+    expect(find.text('Scan QR code'), findsOneWidget);
   });
 
-  testWidgets('creating a room shows its QR invitation and six-character code', (tester) async {
+  testWidgets('Receive action opens the QR-based transfer screen', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Create room'));
-    await tester.tap(find.text('Create room'));
+    await tester.ensureVisible(find.text('Scan QR code'));
+    await tester.tap(find.text('Scan QR code'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Your room'), findsOneWidget);
-    expect(find.text('SCAN TO JOIN'), findsOneWidget);
-    expect(find.textContaining('Room ').first, findsOneWidget);
-    expect(find.text('Room host · Local preview'), findsOneWidget);
+    expect(find.text('Share files'), findsOneWidget);
+    expect(find.text('Scan to receive'), findsOneWidget);
+    expect(find.text('Add files'), findsOneWidget);
+    expect(find.text('Start sharing'), findsOneWidget);
   });
 
-  testWidgets('settings exposes all five Plazma themes', (tester) async {
+  testWidgets('settings exposes all nine Plazma themes', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pumpAndSettle();
 
@@ -37,5 +39,9 @@ void main() {
     expect(find.text('Ocean'), findsOneWidget);
     expect(find.text('Sunset'), findsOneWidget);
     expect(find.text('Forest'), findsOneWidget);
+    expect(find.text('Purple'), findsOneWidget);
+    expect(find.text('Crimson'), findsOneWidget);
+    expect(find.text('Midnight'), findsOneWidget);
+    expect(find.text('Obsidian'), findsOneWidget);
   });
 }

@@ -3,11 +3,8 @@
 // Keep the UI compatible with the current stable SDK during that migration.
 // ignore_for_file: deprecated_member_use
 
-import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'updates/app_update_card.dart';
@@ -216,9 +213,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
-  String? _roomId;
-  int _roomAppCount = 0;
-  int _selectedAppsCount = 0;
+  List<String> _pendingSharePaths = const [];
   TransferMode? _transferMode;
 
   @override
@@ -226,82 +221,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  String _newRoomId() {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = Random.secure();
-    return List.generate(6, (_) => alphabet[random.nextInt(alphabet.length)]).join();
+  void _createRoomForSelectedApps(List<String> paths) {
+    setState(() {
+      _pendingSharePaths = List<String>.from(paths);
+      _tab = 1;
+    });
   }
 
-  void _createRoom() => setState(() {
-        _roomId = _newRoomId();
-        _roomAppCount = 0;
-      });
-
-  void _createRoomForSelectedApps(int count) => setState(() {
-        _roomId = _newRoomId();
-        _roomAppCount = count;
-        _selectedAppsCount = 0;
-        _tab = 0;
-      });
-
-  void _showJoinDialog() {
-    var handled = false;
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Scan to join'),
-        content: SizedBox(
-          width: 320,
-          height: 360,
-          child: Column(
-            children: [
-              const Text(
-                'Point your camera at the QR code displayed on the host device.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: MobileScanner(
-                    onDetect: (capture) {
-                      if (handled) return;
-                      final raw = capture.barcodes
-                          .map((barcode) => barcode.rawValue)
-                          .whereType<String>()
-                          .firstOrNull;
-                      if (raw == null) return;
-                      final invite = Uri.tryParse(raw);
-                      if (invite == null ||
-                          invite.scheme != 'plazmas' ||
-                          invite.host != 'join') {
-                        return;
-                      }
-                      final room = invite.queryParameters['room'] ?? '';
-                      if (!RegExp(r'^[A-HJ-NP-Z2-9]{6}$').hasMatch(room)) {
-                        return;
-                      }
-                      handled = true;
-                      Navigator.of(dialogContext).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Room QR recognized: $room. Live room joining still needs the network room service.')),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
+  void _showJoinDialog() => _openTransfer(TransferMode.androidToAndroid);
 
   @override
   Widget build(BuildContext context) {
@@ -323,12 +250,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
                           child: switch (_tab) {
                             0 => _homeContent(wide),
-                            1 => FilesScreen(transferMode: _transferMode),
-                            2 => AppsScreen(
-                                onSendSelected: _createRoomForSelectedApps,
-                                onSelectionChanged: (count) =>
-                                    setState(() => _selectedAppsCount = count),
-                              ),
+                            1 => FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
+                            2 => AppsScreen(onSendSelected: _createRoomForSelectedApps),
                             3 => const DevicesScreen(),
                             4 => _secondaryContent(),
                             _ => _settingsContent(),
@@ -337,33 +260,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                  if (_tab == 2 && _selectedAppsCount > 0)
-                    Material(
-                      color: Theme.of(context).colorScheme.surface,
-                      elevation: 10,
-                      child: SafeArea(
-                        top: false,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(22, 10, 22, 10),
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 1180),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: FilledButton.icon(
-                                  onPressed: () => _createRoomForSelectedApps(_selectedAppsCount),
-                                  icon: const Icon(Icons.send_rounded),
-                                  label: Text('Send $_selectedAppsCount selected app(s)'),
-                                  style: FilledButton.styleFrom(
-                                    minimumSize: const Size.fromHeight(50),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                   if (!wide)
                     NavigationBar(
                       selectedIndex: _tab,
@@ -394,48 +290,24 @@ class _HomeScreenState extends State<HomeScreen> {
         Text('Your files. Your devices.\nOne local connection.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
         const SizedBox(height: 10),
-        Text('Share directly across devices on the same Wi-Fi or hotspot.',
+        Text('Connect two Android phones directly using a private Wi-Fi hotspot. No internet or mobile data needed.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
         const SizedBox(height: 22),
         _notice(),
         const SizedBox(height: 22),
-        Text('Choose your connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        Text('Available connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 14,
-          runSpacing: 14,
-          children: [
-            SizedBox(
-              width: wide ? 350 : double.infinity,
-              child: _TransferModeCard(
-                icon: Icons.computer_rounded,
-                title: 'PC to PC',
-                subtitle: 'Share between Windows, macOS and Linux computers.',
-                onTap: () => _openTransfer(TransferMode.pcToPc),
-              ),
-            ),
-            SizedBox(
-              width: wide ? 350 : double.infinity,
-              child: _TransferModeCard(
-                icon: Icons.phone_android_rounded,
-                title: 'Android to Android',
-                subtitle: 'Send files between Android phones and tablets.',
-                onTap: () => _openTransfer(TransferMode.androidToAndroid),
-              ),
-            ),
-            SizedBox(
-              width: wide ? 350 : double.infinity,
-              child: _TransferModeCard(
-                icon: Icons.devices_rounded,
-                title: 'PC to Android',
-                subtitle: 'Move files between a computer and an Android device.',
-                onTap: () => _openTransfer(TransferMode.pcToAndroid),
-              ),
-            ),
-          ],
+        SizedBox(
+          width: wide ? 350 : double.infinity,
+          child: _TransferModeCard(
+            icon: Icons.phone_android_rounded,
+            title: 'Android to Android',
+            subtitle: 'Send files and installed apps between Android phones using QR pairing.',
+            onTap: () => _openTransfer(TransferMode.androidToAndroid),
+          ),
         ),
         const SizedBox(height: 24),
-        if (_roomId == null) _roomActions(wide) else _roomPanel(),
+        _roomActions(wide),
         const SizedBox(height: 24),
         Text('Quick access', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
@@ -461,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 10),
             const Expanded(child: Text(
-              'Plazma S is designed for direct local-network transfers. Connect devices to the same reachable Wi-Fi or hotspot. Internet transfer is not part of this app.',
+              'Android-to-Android sharing uses a private local Wi-Fi hotspot created by the sending phone. No internet or mobile data is required. PC transfers are not available in this version.',
               style: TextStyle(height: 1.4, fontSize: 13),
             )),
           ]),
@@ -473,75 +345,21 @@ class _HomeScreenState extends State<HomeScreen> {
         runSpacing: 16,
         children: [
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.add_circle_rounded,
-            title: 'Create a room',
-            subtitle: 'Start a sharing space and invite nearby devices.',
-            buttonText: 'Create room',
-            onPressed: _createRoom,
+            icon: Icons.send_rounded,
+            title: 'Send files',
+            subtitle: 'Create a private Wi-Fi hotspot and share files with a QR code.',
+            buttonText: 'Choose files',
+            onPressed: () => _openTransfer(TransferMode.androidToAndroid),
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.login_rounded,
-            title: 'Join a room',
-            subtitle: 'Enter the six-character code shared by the host.',
-            buttonText: 'Enter room code',
+            icon: Icons.qr_code_scanner_rounded,
+            title: 'Receive files',
+            subtitle: 'Scan the sender’s QR code and receive directly over Wi-Fi.',
+            buttonText: 'Scan QR code',
             onPressed: _showJoinDialog,
             outlined: true,
           )),
         ],
-      );
-
-  Widget _roomPanel() => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Expanded(child: Text('Your room', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-              IconButton(onPressed: () => setState(() => _roomId = null), icon: const Icon(Icons.close_rounded)),
-            ]),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 18),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Column(children: [
-                const Text('SCAN TO JOIN', style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                  child: QrImageView(
-                    data: Uri(scheme: 'plazmas', host: 'join', queryParameters: {'room': _roomId}).toString(),
-                    version: QrVersions.auto,
-                    size: 190,
-                    backgroundColor: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text('Room ${_roomId!}', style: TextStyle(
-                  fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.w800,
-                  color: Theme.of(context).colorScheme.primary,
-                )),
-                const SizedBox(height: 8),
-                const Text('Scan this QR code from another Plazma S device.', textAlign: TextAlign.center),
-              ]),
-            ),
-            const SizedBox(height: 18),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Icon(Icons.devices_rounded)),
-              title: Text('This device'),
-              subtitle: Text('Room host · Local preview'),
-              trailing: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
-            ),
-            const Divider(),
-            Text(_roomAppCount > 0
-                ? '$_roomAppCount selected app(s) are ready for the room handoff. The room code is generated locally; live device joining and APK delivery are not connected yet.'
-                : 'Network room invitations and connected devices are the next native milestone.'),
-          ]),
-        ),
       );
 
   Widget _settingsContent() {
@@ -681,7 +499,7 @@ class _TopBar extends StatelessWidget {
         Text('plazma', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface, letterSpacing: -0.8)),
         Text(' S', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.primary)),
         const Spacer(),
-        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Join room')),
+        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Receive')),
       ]),
     );
   }

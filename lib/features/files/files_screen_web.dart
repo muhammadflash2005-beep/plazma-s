@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../../transfers/transfer_mode.dart';
 
 class FilesScreen extends StatelessWidget {
-  const FilesScreen({this.transferMode, super.key});
+  const FilesScreen({this.transferMode, this.initialPaths = const [], super.key});
+
+  final List<String> initialPaths;
 
   final TransferMode? transferMode;
 
