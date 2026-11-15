@@ -21,8 +21,9 @@ void main() {
     await tester.tap(find.text('Transfer').last);
     await tester.pump(const Duration(milliseconds: 700));
 
-    expect(find.text('Create room'), findsOneWidget);
-    expect(find.text('Join room'), findsOneWidget);
+    // The chooser repeats its action labels in both the heading and action card.
+    expect(find.text('Create room'), findsWidgets);
+    expect(find.text('Join room'), findsWidgets);
 
     await tester.tap(find.text('Join room').last);
     await tester.pump(const Duration(milliseconds: 700));
