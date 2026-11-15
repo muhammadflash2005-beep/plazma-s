@@ -432,7 +432,7 @@ class _AppsScreenState extends State<AppsScreen> {
         FilledButton.icon(onPressed: _busy ? null : _download,
           icon: const Icon(Icons.download), label: const Text('Receive and save apps')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         Row(children: [
           Expanded(child: FilledButton.icon(onPressed: _busy ? null : _receive,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
