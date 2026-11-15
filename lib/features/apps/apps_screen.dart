@@ -163,14 +163,13 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() { _busy = true; _status = 'Choose application installers or portable app bundles…'; });
     try {
       final result = await FilePicker.pickFiles(
-        allowMultiple: true,
         type: FileType.custom,
         allowedExtensions: ['exe', 'msi', 'msix', 'appx', 'appimage', 'deb', 'rpm', 'dmg', 'pkg', 'zip'],
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result.isEmpty) return;
       final files = <File>[];
       final paths = <String>[];
-      for (final picked in result.files) {
+      for (final picked in result) {
         if (picked.path == null) continue;
         files.add(File(picked.path!));
         paths.add('Applications/' + picked.name);
