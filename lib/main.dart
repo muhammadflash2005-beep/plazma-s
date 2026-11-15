@@ -134,7 +134,7 @@ extension PlazmaThemeInfo on PlazmaTheme {
         backgroundColor: surface,
         indicatorColor: primary.withValues(alpha: 0.13),
         labelTextStyle: WidgetStatePropertyAll(
-          TextStyle(color: foreground, fontWeight: FontWeight.w600),
+          TextStyle(color: foreground, fontWeight: FontWeight.w600, fontSize: 10.5),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
