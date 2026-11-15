@@ -47,7 +47,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
     try {
       final permission = await PhotoManager.requestPermissionExtend(
         requestOption: PermissionRequestOption(
-          androidPermission: AndroidPermission(type: _requestType, mediaLocation: false),
+          androidPermission: AndroidPermission(type: RequestType.all, mediaLocation: false),
         ),
       );
       if (!permission.hasAccess) {
