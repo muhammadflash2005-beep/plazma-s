@@ -23,7 +23,7 @@ The Home screen offers three explicit transfer routes:
 
 - **PC to PC** — Windows, macOS, and Linux desktop devices.
 - **Android to Android** — Android phones and tablets.
-- **PC to Android** — cross-platform transfers in either direction.
+- **Android ↔ PC** — cross-platform transfers in either direction.
 
 The selected route filters discovered destinations to the matching platform type. All routes remain local-network-only.
 
@@ -49,7 +49,7 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [x] Five selectable themes with on-device persistence (Light, Dark, Ocean, Sunset, Forest)
 - [x] Android APK build pipeline with local-network permissions and downloadable CI artifact
 - [ ] Web deployment and browser smoke test
-- [ ] Configure and publish native desktop builds for Windows, macOS and Linux
+- [x] CI release builds for Windows, macOS and Linux desktop apps
 - [ ] Install and smoke-test the first Android APK on a physical device
 - [ ] Network room messages, authenticated sessions, QR pairing, and room-aware mDNS discovery
 - [ ] Folder transfer and resumable transfer
