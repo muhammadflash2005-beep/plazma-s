@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import 'android_wifi_session_service.dart';
+import '../network/android_wifi_session_service.dart';
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -157,10 +157,8 @@ class XenderLocalTransferService {
       await request.response.close();
     } catch (error) {
       debugPrint('Plazma request failed: $error');
-      if (!request.response.headersSent) {
-        request.response.statusCode = HttpStatus.internalServerError;
-      }
       try {
+        request.response.statusCode = HttpStatus.internalServerError;
         await request.response.close();
       } catch (_) {}
     }
