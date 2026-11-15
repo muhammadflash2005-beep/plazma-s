@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'updates/app_update_card.dart';
 
 import 'features/apps/apps_screen.dart';
-import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
 import 'features/music/music_screen.dart';
