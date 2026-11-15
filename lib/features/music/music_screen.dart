@@ -81,22 +81,25 @@ class _MusicScreenState extends State<MusicScreen> {
     final fileCount = _selected.length;
     try {
       final names = _selected.map((f) => f.uri.pathSegments.last).toList();
-      final invite = await _service.startSharing(
-        files: List<File>.from(_selected),
-        relativePaths: names,
-        onTransferCompleted: () async {
-          for (final file in _selected) {
-            await TransferHistoryStore.add(
-              name: file.uri.pathSegments.last,
-              type: 'music',
-              direction: 'sent',
-              path: file.path,
-              bytes: await file.length(),
-              peer: 'Nearby Plazma S device',
-            );
-          }
-        },
-      );
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: List<File>.from(_selected), relativePaths: names)
+              .then((_) => _service.invite!)
+          : _service.startSharing(
+              files: List<File>.from(_selected),
+              relativePaths: names,
+              onTransferCompleted: () async {
+                for (final file in _selected) {
+                  await TransferHistoryStore.add(
+                    name: file.uri.pathSegments.last,
+                    type: 'music',
+                    direction: 'sent',
+                    path: file.path,
+                    bytes: await file.length(),
+                    peer: 'Nearby Plazma S device',
+                  );
+                }
+              },
+            ));
       if (!mounted) return;
       setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
       MusicScreen.selectedCount.value = 0;
