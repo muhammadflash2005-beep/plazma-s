@@ -44,21 +44,33 @@ void main() {
     expect(find.text('Start sharing'), findsNothing);
   });
 
-  testWidgets('Me tab exposes all nine Plazma themes', (tester) async {
+  testWidgets('Me tab exposes nine compact color-only theme swatches', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
     await tester.tap(find.text('Me').last);
     await tester.pump(const Duration(milliseconds: 700));
 
-    expect(find.text('Plazma Light'), findsOneWidget);
-    expect(find.text('Plazma Dark'), findsOneWidget);
-    expect(find.text('Ocean'), findsOneWidget);
-    expect(find.text('Sunset'), findsOneWidget);
-    expect(find.text('Forest'), findsOneWidget);
-    expect(find.text('Purple'), findsOneWidget);
-    expect(find.text('Crimson'), findsOneWidget);
-    expect(find.text('Midnight'), findsOneWidget);
-    expect(find.text('Obsidian'), findsOneWidget);
+    const themeNames = [
+      'Plazma Light',
+      'Plazma Dark',
+      'Ocean',
+      'Sunset',
+      'Forest',
+      'Purple',
+      'Crimson',
+      'Midnight',
+      'Obsidian',
+    ];
+    final themeTooltips = find.byWidgetPredicate(
+      (widget) => widget is Tooltip && themeNames.contains(widget.message),
+    );
+
+    // Names remain available as accessible hover/long-press tooltips, but
+    // the compact swatch UI must not display a row of theme labels.
+    expect(themeTooltips, findsNWidgets(9));
+    for (final name in themeNames) {
+      expect(find.text(name), findsNothing);
+    }
   });
 }
