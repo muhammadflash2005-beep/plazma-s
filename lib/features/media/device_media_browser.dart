@@ -25,7 +25,7 @@ class DeviceMediaBrowser extends StatefulWidget {
   State<DeviceMediaBrowser> createState() => _DeviceMediaBrowserState();
 }
 
-class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
+class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBindingObserver {
   // One shared Android media-library permission covers images, videos and audio.
   // Persist the first request so a denial never causes repeated system prompts.
   static const String _permissionRequestedKey = 'plazma_media_permission_requested';
@@ -66,6 +66,24 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
   bool _loading = false;
   bool _loaded = false;
   String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   RequestType get _requestType => switch (widget.kind) {
         MediaKind.images => RequestType.image,
@@ -110,7 +128,8 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
         }
         return;
       }
-      final assets = await albums.first.getAssetListRange(start: 0, end: 160);
+      final count = await albums.first.assetCountAsync;
+      final assets = await albums.first.getAssetListRange(start: 0, end: count);
       if (!mounted) return;
       setState(() {
         _assets = assets;
@@ -156,20 +175,20 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
+        Row(children: [
+          Expanded(child: Text(
+            _loading ? 'Loading device $_label…' : 'On this device · $_label',
+            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w700),
+          )),
+          IconButton(
+            tooltip: 'Refresh device media',
+            visualDensity: VisualDensity.compact,
             onPressed: _loading ? null : _load,
             icon: _loading
-                ? const SizedBox(
-                    width: 17,
-                    height: 17,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.storage_rounded),
-            label: Text(_loading ? 'Reading device storage…' : 'Browse phone $_label'),
+                ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh_rounded),
           ),
-        ),
+        ]),
         if (_message != null) ...[
           const SizedBox(height: 8),
           Text(_message!, style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
