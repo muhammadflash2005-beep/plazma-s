@@ -459,7 +459,7 @@ class XenderLocalTransferService {
       }
     }
     throw const SocketException(
-      'No private IPv4 address found. Connect this PC to the same Wi-Fi or hotspot as the receiving device.',
+      'No private IPv4 address found. Connect this device to the same Wi-Fi network as the other devices.',
     );
   }
 
@@ -589,13 +589,14 @@ class XenderLocalTransferService {
       }
       if (request.method == 'POST' && request.uri.path == '/complete') {
         final deviceId = request.uri.queryParameters['deviceId'];
+        final isFirstCompletion = _completedMembers.isEmpty;
         if (deviceId != null && _members.containsKey(deviceId)) {
           _completedMembers.add(deviceId);
           _members[deviceId]!['status'] = 'completed';
         }
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
-        final onCompleted = _onTransferCompleted;
+        final onCompleted = isFirstCompletion ? _onTransferCompleted : null;
         if (onCompleted != null) {
           try {
             await onCompleted();
