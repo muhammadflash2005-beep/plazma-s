@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -249,6 +250,8 @@ class _MusicScreenState extends State<MusicScreen> {
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
         Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
+        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
         OutlinedButton.icon(onPressed: _busy ? null : _stopSharing,
           icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
       ]))),
