@@ -347,8 +347,16 @@ jobs:
                           }
 
                           override fun onFailed(reason: Int) {
+                              hotspotReservation = null
                               runOnUiThread {
-                                  result.error("HOTSPOT_FAILED", "Android could not start the local hotspot (reason $reason). Turn off any existing hotspot and try again.", null)
+                                  val detail = when (reason) {
+                                      1 -> "Android could not allocate a Wi-Fi channel."
+                                      2 -> "Android reported a general hotspot startup failure."
+                                      3 -> "Android reports an incompatible Wi-Fi mode. Turn off the phone's portable hotspot/tethering, disconnect Wi-Fi Direct or other Wi-Fi sharing sessions, then retry."
+                                      4 -> "Android or the device policy does not allow hotspot creation."
+                                      else -> "Android returned hotspot error $reason."
+                                  }
+                                  result.error("HOTSPOT_FAILED", detail, mapOf("reason" to reason))
                               }
                           }
                       }, null)
@@ -387,28 +395,41 @@ jobs:
 
               private fun findHotspotAddress(): String? {
                   return try {
+                      val connectivity = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                      val defaultInterface = connectivity.activeNetwork
+                          ?.let { connectivity.getLinkProperties(it)?.interfaceName }
                       val interfaces = NetworkInterface.getNetworkInterfaces().toList()
-                      val candidates = interfaces
                           .filter { it.isUp && !it.isLoopback }
+                      // Never advertise the phone's ordinary Wi-Fi/mobile interface.
+                      // A receiver joins the isolated SoftAP, so its address must belong
+                      // to the hotspot interface, not the sender's upstream LAN.
+                      val candidates = interfaces
+                          .filter { it.name != defaultInterface }
                           .sortedBy {
                               val name = it.name.lowercase()
                               when {
-                                  name.contains("ap") || name.contains("softap") -> 0
+                                  name.contains("softap") || name.startsWith("ap") ||
+                                      name.startsWith("swlan") -> 0
                                   name.contains("wlan") -> 1
                                   else -> 2
                               }
                           }
-                      candidates.forEach { networkInterface ->
+                      val addresses = candidates.flatMap { networkInterface ->
                           networkInterface.inetAddresses.toList()
                               .filterIsInstance<Inet4Address>()
-                              .firstOrNull { address ->
+                              .filter { address ->
                                   !address.isLoopbackAddress && !address.isLinkLocalAddress &&
                                       (address.hostAddress.startsWith("192.168.") ||
                                        address.hostAddress.startsWith("10.") ||
                                        address.hostAddress.startsWith("172."))
-                              }?.let { return it.hostAddress }
+                              }
+                              .map { address ->
+                                  val host = address.hostAddress
+                                  val preferred = host.endsWith(".1") || host.endsWith(".254")
+                                  Triple(if (preferred) 0 else 1, networkInterface.name, host)
+                              }
                       }
-                      null
+                      addresses.sortedBy { it.first }.firstOrNull()?.third
                   } catch (_: Exception) {
                       null
                   }
