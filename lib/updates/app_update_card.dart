@@ -82,7 +82,7 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
 
     final assets = <Map<String, dynamic>>[];
     final assetPattern = RegExp(
-      r'href="([^"]*/releases/download/[^"]*/(app-release\\.apk|SHA256SUMS\\.txt))"',
+      r'href="([^"]*/releases/download/[^"]*/(app-release\.apk|SHA256SUMS\.txt))"',
       caseSensitive: false,
     );
     for (final match in assetPattern.allMatches(html)) {
