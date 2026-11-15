@@ -43,7 +43,7 @@ class _MusicScreenState extends State<MusicScreen> {
     if (_busy) return;
     try {
       // file_picker 13 returns a List<PlatformFile>; multi-select is the default.
-      final result = await FilePicker.pickFiles(type: FileType.audio, allowMultiple: true);
+      final result = await FilePicker.pickFiles(type: FileType.audio);
       if (!mounted || result.isEmpty) return;
       setState(() {
         for (final item in result) {
