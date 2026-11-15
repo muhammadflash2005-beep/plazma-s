@@ -210,7 +210,7 @@ class XenderLocalTransferService {
           offset = int.parse(match.group(1)!);
           if (offset >= length) {
             request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */' + length.toString());
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
             await request.response.close();
             return;
           }
