@@ -1,3 +1,7 @@
+// Flutter 3.50 currently reports the Material library import as deprecated.
+// Keep the import because this widget uses Flutter Material components.
+// ignore_for_file: deprecated_member_use
+
 import 'dart:io';
 import 'dart:typed_data';
 
