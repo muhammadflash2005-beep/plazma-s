@@ -219,13 +219,14 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tab = 1;
   int _category = 0;
   TransferMode? _transferMode;
+  String? _transferAction;
 
   @override
   void dispose() {
     super.dispose();
   }
 
-  void _showJoinDialog() => _openTransfer(null);
+  void _showJoinDialog() => _openTransfer(null, 'join');
 
   @override
   Widget build(BuildContext context) {
@@ -253,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               _homeContent(wide),
                               _categoryContent(),
-                              _transferMode == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode),
+                              _transferAction == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode, initialAction: _transferAction),
                               _meContent(),
                             ],
                           ),
@@ -266,7 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       selectedIndex: _tab,
                       onDestinationSelected: (value) => setState(() {
                         _tab = value;
-                        if (value != 2) _transferMode = null;
+                        if (value != 2) { _transferMode = null; _transferAction = null; }
                       }),
                       destinations: const [
                         NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
@@ -400,8 +401,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openTransfer(TransferMode? mode) => setState(() {
+  void _openTransfer(TransferMode? mode, String action) => setState(() {
         _transferMode = mode;
+        _transferAction = action;
         _tab = 2;
       });
 
@@ -429,7 +431,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: 'Create a room',
             subtitle: 'Start a room from this PC or Android device. Share the QR code or connection code with up to seven recipients.',
             buttonText: 'Create room',
-            onPressed: () => _openTransfer(null),
+            onPressed: () => _openTransfer(null, 'create'),
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.qr_code_scanner_rounded,
@@ -488,7 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: 'Create room',
         subtitle: 'Choose apps, files, images, music or videos to share. Invite up to seven devices using a QR code or room code.',
         buttonText: 'Create room',
-        onPressed: () => _openTransfer(null),
+        onPressed: () => _openTransfer(null, 'join'),
       ),
       const SizedBox(height: 14),
       _ActionCard(
