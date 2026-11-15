@@ -423,7 +423,7 @@ class _AppsScreenState extends State<AppsScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Apps', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
-      Text('Send complete apps, receive them, save APKs and install them later.',
+      Text('Send complete installed apps. Selected apps are saved automatically for transfer.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
@@ -518,21 +518,7 @@ class _AppsScreenState extends State<AppsScreen> {
               );
             });
         }),
-        const SizedBox(height:18),
-        Text('Saved Apps (' + _saved.length.toString() + ')',
-          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
-        if (_saved.isEmpty) const Padding(padding: EdgeInsets.all(12),
-          child: Text('Apps you save or receive will appear here for later installation.')),
-        ..._saved.entries.map((e) => Card(child: ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.android)),
-          title: Text(e.value), subtitle: Text(e.key),
-          trailing: Wrap(spacing:0, children: [
-            IconButton(tooltip:'Install',onPressed:_busy ? null : () => _install(e.key),
-              icon:const Icon(Icons.install_mobile)),
-            IconButton(tooltip:'Delete saved APK',onPressed:_busy ? null : () => _delete(e.key),
-              icon:const Icon(Icons.delete_outline)),
-          ]),
-        ))),
+        const SizedBox(height: 18),
         ],
       ],
     ]);
