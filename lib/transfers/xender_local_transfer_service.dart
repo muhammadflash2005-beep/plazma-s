@@ -242,6 +242,8 @@ class XenderLocalTransferService {
           }
           throw FileSystemException('A different file with this name already exists.', target.path);
         }
+        final partial = File('${target.path}.plazma-partial');
+        if (await partial.exists()) await partial.delete();
         final request = await client.getUrl(
           _endpoint(invite, '/download', {'id': item.id.toString()}),
         );
@@ -249,7 +251,7 @@ class XenderLocalTransferService {
         if (response.statusCode != HttpStatus.ok) {
           throw HttpException('Download failed for ${item.name} (HTTP ${response.statusCode}).');
         }
-        final sink = target.openWrite();
+        final sink = partial.openWrite();
         var fileBytes = 0;
         try {
           await for (final chunk in response) {
@@ -265,19 +267,19 @@ class XenderLocalTransferService {
             ));
           }
           await sink.flush();
+          await sink.close();
+          final receivedDigest = await sha256.bind(partial.openRead()).first;
+          if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
+            throw FileSystemException(
+              'The received file failed its size or SHA-256 integrity check.',
+              partial.path,
+            );
+          }
+          await partial.rename(target.path);
         } catch (_) {
           await sink.close();
-          if (await target.exists()) await target.delete();
+          if (await partial.exists()) await partial.delete();
           rethrow;
-        }
-        await sink.close();
-        final receivedDigest = await sha256.bind(target.openRead()).first;
-        if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
-          await target.delete();
-          throw FileSystemException(
-            'The received file failed its size or SHA-256 integrity check.',
-            target.path,
-          );
         }
       }
     } finally {
