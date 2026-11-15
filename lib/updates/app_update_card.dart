@@ -3,6 +3,7 @@
 // Keep the stable Flutter Material API until the app migrates consistently.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -68,7 +69,19 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() { _busy = false; _error = error.toString().replaceFirst('Exception: ', ''); _status = 'Could not check for updates.'; });
+      final isNetworkError = error is SocketException ||
+          error is HttpException ||
+          error is HandshakeException ||
+          error is TimeoutException ||
+          error is http.ClientException;
+      setState(() {
+        _busy = false;
+        _progress = null;
+        _error = isNetworkError ? null : error.toString().replaceFirst('Exception: ', '');
+        _status = isNetworkError
+            ? 'Connect to the internet to check for updates.'
+            : 'Could not check for updates.';
+      });
     }
   }
 
