@@ -731,7 +731,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Publish Plazma S v0.2.2')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.2
+          tag_name: ${{ github.ref_name }}
           target_commitish: main
           files: |
             build/app/outputs/flutter-apk/app-release.apk
