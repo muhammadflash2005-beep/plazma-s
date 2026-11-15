@@ -391,7 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
           runSpacing: 14,
           children: [
             SizedBox(
-              width: wide ? 350 : double.infinity,
+              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
               child: _TransferModeCard(
                 icon: Icons.computer_rounded,
                 title: 'PC to PC',
