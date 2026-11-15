@@ -412,6 +412,28 @@ class XenderLocalTransferService {
     }
   }
 
+  Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      final response = await request.close().timeout(const Duration(seconds: 30));
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('Could not refresh the shared item list (HTTP ${response.statusCode}).');
+      }
+      final decoded = jsonDecode(await utf8.decoder.bind(response).join());
+      if (decoded is! Map<String, dynamic> || decoded['version'] != 1 || decoded['files'] is! List) {
+        throw const FormatException('The sender returned an unsupported file list.');
+      }
+      return (decoded['files'] as List)
+          .whereType<Map>()
+          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .toList();
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<void> downloadAll({
     required PlazmaConnectionInvite invite,
     required List<SharedLocalFile> files,
