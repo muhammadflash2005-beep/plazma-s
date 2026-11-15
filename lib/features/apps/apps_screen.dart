@@ -339,6 +339,23 @@ class _AppsScreenState extends State<AppsScreen> {
     finally { if (mounted) setState(() => _busy = false); }
   }
 
+  Future<void> _refreshIncomingApps() async {
+    if (_receiver == null || _busy) return;
+    try {
+      final manifest = await _service.refreshManifest(_receiver!);
+      final groups = <String,List<SharedLocalFile>>{};
+      for (final item in manifest) {
+        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        final pkg = item.relativePath.split('/').first;
+        if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
+      }
+      setState(() {
+        _incoming..clear()..addAll(groups);
+        _status = '${groups.length} app(s) available in this room.';
+      });
+    } catch (e) { _message('Could not refresh shared apps: $e'); }
+  }
+
   Future<void> _download() async {
     if (_receiver == null || _library == null || _busy) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving apps…'; });
@@ -425,6 +442,7 @@ class _AppsScreenState extends State<AppsScreen> {
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
         Row(children: [Expanded(child: Text(_incoming.length.toString() + ' app(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
+          TextButton(onPressed: _busy ? null : _refreshIncomingApps, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         ..._incoming.entries.map((e) => ListTile(leading: const Icon(Icons.android),
           title: Text(e.key), subtitle: Text(e.value.length.toString() + ' APK part(s)'))),
