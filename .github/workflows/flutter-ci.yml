@@ -748,7 +748,13 @@ jobs:
           files: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app/outputs/flutter-apk/SHA256SUMS.txt
-          generate_release_notes: true
+          generate_release_notes: false
+          body: |
+            Plazma S ${{ steps.app_version.outputs.tag }}
+
+            Cross-platform local file and app sharing update.
+
+            Download the Android APK and SHA256 checksum below.
 
   desktop-build:
     name: Build ${{ matrix.target }} desktop app
