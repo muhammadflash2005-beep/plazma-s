@@ -13,7 +13,6 @@ import '../../network/android_wifi_session_service.dart';
 import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_mode.dart';
 import '../../transfers/transfer_overlay_controller.dart';
-import '../../transfers/transfer_history.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class FilesScreen extends StatefulWidget {
