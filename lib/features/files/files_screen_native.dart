@@ -39,6 +39,7 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _busy = false;
   bool _downloading = false;
   bool _downloaded = false;
+  Timer? _roomRefreshTimer;
 
   @override
   void initState() {
@@ -73,6 +74,7 @@ class _FilesScreenState extends State<FilesScreen> {
 
   @override
   void dispose() {
+    _roomRefreshTimer?.cancel();
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
@@ -164,7 +166,14 @@ class _FilesScreenState extends State<FilesScreen> {
       if (!mounted) return;
       setState(() {
         _invite = invite;
-        _status = 'Waiting for the other device to scan this QR code';
+        _status = 'Room ${invite.roomId} is open · waiting for devices';
+      });
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+      setState(() {
+        _status = 'Room ${invite.roomId} is open · waiting for devices';
       });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
@@ -606,8 +615,47 @@ class _FilesScreenState extends State<FilesScreen> {
               icon: const Icon(Icons.copy_rounded, size: 16),
               label: const Text('Copy connection code'),
             ),
+            const SizedBox(height: 10),
+            Row(children: [
+              Expanded(child: Text(
+                'Connected devices',
+                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              )),
+              Text('${_service.joinedDeviceCount}/8',
+                  style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w900)),
+            ]),
+            const SizedBox(height: 6),
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const CircleAvatar(child: Icon(Icons.computer_rounded)),
+              title: const Text('This device · Host'),
+              subtitle: Text(Platform.operatingSystem),
+              trailing: const Icon(Icons.check_circle, color: Colors.green),
+            ),
+            if (_service.roomMembers.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('Waiting for up to seven people to join this room.'),
+              )
+            else
+              ..._service.roomMembers.map((member) => ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  child: Icon(member['platform'] == 'android'
+                      ? Icons.phone_android_rounded
+                      : Icons.computer_rounded),
+                ),
+                title: Text(member['deviceName'] ?? 'Connected device'),
+                subtitle: Text(member['platform'] ?? 'Device'),
+                trailing: Icon(
+                  member['status'] == 'completed' ? Icons.check_circle : Icons.wifi,
+                  color: member['status'] == 'completed' ? Colors.green : theme.colorScheme.primary,
+                ),
+              )),
             const SizedBox(height: 4),
-            const Text('The transfer stays active while you browse other Plazma S sections.', textAlign: TextAlign.center),
+            const Text('The room stays open until you stop it. Each recipient transfers independently.', textAlign: TextAlign.center),
             const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: _busy ? null : _stopSharing,
@@ -629,8 +677,8 @@ class _FilesScreenState extends State<FilesScreen> {
             ]),
             const SizedBox(height: 8),
             Text(Platform.isAndroid
-                ? 'Tap Receive and scan the sender QR code. If it is a PC share, connect to the same Wi-Fi or hotspot first.'
-                : 'Tap Receive, then paste the connection code from the sender. Both PCs must be on the same Wi-Fi or wired LAN. If the sender is an Android phone, connect this PC to its hotspot first.'),
+                ? 'Tap Receive and scan the sender QR code. If it is a PC share, connect to the same Wi-Fi first.'
+                : 'Tap Receive, then paste the connection code from the sender. Both PCs must be on the same Wi-Fi or wired LAN. If the sender is an Android phone, connect this PC to the same Wi-Fi network.'),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
