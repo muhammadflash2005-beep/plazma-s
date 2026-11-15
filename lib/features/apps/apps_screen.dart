@@ -377,6 +377,8 @@ class _AppsScreenState extends State<AppsScreen> {
         Container(padding: const EdgeInsets.all(10), color: Colors.white,
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8), Text('Same Wi-Fi · ' + _invite!.host + ':' + _invite!.port.toString()),
+        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
         Row(children: [Expanded(child: Text('Connected devices', style: const TextStyle(fontWeight: FontWeight.w800))), Text(_service.joinedDeviceCount.toString() + '/8')]),
         ..._service.roomMembers.map((member) => ListTile(dense: true, leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer), title: Text(member.deviceName), subtitle: Text(member.platform), trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null))),
         const Text('Up to seven devices can join this room. Each selected app is sent as one app, with its APK parts grouped together.', textAlign: TextAlign.center),
