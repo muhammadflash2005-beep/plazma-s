@@ -18,6 +18,8 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class VideosScreen extends StatefulWidget {
+  static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
+  static VoidCallback? sendSelected;
   const VideosScreen({super.key});
 
   @override
@@ -37,7 +39,14 @@ class _VideosScreenState extends State<VideosScreen> {
   Timer? _roomRefreshTimer;
 
   @override
+  void initState() { super.initState(); VideosScreen.sendSelected = _sendVideos; }
+
+  void _updateSelectionCount() => VideosScreen.selectedCount.value = _selected.length;
+
+  @override
   void dispose() {
+    if (VideosScreen.sendSelected == _sendVideos) VideosScreen.sendSelected = null;
+    VideosScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
@@ -59,6 +68,7 @@ class _VideosScreenState extends State<VideosScreen> {
         }
         _status = '${_selected.length} video(s) selected';
       });
+      _updateSelectionCount();
     } catch (e) {
       _message('Could not open videos: $e');
     }
@@ -279,6 +289,7 @@ class _VideosScreenState extends State<VideosScreen> {
               _selected.add(file);
               _status = '${_selected.length} video(s) selected';
             });
+            _updateSelectionCount();
           },
         ),
         const SizedBox(height: 10),
@@ -311,20 +322,15 @@ class _VideosScreenState extends State<VideosScreen> {
                     color: Colors.black12, child: Icon(Icons.videocam_off)))),
               Positioned(right: 4, top: 4, child: IconButton.filledTonal(
                 visualDensity: VisualDensity.compact,
-                onPressed: _busy ? null : () => setState(() => _selected.removeAt(index)),
+                onPressed: _busy ? null : () { setState(() => _selected.removeAt(index)); _updateSelectionCount(); },
                 icon: const Icon(Icons.close, size: 17))),
             ]),
           ),
-        if (_selected.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          SizedBox(width: double.infinity, child: FilledButton.icon(
-            onPressed: _busy ? null : _sendVideos,
-            icon: const Icon(Icons.send_rounded),
-            label: Text('Send ${_selected.length} video(s)'),
+        if (_selected.isNotEmpty)
+          Align(alignment: Alignment.centerLeft, child: TextButton(
+            onPressed: _busy ? null : () { setState(() => _selected.clear()); _updateSelectionCount(); },
+            child: const Text('Clear selection'),
           )),
-          TextButton(onPressed: _busy ? null : () => setState(() => _selected.clear()),
-            child: const Text('Clear selection')),
-        ],
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
