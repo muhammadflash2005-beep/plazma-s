@@ -32,9 +32,11 @@ class _VideosScreenState extends State<VideosScreen> {
   bool _busy = false;
   double _progress = 0;
   String? _status;
+  Timer? _roomRefreshTimer;
 
   @override
   void dispose() {
+    _roomRefreshTimer?.cancel();
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
@@ -70,7 +72,11 @@ class _VideosScreenState extends State<VideosScreen> {
         relativePaths: names,
       );
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · Scan this QR code to join.'; });
+      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
         fileCount: _selected.length,
@@ -204,6 +210,8 @@ class _VideosScreenState extends State<VideosScreen> {
   }
 
   Future<void> _stopSharing() async {
+    _roomRefreshTimer?.cancel();
+    _roomRefreshTimer = null;
     await _service.stopSharing();
     TransferOverlayController.clear();
     if (mounted) setState(() { _invite = null; _status = 'Image sharing stopped.'; });
@@ -239,6 +247,17 @@ class _VideosScreenState extends State<VideosScreen> {
         Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
         SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
         TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        Row(children: [
+          const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
+          Text(_service.joinedDeviceCount.toString() + '/8'),
+        ]),
+        ..._service.roomMembers.map((member) => ListTile(
+          dense: true,
+          leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer),
+          title: Text(member.deviceName),
+          subtitle: Text(member.platform),
+          trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null),
+        )),
         OutlinedButton.icon(onPressed: _busy ? null : _stopSharing,
           icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
       ]))),
