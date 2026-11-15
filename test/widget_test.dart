@@ -1,3 +1,7 @@
+// Flutter 3.50 currently reports the Material library import as deprecated.
+// Keep this import for the Material button finder used by this widget test.
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plazma_s/main.dart';
