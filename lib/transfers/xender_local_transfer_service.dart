@@ -152,6 +152,12 @@ class XenderLocalTransferService {
       return;
     }
     try {
+      if (request.method == 'POST' && request.uri.path == '/complete') {
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        unawaited(stopSharing());
+        return;
+      }
       if (request.method != 'GET') {
         request.response.statusCode = HttpStatus.methodNotAllowed;
         await request.response.close();
@@ -365,6 +371,12 @@ class XenderLocalTransferService {
           rethrow;
         }
       }
+      final completeRequest = await client.postUrl(_endpoint(invite, '/complete'));
+      final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      if (completeResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('The sender did not acknowledge transfer completion.');
+      }
+      await completeResponse.drain<void>();
     } finally {
       client.close(force: true);
     }
