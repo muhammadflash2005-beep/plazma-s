@@ -286,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Positioned(
               right: 14,
-              bottom: 18,
+              bottom: wide ? 18 : 82,
               child: _FloatingTransferIndicator(onTap: () => setState(() => _tab = 1)),
             ),
           ],
