@@ -400,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SizedBox(
-              width: wide ? 350 : double.infinity,
+              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
               child: _TransferModeCard(
                 icon: Icons.devices_rounded,
                 title: 'Android to PC',
@@ -409,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             SizedBox(
-              width: wide ? 350 : double.infinity,
+              width: wide ? 350 : MediaQuery.sizeOf(context).width - 44,
               child: _TransferModeCard(
                 icon: Icons.phone_android_rounded,
                 title: 'Android to Android',
