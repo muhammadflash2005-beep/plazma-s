@@ -21,11 +21,15 @@ void main() {
     await tester.tap(find.text('Transfer').last);
     await tester.pump(const Duration(milliseconds: 700));
 
-    // The chooser repeats its action labels in both the heading and action card.
     expect(find.text('Create room'), findsWidgets);
     expect(find.text('Join room'), findsWidgets);
 
-    await tester.tap(find.text('Join room').last);
+    // The chooser is taller than the test viewport; bring its action button
+    // into view before tapping it, just as a user would scroll on a phone.
+    final joinRoomButton = find.widgetWithText(OutlinedButton, 'Join room');
+    await tester.ensureVisible(joinRoomButton);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(joinRoomButton);
     await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Share files'), findsOneWidget);
