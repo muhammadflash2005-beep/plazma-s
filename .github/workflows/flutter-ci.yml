@@ -249,7 +249,7 @@ jobs:
                       throw IllegalArgumentException("An app package and its APK files are required.")
                   }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-                      startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                      startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${this.packageName}")))
                       throw IllegalStateException("Allow Plazma S to install apps in Android settings, return, then tap Install again.")
                   }
                   val params = android.content.pm.PackageInstaller.SessionParams(
