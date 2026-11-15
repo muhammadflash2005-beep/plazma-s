@@ -32,6 +32,9 @@ class _AppsScreenState extends State<AppsScreen> {
   final Map<String, List<SharedLocalFile>> _incoming = {};
   final Map<String, String> _saved = {};
   final Map<String, Future<void>> _saveTasks = {};
+  final Map<String, Future<Uint8List?>> _iconFutures = {};
+  static const int _appPageSize = 60;
+  int _visibleAppCount = _appPageSize;
   Directory? _library;
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
@@ -74,7 +77,7 @@ class _AppsScreenState extends State<AppsScreen> {
       final library = Directory(root.path + Platform.pathSeparator + 'saved_apps');
       await library.create(recursive: true);
       final apps = await FlutterDeviceApps.listApps(
-        includeSystem: false, onlyLaunchable: true, includeIcons: true);
+        includeSystem: false, onlyLaunchable: true, includeIcons: false);
       apps.sort((a,b) => (a.appName ?? '').toLowerCase().compareTo((b.appName ?? '').toLowerCase()));
       final saved = <String,String>{};
       await for (final entity in library.list(followLinks: false)) {
@@ -90,11 +93,20 @@ class _AppsScreenState extends State<AppsScreen> {
       setState(() {
         _library = library;
         _apps..clear()..addAll(apps);
+        _visibleAppCount = _appPageSize;
+        _iconFutures.clear();
         _saved..clear()..addAll(saved);
         _selected.removeWhere((p) => !apps.any((a) => a.packageName == p));
       });
     } catch (e) { if (mounted) setState(() => _error = 'Could not load apps: ' + e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  Future<Uint8List?> _appIcon(String packageName) {
+    return _iconFutures.putIfAbsent(
+      packageName,
+      () => FlutterDeviceApps.getAppIcon(packageName),
+    );
   }
 
   Future<List<Map<String,dynamic>>> _export(List<String> packages) async {
@@ -440,14 +452,24 @@ class _AppsScreenState extends State<AppsScreen> {
         LayoutBuilder(builder: (context, c) {
           final columns = (c.maxWidth / 62).floor().clamp(2,5);
           return GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-            itemCount: _apps.length,
+            itemCount: _visibleAppCount.clamp(0, _apps.length).toInt(),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns, crossAxisSpacing: 4, mainAxisSpacing: 5, childAspectRatio: .58),
             itemBuilder: (context,index) {
               final app = _apps[index], pkg = app.packageName;
               final selected = pkg != null && _selected.contains(pkg);
-              final icon = app.iconBytes == null ? const Icon(Icons.android,size:30) :
-                Image.memory(app.iconBytes!,width:38,height:38,fit:BoxFit.contain);
+              final icon = pkg == null
+                  ? const Icon(Icons.android, size: 30)
+                  : FutureBuilder<Uint8List?>(
+                      future: _appIcon(pkg),
+                      builder: (context, snapshot) {
+                        final bytes = snapshot.data;
+                        if (bytes == null) {
+                          return const Icon(Icons.android, size: 30);
+                        }
+                        return Image.memory(bytes, width: 38, height: 38, fit: BoxFit.contain);
+                      },
+                    );
               return Card(
                 margin: EdgeInsets.zero,
                 clipBehavior: Clip.antiAlias,
@@ -484,6 +506,20 @@ class _AppsScreenState extends State<AppsScreen> {
               );
             });
         }),
+        if (_visibleAppCount < _apps.length)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: OutlinedButton.icon(
+                onPressed: () => setState(() {
+                  _visibleAppCount = (_visibleAppCount + _appPageSize)
+                      .clamp(0, _apps.length).toInt();
+                }),
+                icon: const Icon(Icons.expand_more_rounded),
+                label: Text('Load more apps (${_apps.length - _visibleAppCount} remaining)'),
+              ),
+            ),
+          ),
         const SizedBox(height: 18),
         ],
       ],
