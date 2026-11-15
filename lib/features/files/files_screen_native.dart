@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -36,6 +37,7 @@ class _FilesScreenState extends State<FilesScreen> {
   double _progress = 0;
   bool _busy = false;
   bool _downloading = false;
+  bool _downloaded = false;
 
   @override
   void initState() {
@@ -292,6 +294,7 @@ class _FilesScreenState extends State<FilesScreen> {
       setState(() {
         _progress = 1;
         _status = 'All ${_availableFiles.length} file(s) received successfully';
+        _downloaded = true;
       });
       _message('Transfer complete. Files saved to $destination');
     } catch (error) {
@@ -300,6 +303,36 @@ class _FilesScreenState extends State<FilesScreen> {
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
+  }
+
+  Future<void> _installReceivedApp(String packageName) async {
+    final parts = _availableFiles
+        .where((item) => item.relativePath.startsWith('$packageName/'))
+        .toList()
+      ..sort((a, b) => a.relativePath.compareTo(b.relativePath));
+    if (parts.isEmpty || _destination == null) return;
+    final paths = parts.map((item) {
+      final relative = item.relativePath.replaceAll('/', Platform.pathSeparator);
+      return '$_destination${Platform.pathSeparator}$relative';
+    }).toList();
+    try {
+      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+        'installApkSet',
+        {'packageName': packageName, 'paths': paths},
+      );
+      _message('Android package installer opened for $packageName. Review and approve the installation there.');
+    } catch (error) {
+      _message('Could not start installation: $error');
+    }
+  }
+
+  List<String> get _receivedAppPackages {
+    if (!_downloaded) return const [];
+    return _availableFiles
+        .where((item) => item.relativePath.endsWith('/base.apk'))
+        .map((item) => item.relativePath.split('/').first)
+        .toSet()
+        .toList();
   }
 
   Future<void> _stopSharing() async {
@@ -503,6 +536,19 @@ class _FilesScreenState extends State<FilesScreen> {
                   title: Text(item.relativePath, maxLines: 2, overflow: TextOverflow.ellipsis),
                   subtitle: Text(_formatBytes(item.size)),
                 )),
+            if (_receivedAppPackages.isNotEmpty) ...[
+              const Divider(),
+              const Text('Install received apps', style: TextStyle(fontWeight: FontWeight.w800)),
+              ..._receivedAppPackages.map((packageName) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.android_rounded),
+                    title: Text(packageName),
+                    trailing: FilledButton.tonal(
+                      onPressed: _downloading ? null : () => _installReceivedApp(packageName),
+                      child: const Text('Install'),
+                    ),
+                  )),
+            ],
             const Divider(),
             ListTile(
               contentPadding: EdgeInsets.zero,

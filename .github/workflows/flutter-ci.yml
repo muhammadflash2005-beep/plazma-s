@@ -178,6 +178,16 @@ jobs:
                                       result.error("APK_EXPORT_FAILED", error.message, null)
                                   }
                               }
+                              "installApkSet" -> {
+                                  val packageName = call.argument<String>("packageName") ?: ""
+                                  val paths = call.argument<List<String>>("paths") ?: emptyList()
+                                  try {
+                                      installApkSet(packageName, paths)
+                                      result.success(null)
+                                  } catch (error: Exception) {
+                                      result.error("APK_INSTALL_FAILED", error.message, null)
+                                  }
+                              }
                               else -> result.notImplemented()
                           }
                       }
@@ -232,6 +242,48 @@ jobs:
                       }
                   }
                   return exported
+              }
+
+              private fun installApkSet(packageName: String, paths: List<String>) {
+                  if (packageName.isBlank() || paths.isEmpty()) {
+                      throw IllegalArgumentException("An app package and its APK files are required.")
+                  }
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                      startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+                      throw IllegalStateException("Allow Plazma S to install apps in Android settings, return, then tap Install again.")
+                  }
+                  val params = android.content.pm.PackageInstaller.SessionParams(
+                      android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+                  )
+                  params.setAppPackageName(packageName)
+                  val installer = packageManager.packageInstaller
+                  val sessionId = installer.createSession(params)
+                  val session = installer.openSession(sessionId)
+                  try {
+                      paths.forEachIndexed { index, path ->
+                          val apk = File(path)
+                          if (!apk.isFile) throw IllegalStateException("APK file is missing: $path")
+                          val entryName = if (index == 0) "base.apk" else "split_$index.apk"
+                          session.openWrite(entryName, 0, apk.length()).use { output ->
+                              apk.inputStream().use { input -> input.copyTo(output) }
+                              session.fsync(output)
+                          }
+                      }
+                      val callbackIntent = Intent(this, MainActivity::class.java).apply {
+                          action = "com.plazma.s.INSTALL_STATUS"
+                          addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                      }
+                      val callback = android.app.PendingIntent.getActivity(
+                          this,
+                          sessionId,
+                          callbackIntent,
+                          android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
+                      )
+                      session.commit(callback.intentSender)
+                  } catch (error: Exception) {
+                      session.abandon()
+                      throw error
+                  }
               }
 
               private fun startHotspot(result: MethodChannel.Result) {

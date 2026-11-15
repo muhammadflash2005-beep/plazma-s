@@ -28,10 +28,22 @@ class SharedLocalFile {
     final relativePath = json['relativePath'];
     final size = json['size'];
     final digest = json['sha256'];
-    if (id is! int || name is! String || relativePath is! String || size is! int || size < 0 || digest is! String || !RegExp(r'^[a-f0-9]{64}
+    if (id is! int ||
+        name is! String ||
+        relativePath is! String ||
+        size is! int ||
+        size < 0 ||
+        digest is! String ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(digest)) {
       throw const FormatException('The sender returned invalid file information.');
     }
-    return SharedLocalFile(id: id, name: name, relativePath: relativePath, size: size, sha256: digest);
+    return SharedLocalFile(
+      id: id,
+      name: name,
+      relativePath: relativePath,
+      size: size,
+      sha256: digest,
+    );
   }
 }
 
@@ -50,13 +62,11 @@ class LocalTransferProgress {
   final int totalBytes;
   final int totalSize;
 
-  double get fraction => totalSize == 0 ? 1 : totalBytes == 0
-      ? 0
-      : totalBytes / totalSize;
+  double get fraction => totalSize == 0 ? 1 : totalBytes / totalSize;
 }
 
-/// Direct phone-to-phone file sharing over a private Android local-only hotspot.
-/// The sender hosts the file list and download endpoints; the receiver joins
+/// Direct phone-to-phone sharing over a private Android local-only hotspot.
+/// The sender hosts file metadata and download endpoints; the receiver joins
 /// the hotspot from the QR invite and downloads directly over that Wi-Fi link.
 class XenderLocalTransferService {
   XenderLocalTransferService({AndroidWifiSessionService? wifi})
@@ -79,6 +89,7 @@ class XenderLocalTransferService {
     if (files.isEmpty || files.length != relativePaths.length) {
       throw ArgumentError('Select at least one valid file to share.');
     }
+
     final checkedFiles = <File>[];
     final checkedPaths = <String>[];
     for (var i = 0; i < files.length; i++) {
@@ -92,14 +103,17 @@ class XenderLocalTransferService {
     final invite = await _wifi.createInvite(port: 45454);
     HttpServer? server;
     try {
-      server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port, shared: false);
+      server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port);
       _files = checkedFiles;
       _relativePaths = checkedPaths;
       _invite = invite;
       _server = server;
-      server.listen(_handleRequest, onError: (Object error, StackTrace stack) {
-        debugPrint('Plazma local transfer server error: $error');
-      });
+      server.listen(
+        _handleRequest,
+        onError: (Object error, StackTrace stack) {
+          debugPrint('Plazma local transfer server error: $error');
+        },
+      );
       return invite;
     } catch (_) {
       await server?.close(force: true);
@@ -155,7 +169,7 @@ class XenderLocalTransferService {
         }
         request.response.headers.contentType = ContentType.binary;
         request.response.headers.contentLength = await file.length();
-        request.response.headers.set('Content-Disposition', 'attachment');
+        request.response.headers.set('Cache-Control', 'no-store');
         await request.response.addStream(file.openRead());
         await request.response.close();
         return;
@@ -175,8 +189,7 @@ class XenderLocalTransferService {
     await _wifi.join(invite);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      final uri = _endpoint(invite, '/manifest');
-      final request = await client.getUrl(uri);
+      final request = await client.getUrl(_endpoint(invite, '/manifest'));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 20));
       if (response.statusCode != HttpStatus.ok) {
@@ -184,7 +197,9 @@ class XenderLocalTransferService {
       }
       final body = await utf8.decoder.bind(response).join();
       final decoded = jsonDecode(body);
-      if (decoded is! Map<String, dynamic> || decoded['version'] != 1 || decoded['files'] is! List) {
+      if (decoded is! Map<String, dynamic> ||
+          decoded['version'] != 1 ||
+          decoded['files'] is! List) {
         throw const FormatException('The sender returned an unsupported file list.');
       }
       return (decoded['files'] as List)
@@ -214,7 +229,9 @@ class XenderLocalTransferService {
         if (await target.exists()) {
           throw FileSystemException('A file with this name already exists.', target.path);
         }
-        final request = await client.getUrl(_endpoint(invite, '/download', {'id': item.id.toString()}));
+        final request = await client.getUrl(
+          _endpoint(invite, '/download', {'id': item.id.toString()}),
+        );
         final response = await request.close().timeout(const Duration(seconds: 30));
         if (response.statusCode != HttpStatus.ok) {
           throw HttpException('Download failed for ${item.name} (HTTP ${response.statusCode}).');
@@ -244,273 +261,10 @@ class XenderLocalTransferService {
         final receivedDigest = await sha256.bind(target.openRead()).first;
         if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
           await target.delete();
-          throw FileSystemException('The received file failed its size or SHA-256 integrity check.', target.path);
-        }
-      }
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  Uri _endpoint(PlazmaConnectionInvite invite, String path, [Map<String, String>? extra]) {
-    return Uri(
-      scheme: 'http',
-      host: invite.host,
-      port: invite.port,
-      path: path,
-      queryParameters: {'token': invite.token, ...?extra},
-    );
-  }
-
-  bool _authorized(HttpRequest request, String token) {
-    final supplied = request.uri.queryParameters['token'];
-    if (supplied == null || supplied.length != token.length) return false;
-    var difference = 0;
-    for (var i = 0; i < token.length; i++) {
-      difference |= supplied.codeUnitAt(i) ^ token.codeUnitAt(i);
-    }
-    return difference == 0;
-  }
-
-  String _safeRelativePath(String value) {
-    final normalized = value.replaceAll('\\', '/');
-    final parts = normalized.split('/');
-    if (normalized.isEmpty ||
-        normalized.startsWith('/') ||
-        parts.any((part) => part.isEmpty || part == '.' || part == '..') ||
-        RegExp(r'^[A-Za-z]:').hasMatch(normalized)) {
-      throw const FormatException('Unsafe file path received.');
-    }
-    return normalized;
-  }
-
-  String _displayName(String path) => path.split('/').last;
-
-  Future<void> stopSharing() async {
-    final server = _server;
-    _server = null;
-    _invite = null;
-    _files = const [];
-    _relativePaths = const [];
-    await server?.close(force: true);
-    await _wifi.stop();
-  }
-
-  Future<void> disconnect() => _wifi.disconnect();
-}
-).hasMatch(digest)) {
-      throw const FormatException('The sender returned invalid file information.');
-    }
-    return SharedLocalFile(id: id, name: name, relativePath: relativePath, size: size);
-  }
-}
-
-class LocalTransferProgress {
-  const LocalTransferProgress({
-    required this.fileName,
-    required this.fileBytes,
-    required this.fileSize,
-    required this.totalBytes,
-    required this.totalSize,
-  });
-
-  final String fileName;
-  final int fileBytes;
-  final int fileSize;
-  final int totalBytes;
-  final int totalSize;
-
-  double get fraction => totalSize == 0 ? 1 : totalBytes == 0
-      ? 0
-      : totalBytes / totalSize;
-}
-
-/// Direct phone-to-phone file sharing over a private Android local-only hotspot.
-/// The sender hosts the file list and download endpoints; the receiver joins
-/// the hotspot from the QR invite and downloads directly over that Wi-Fi link.
-class XenderLocalTransferService {
-  XenderLocalTransferService({AndroidWifiSessionService? wifi})
-      : _wifi = wifi ?? AndroidWifiSessionService();
-
-  final AndroidWifiSessionService _wifi;
-  HttpServer? _server;
-  List<File> _files = const [];
-  List<String> _relativePaths = const [];
-  PlazmaConnectionInvite? _invite;
-
-  PlazmaConnectionInvite? get invite => _invite;
-  bool get isSharing => _server != null;
-
-  Future<PlazmaConnectionInvite> startSharing({
-    required List<File> files,
-    required List<String> relativePaths,
-  }) async {
-    if (_server != null) throw StateError('A sharing session is already running.');
-    if (files.isEmpty || files.length != relativePaths.length) {
-      throw ArgumentError('Select at least one valid file to share.');
-    }
-    final checkedFiles = <File>[];
-    final checkedPaths = <String>[];
-    for (var i = 0; i < files.length; i++) {
-      final stat = await files[i].stat();
-      if (stat.type != FileSystemEntityType.file) continue;
-      checkedFiles.add(files[i]);
-      checkedPaths.add(_safeRelativePath(relativePaths[i]));
-    }
-    if (checkedFiles.isEmpty) throw ArgumentError('No readable files were selected.');
-
-    final invite = await _wifi.createInvite(port: 45454);
-    HttpServer? server;
-    try {
-      server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port, shared: false);
-      _files = checkedFiles;
-      _relativePaths = checkedPaths;
-      _invite = invite;
-      _server = server;
-      server.listen(_handleRequest, onError: (Object error, StackTrace stack) {
-        debugPrint('Plazma local transfer server error: $error');
-      });
-      return invite;
-    } catch (_) {
-      await server?.close(force: true);
-      await _wifi.stop();
-      rethrow;
-    }
-  }
-
-  Future<void> _handleRequest(HttpRequest request) async {
-    final invite = _invite;
-    if (invite == null || !_authorized(request, invite.token)) {
-      request.response.statusCode = HttpStatus.forbidden;
-      await request.response.close();
-      return;
-    }
-    try {
-      if (request.method != 'GET') {
-        request.response.statusCode = HttpStatus.methodNotAllowed;
-        await request.response.close();
-        return;
-      }
-      if (request.uri.path == '/manifest') {
-        final manifest = List.generate(_files.length, (index) {
-          final file = _files[index];
-          return {
-            'id': index,
-            'name': _displayName(_relativePaths[index]),
-            'relativePath': _relativePaths[index],
-            'size': file.lengthSync(),
-          };
-        });
-        request.response.headers.contentType = ContentType.json;
-        request.response.headers.set('Cache-Control', 'no-store');
-        request.response.write(jsonEncode({'version': 1, 'files': manifest}));
-        await request.response.close();
-        return;
-      }
-      if (request.uri.path == '/download') {
-        final id = int.tryParse(request.uri.queryParameters['id'] ?? '');
-        if (id == null || id < 0 || id >= _files.length) {
-          request.response.statusCode = HttpStatus.notFound;
-          await request.response.close();
-          return;
-        }
-        final file = _files[id];
-        if (!await file.exists()) {
-          request.response.statusCode = HttpStatus.notFound;
-          await request.response.close();
-          return;
-        }
-        request.response.headers.contentType = ContentType.binary;
-        request.response.headers.contentLength = await file.length();
-        request.response.headers.set('Content-Disposition', 'attachment');
-        await request.response.addStream(file.openRead());
-        await request.response.close();
-        return;
-      }
-      request.response.statusCode = HttpStatus.notFound;
-      await request.response.close();
-    } catch (error) {
-      debugPrint('Plazma request failed: $error');
-      try {
-        request.response.statusCode = HttpStatus.internalServerError;
-        await request.response.close();
-      } catch (_) {}
-    }
-  }
-
-  Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
-    await _wifi.join(invite);
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-    try {
-      final uri = _endpoint(invite, '/manifest');
-      final request = await client.getUrl(uri);
-      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-      final response = await request.close().timeout(const Duration(seconds: 20));
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('Could not read the sender file list (HTTP ${response.statusCode}).');
-      }
-      final body = await utf8.decoder.bind(response).join();
-      final decoded = jsonDecode(body);
-      if (decoded is! Map<String, dynamic> || decoded['version'] != 1 || decoded['files'] is! List) {
-        throw const FormatException('The sender returned an unsupported file list.');
-      }
-      return (decoded['files'] as List)
-          .whereType<Map>()
-          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
-          .toList();
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  Future<void> downloadAll({
-    required PlazmaConnectionInvite invite,
-    required List<SharedLocalFile> files,
-    required Directory destination,
-    required void Function(LocalTransferProgress progress) onProgress,
-  }) async {
-    await destination.create(recursive: true);
-    final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
-    var totalBytes = 0;
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-    try {
-      for (final item in files) {
-        final relative = _safeRelativePath(item.relativePath);
-        final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
-        await target.parent.create(recursive: true);
-        if (await target.exists()) {
-          throw FileSystemException('A file with this name already exists.', target.path);
-        }
-        final request = await client.getUrl(_endpoint(invite, '/download', {'id': item.id.toString()}));
-        final response = await request.close().timeout(const Duration(seconds: 30));
-        if (response.statusCode != HttpStatus.ok) {
-          throw HttpException('Download failed for ${item.name} (HTTP ${response.statusCode}).');
-        }
-        final sink = target.openWrite();
-        var fileBytes = 0;
-        try {
-          await for (final chunk in response) {
-            sink.add(chunk);
-            fileBytes += chunk.length;
-            totalBytes += chunk.length;
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: fileBytes,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
-          }
-          await sink.flush();
-        } catch (_) {
-          await sink.close();
-          if (await target.exists()) await target.delete();
-          rethrow;
-        }
-        await sink.close();
-        if (fileBytes != item.size) {
-          await target.delete();
-          throw FileSystemException('The received file size does not match the sender.', target.path);
+          throw FileSystemException(
+            'The received file failed its size or SHA-256 integrity check.',
+            target.path,
+          );
         }
       }
     } finally {
