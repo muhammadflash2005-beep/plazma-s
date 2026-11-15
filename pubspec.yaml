@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   shared_preferences: ^2.5.3
+  bonsoir: ^7.1.6
   file_picker: ^13.3.3
   flutter_device_apps: ^1.1.0
   crypto: ^3.0.6
