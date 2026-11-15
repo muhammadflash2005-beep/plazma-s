@@ -319,6 +319,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
               ),
             ),
+          if (_tab == 0 && _category == 2)
+            Positioned(
+              right: 16, bottom: wide ? 92 : 158,
+              child: ValueListenableBuilder<int>(
+                valueListenable: MusicScreen.selectedCount,
+                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
+                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
+                        child: InkWell(customBorder: const CircleBorder(), onTap: MusicScreen.sendSelected,
+                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+              ),
+            ),
           if (_tab == 0 && _category == 3)
             Positioned(
               right: 16, bottom: wide ? 92 : 158,
