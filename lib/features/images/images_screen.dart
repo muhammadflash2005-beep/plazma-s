@@ -239,7 +239,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        const Text('Room ${_invite!.roomId} · Scan to receive images', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ${_invite!.roomId} · Scan to receive images', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
