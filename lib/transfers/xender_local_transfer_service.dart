@@ -68,14 +68,12 @@ class LocalTransferProgress {
   double get fraction => totalSize == 0 ? 1 : totalBytes / totalSize;
 }
 
-/// Direct phone-to-phone sharing over a private Android local-only hotspot.
-/// The sender hosts file metadata and download endpoints; the receiver joins
-/// the hotspot from the QR invite and downloads directly over that Wi-Fi link.
+/// Direct device-to-device sharing over the existing Wi-Fi/LAN network.
+/// The sender hosts file metadata and download endpoints; recipients join
+/// using a QR invite and download directly over the local network.
 class XenderLocalTransferService {
-  XenderLocalTransferService({AndroidWifiSessionService? wifi})
-      : _wifi = wifi ?? AndroidWifiSessionService();
+  XenderLocalTransferService();
 
-  final AndroidWifiSessionService _wifi;
   static const MethodChannel _foregroundChannel = MethodChannel('com.plazma.s/transfer_service');
 
   Future<void> _startForegroundService() async {
@@ -137,28 +135,24 @@ class XenderLocalTransferService {
       });
     }
 
-    final isAndroidHost = Platform.isAndroid;
+    // Use the Wi-Fi network already connected on every platform.
+    // Plazma S must never create or join a hotspot.
     final token = List.generate(
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final invite = isAndroidHost
-        ? await _wifi.createInvite(port: 45454)
-        : PlazmaConnectionInvite(
-            ssid: '',
-            password: '',
-            host: await _localIpv4Address(),
-            port: 45454,
-            token: token,
-          );
+    final invite = PlazmaConnectionInvite(
+      ssid: '',
+      password: '',
+      host: await _localIpv4Address(),
+      port: 45454,
+      token: token,
+    );
     HttpServer? server;
     try {
-      // Android binds to its dedicated hotspot address. Desktop binds all
-      // interfaces so Android and other PCs can reach it on the selected LAN.
-      server = await HttpServer.bind(
-        isAndroidHost ? InternetAddress(invite.host) : InternetAddress.anyIPv4,
-        invite.port,
-      );
+      // Bind all IPv4 interfaces so phones and computers on the same LAN
+      // can reach this host regardless of the active Wi-Fi adapter.
+      server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port);
       _files = checkedFiles;
       _manifest = manifest;
       _invite = invite;
@@ -174,7 +168,6 @@ class XenderLocalTransferService {
       return invite;
     } catch (_) {
       await server?.close(force: true);
-      if (isAndroidHost) await _wifi.stop();
       rethrow;
     }
   }
@@ -198,7 +191,8 @@ class XenderLocalTransferService {
             debugPrint('Could not record completed outgoing transfer: $error');
           }
         }
-        unawaited(stopSharing());
+        // A room can have several receivers. Completing one recipient must
+        // never close the host or interrupt the remaining recipients.
         return;
       }
       if (request.method != 'GET') {
@@ -272,9 +266,7 @@ class XenderLocalTransferService {
   }
 
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
-    if (Platform.isAndroid && invite.ssid.isNotEmpty) {
-      await _wifi.join(invite);
-    }
+    // The receiver must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
@@ -480,15 +472,12 @@ class XenderLocalTransferService {
     _files = const [];
     _manifest = const [];
     await server?.close(force: true);
-    if (Platform.isAndroid && invite?.ssid.isNotEmpty == true) {
-      await _wifi.stop();
-    }
     TransferOverlayController.clear();
     await stopForegroundService();
   }
 
   Future<void> disconnect() async {
-    if (Platform.isAndroid) await _wifi.disconnect();
+    // Plazma S does not change the device's Wi-Fi connection.
     await stopForegroundService();
   }
 }
