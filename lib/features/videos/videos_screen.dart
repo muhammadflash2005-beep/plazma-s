@@ -283,7 +283,7 @@ class _VideosScreenState extends State<VideosScreen> {
         FilledButton.icon(onPressed: _busy ? null : _downloadVideos,
           icon: const Icon(Icons.download), label: const Text('Receive videos')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.videos,
