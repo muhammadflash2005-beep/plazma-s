@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:async';
 import 'dart:io';
 
@@ -45,10 +47,10 @@ class _FilesScreenState extends State<FilesScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final result = await FilePicker.pickFiles(allowMultiple: true);
-      if (result == null || !mounted) return;
+      final result = await FilePicker.pickFiles();
+      if (!mounted || result.isEmpty) return;
       setState(() {
-        for (final picked in result.files) {
+        for (final picked in result) {
           final path = picked.path;
           if (path == null || _files.any((file) => file.path == path)) continue;
           _files.add(File(path));
@@ -229,7 +231,6 @@ class _FilesScreenState extends State<FilesScreen> {
       _status = 'Preparing downloads…';
     });
     try {
-      final total = _availableFiles.fold<int>(0, (sum, item) => sum + item.size);
       await _service.downloadAll(
         invite: invite,
         files: _availableFiles,
