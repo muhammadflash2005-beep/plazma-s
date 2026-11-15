@@ -77,6 +77,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
   Future<void> _sendImages() async {
     if (_selected.isEmpty || _busy) return;
     setState(() { _busy = true; _status = 'Preparing images…'; });
+    final fileCount = _selected.length;
     try {
       final names = _selected.map((f) => f.uri.pathSegments.last).toList();
       final invite = await _service.startSharing(
@@ -84,14 +85,15 @@ class _ImagesScreenState extends State<ImagesScreen> {
         relativePaths: names,
       );
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
-        fileCount: _selected.length,
+        fileCount: fileCount,
         label: 'Sharing images',
       ));
     } catch (e) {
