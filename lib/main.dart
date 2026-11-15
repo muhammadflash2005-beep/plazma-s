@@ -13,6 +13,7 @@ import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'transfers/transfer_mode.dart';
+import 'transfers/xender_local_transfer_service.dart';
 import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
@@ -235,7 +236,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     return Scaffold(
       body: SafeArea(
-        child: Row(
+        child: Stack(
+          children: [
+            Row(
           children: [
             if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() => _tab = value)),
             Expanded(
@@ -248,14 +251,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
                           padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
-                          child: switch (_tab) {
-                            0 => _homeContent(wide),
-                            1 => FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
-                            2 => AppsScreen(onSendSelected: _createRoomForSelectedApps),
-                            3 => const DevicesScreen(),
-                            4 => _secondaryContent(),
-                            _ => _settingsContent(),
-                          },
+                          child: IndexedStack(
+                            index: _tab,
+                            children: [
+                              _homeContent(wide),
+                              FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
+                              AppsScreen(onSendSelected: _createRoomForSelectedApps),
+                              const DevicesScreen(),
+                              _secondaryContent(),
+                              _settingsContent(),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -275,6 +281,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                 ],
               ),
+            ),
+          ],
+            ),
+            Positioned(
+              right: 14,
+              bottom: 18,
+              child: _FloatingTransferIndicator(onTap: () => setState(() => _tab = 1)),
             ),
           ],
         ),
@@ -454,6 +467,65 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _secondaryContent() => const TransferHistoryScreen();
+}
+
+
+class _FloatingTransferIndicator extends StatelessWidget {
+  const _FloatingTransferIndicator({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<TransferIndicatorState>(
+    valueListenable: plazmaTransferIndicator,
+    builder: (context, transfer, _) {
+      if (!transfer.active) return const SizedBox.shrink();
+      final color = Theme.of(context).colorScheme.primary;
+      final progress = transfer.progress.clamp(0.0, 1.0);
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.20), blurRadius: 14, offset: const Offset(0, 5))],
+            ),
+            padding: const EdgeInsets.all(5),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: CircularProgressIndicator(
+                    value: progress > 0 ? progress : null,
+                    strokeWidth: 3.5,
+                    color: color,
+                    backgroundColor: color.withValues(alpha: 0.16),
+                  ),
+                ),
+                Icon(Icons.bolt_rounded, color: color, size: 20),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 19, minHeight: 19),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Theme.of(context).colorScheme.surface, width: 1.5)),
+                    child: Text('${transfer.fileCount}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _ThemeSwatch extends StatelessWidget {
