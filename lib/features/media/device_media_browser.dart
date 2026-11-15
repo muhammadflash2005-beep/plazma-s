@@ -14,12 +14,14 @@ class DeviceMediaBrowser extends StatefulWidget {
   const DeviceMediaBrowser({
     required this.kind,
     required this.onSelect,
-    this.enabled = true,
+    this.isSelected,
+    this.enabled = true;
     super.key,
   });
 
   final MediaKind kind;
   final ValueChanged<File> onSelect;
+  final bool Function(File file)? isSelected;
   final bool enabled;
 
   @override
@@ -292,14 +294,23 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
               child: Column(
                 children: [
                   for (final asset in _assets)
-                    ListTile(
-                      dense: true,
-                      leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                      title: Text(asset.title ?? 'Audio file',
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
-                      trailing: const Icon(Icons.add_circle_outline_rounded),
-                      onTap: () => _select(asset),
+                    FutureBuilder<File?>(
+                      future: asset.file,
+                      builder: (context, snapshot) {
+                        final selected = snapshot.data != null &&
+                            (widget.isSelected?.call(snapshot.data!) ?? false);
+                        return ListTile(
+                          dense: true,
+                          leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
+                          title: Text(asset.title ?? 'Audio file',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
+                          trailing: selected
+                              ? Icon(Icons.check_circle_rounded, color: Theme.of(context).colorScheme.primary)
+                              : const Icon(Icons.circle_outlined),
+                          onTap: () => _select(asset),
+                        );
+                      },
                     ),
                 ],
               ),
@@ -316,45 +327,56 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
               ),
               itemBuilder: (context, index) {
                 final asset = _assets[index];
-                return InkWell(
-                  onTap: () => _select(asset),
-                  borderRadius: BorderRadius.circular(10),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        FutureBuilder<Uint8List?>(
-                          future: _thumbnail(asset),
-                          builder: (context, snapshot) {
-                            final bytes = snapshot.data;
-                            if (bytes == null) {
-                              return const ColoredBox(
-                                color: Color(0x22000000),
-                                child: Center(
-                                  child: Icon(Icons.photo_outlined, size: 22),
+                return FutureBuilder<File?>(
+                  future: asset.file,
+                  builder: (context, fileSnapshot) {
+                    final selected = fileSnapshot.data != null &&
+                        (widget.isSelected?.call(fileSnapshot.data!) ?? false);
+                    return InkWell(
+                      onTap: () => _select(asset),
+                      borderRadius: BorderRadius.circular(10),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            FutureBuilder<Uint8List?>(
+                              future: _thumbnail(asset),
+                              builder: (context, snapshot) {
+                                final bytes = snapshot.data;
+                                if (bytes == null) {
+                                  return const ColoredBox(
+                                    color: Color(0x22000000),
+                                    child: Center(child: Icon(Icons.photo_outlined, size: 22)),
+                                  );
+                                }
+                                return Image.memory(bytes, fit: BoxFit.cover);
+                              },
+                            ),
+                            if (widget.kind == MediaKind.videos)
+                              const Center(
+                                child: Icon(Icons.play_circle_fill_rounded,
+                                    color: Colors.white, size: 32),
+                              ),
+                            if (selected)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2),
+                                  ),
+                                  padding: const EdgeInsets.all(3),
+                                  child: const Icon(Icons.check_rounded, color: Colors.white, size: 17),
                                 ),
-                              );
-                            }
-                            return Image.memory(bytes, fit: BoxFit.cover);
-                          },
+                              ),
+                          ],
                         ),
-                        if (widget.kind == MediaKind.videos)
-                          const Center(
-                            child: Icon(Icons.play_circle_fill_rounded,
-                                color: Colors.white, size: 32),
-                          ),
-                        Positioned(
-                          right: 5,
-                          bottom: 5,
-                          child: Icon(
-                            Icons.add_circle_rounded,
-                            color: Colors.white.withValues(alpha: .95),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 );
               },
             ),
