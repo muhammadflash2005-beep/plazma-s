@@ -53,11 +53,10 @@ class PlazmaConnectionInvite {
         (octets[0] == 10 ||
             (octets[0] == 192 && octets[1] == 168) ||
             (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31));
-    final usesHotspot = (ssid?.isNotEmpty ?? false) || (password?.isNotEmpty ?? false);
+    // Empty SSID/password values identify the same-Wi-Fi room format.
+    // Legacy QR codes with hotspot credentials remain parseable for rollback.
     if (ssid == null ||
         password == null ||
-        (usesHotspot && (ssid.isEmpty || ssid.length > 32 ||
-            password.length < 8 || password.length > 63)) ||
         !isPrivateIpv4 ||
         port == null ||
         port < 1 ||
