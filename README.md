@@ -49,6 +49,7 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [x] Five selectable themes with on-device persistence (Light, Dark, Ocean, Sunset, Forest)
 - [x] Android APK build pipeline with local-network permissions and downloadable CI artifact
 - [ ] Web deployment and browser smoke test
+- [ ] Configure and publish native desktop builds for Windows, macOS and Linux
 - [ ] Install and smoke-test the first Android APK on a physical device
 - [ ] Network room messages, authenticated sessions, QR pairing, and room-aware mDNS discovery
 - [ ] Folder transfer and resumable transfer
@@ -60,7 +61,7 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [ ] Android split-APK extraction and complete app/package sharing
 - [ ] Complete theme system and settings UI
 
-The current native Files screen supports direct single-file and sequential multi-file TCP transfers, six-digit receiver-code authorization, SHA-256 verification, and receiver acknowledgements. It does not yet encrypt TCP traffic, transfer folders, resume interrupted transfers, or use room membership as authorization. The room code remains a local preview and is not yet connected to authenticated network sessions. Device-to-device behavior still requires physical-device testing.
+The native transfer screen now supports the same HTTP transfer protocol on Android and desktop: Android can host its private hotspot, while desktop hosts bind to the active private LAN address and accept connections from other PCs or Android devices. Desktop receivers can paste a Plazma S connection code; Android receivers can scan the sender QR code. For cross-platform transfers, connect both devices to the same Wi-Fi or connect the PC manually to the Android sender's hotspot before pairing. Desktop firewall rules may need to allow Plazma S on private networks. The service supports multi-file transfers, resumable HTTP range downloads, and SHA-256 verification. Android app installation remains Android-only. This cross-platform path still needs CI desktop builds and physical PC/Android transfer testing before it can be considered verified. The TCP/HTTP payload is not yet encrypted, and room membership is not yet used as authorization.
 
 ## Development
 
