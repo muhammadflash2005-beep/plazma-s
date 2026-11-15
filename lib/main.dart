@@ -482,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: 'Create room',
         subtitle: 'Choose apps, files, images, music or videos to share. Invite up to seven devices using a QR code or room code.',
         buttonText: 'Create room',
-        onPressed: () => _openTransfer(null, 'join'),
+        onPressed: () => _openTransfer(null, 'create'),
       ),
       const SizedBox(height: 14),
       _ActionCard(
@@ -491,7 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: 'Scan the host QR code on Android or enter the connection code on a computer to receive shared content.',
         buttonText: 'Join room',
         outlined: true,
-        onPressed: () => _openTransfer(null, 'create'),
+        onPressed: () => _openTransfer(null, 'join'),
       ),
     ]);
   }
