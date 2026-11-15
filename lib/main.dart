@@ -3,7 +3,6 @@
 // Keep the UI compatible with the current stable SDK during that migration.
 // ignore_for_file: deprecated_member_use
 
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -215,8 +214,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
-  String? _roomId;
-  int _roomAppCount = 0;
   int _selectedAppsCount = 0;
   TransferMode? _transferMode;
 
@@ -225,23 +222,15 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  String _newRoomId() {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = Random.secure();
-    return List.generate(6, (_) => alphabet[random.nextInt(alphabet.length)]).join();
+  void _createRoomForSelectedApps(int count) {
+    setState(() {
+      _selectedAppsCount = 0;
+      _tab = 1;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Installed-app export is the next transfer feature. File sharing is ready in the Files tab.')),
+    );
   }
-
-  void _createRoom() => setState(() {
-        _roomId = _newRoomId();
-        _roomAppCount = 0;
-      });
-
-  void _createRoomForSelectedApps(int count) => setState(() {
-        _roomId = _newRoomId();
-        _roomAppCount = count;
-        _selectedAppsCount = 0;
-        _tab = 0;
-      });
 
   void _showJoinDialog() => _openTransfer(TransferMode.androidToAndroid);
 
@@ -430,60 +419,6 @@ class _HomeScreenState extends State<HomeScreen> {
             outlined: true,
           )),
         ],
-      );
-
-  Widget _roomPanel() => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              const Expanded(child: Text('Your room', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-              IconButton(onPressed: () => setState(() => _roomId = null), icon: const Icon(Icons.close_rounded)),
-            ]),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 18),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Column(children: [
-                const Text('SCAN TO JOIN', style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                  child: QrImageView(
-                    data: Uri(scheme: 'plazmas', host: 'join', queryParameters: {'room': _roomId}).toString(),
-                    version: QrVersions.auto,
-                    size: 190,
-                    backgroundColor: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text('Room ${_roomId!}', style: TextStyle(
-                  fontSize: 14, letterSpacing: 2, fontWeight: FontWeight.w800,
-                  color: Theme.of(context).colorScheme.primary,
-                )),
-                const SizedBox(height: 8),
-                const Text('Scan this QR code from another Plazma S device.', textAlign: TextAlign.center),
-              ]),
-            ),
-            const SizedBox(height: 18),
-            const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Icon(Icons.devices_rounded)),
-              title: Text('This device'),
-              subtitle: Text('Room host · Local preview'),
-              trailing: Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
-            ),
-            const Divider(),
-            Text(_roomAppCount > 0
-                ? '$_roomAppCount selected app(s) are ready for the room handoff. The room code is generated locally; live device joining and APK delivery are not connected yet.'
-                : 'Network room invitations and connected devices are the next native milestone.'),
-          ]),
-        ),
       );
 
   Widget _settingsContent() {
