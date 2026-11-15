@@ -172,9 +172,6 @@ class _FilesScreenState extends State<FilesScreen> {
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
-      setState(() {
-        _status = 'Room ${invite.roomId} is open · waiting for devices';
-      });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
         fileCount: _files.length,
@@ -200,7 +197,7 @@ class _FilesScreenState extends State<FilesScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('On the sending device, copy the Plazma S connection code and paste it below. Make sure both devices are connected to the same Wi-Fi or hotspot.'),
+                const Text('On the sending device, copy the Plazma S room code and paste it below. Both devices must already be connected to the same Wi-Fi.'),
                 const SizedBox(height: 12),
                 TextField(
                   controller: controller,
