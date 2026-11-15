@@ -356,40 +356,6 @@ class _AppsScreenState extends State<AppsScreen> {
     finally { if (mounted) setState(() => _busy = false); }
   }
 
-  Future<void> _install(String pkg) async {
-    if (_library == null) return;
-    final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
-    final apks = <File>[];
-    if (!await folder.exists()) return;
-    await for (final entity in folder.list(followLinks: false)) {
-      if (entity is File && entity.path.toLowerCase().endsWith('.apk')) apks.add(entity);
-    }
-    apks.sort((a,b) {
-      final an = a.uri.pathSegments.last, bn = b.uri.pathSegments.last;
-      int rank(String n) {
-        if (n == 'base.apk') return 0;
-        final m = RegExp(r'^split_(\d+)\.apk$').firstMatch(n);
-        return int.tryParse(m?.group(1) ?? '') ?? 999999;
-      }
-      return rank(an).compareTo(rank(bn));
-    });
-    if (apks.isEmpty || apks.first.uri.pathSegments.last != 'base.apk') {
-      _message('Saved app is incomplete. Save or receive it again.'); return;
-    }
-    try {
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>('installApkSet',
-        {'packageName': pkg, 'paths': apks.map((f) => f.path).toList()});
-      _message('Android installer opened. Review and approve the installation.');
-    } catch (e) { _message('Could not install app: ' + e.toString()); }
-  }
-
-  Future<void> _delete(String pkg) async {
-    if (_library == null) return;
-    final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
-    if (await folder.exists()) await folder.delete(recursive: true);
-    if (mounted) setState(() => _saved.remove(pkg));
-  }
-
   Future<void> _stop() async {
     _roomRefreshTimer?.cancel();
     _roomRefreshTimer = null;
@@ -423,7 +389,7 @@ class _AppsScreenState extends State<AppsScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Apps', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
-      Text('Send complete apps, receive them, save APKs and install them later.',
+      Text('Send complete installed apps. Selected apps are saved automatically for transfer.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
@@ -518,21 +484,7 @@ class _AppsScreenState extends State<AppsScreen> {
               );
             });
         }),
-        const SizedBox(height:18),
-        Text('Saved Apps (' + _saved.length.toString() + ')',
-          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
-        if (_saved.isEmpty) const Padding(padding: EdgeInsets.all(12),
-          child: Text('Apps you save or receive will appear here for later installation.')),
-        ..._saved.entries.map((e) => Card(child: ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.android)),
-          title: Text(e.value), subtitle: Text(e.key),
-          trailing: Wrap(spacing:0, children: [
-            IconButton(tooltip:'Install',onPressed:_busy ? null : () => _install(e.key),
-              icon:const Icon(Icons.install_mobile)),
-            IconButton(tooltip:'Delete saved APK',onPressed:_busy ? null : () => _delete(e.key),
-              icon:const Icon(Icons.delete_outline)),
-          ]),
-        ))),
+        const SizedBox(height: 18),
         ],
       ],
     ]);
