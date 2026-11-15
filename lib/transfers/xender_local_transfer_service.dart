@@ -227,7 +227,20 @@ class XenderLocalTransferService {
         final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
         await target.parent.create(recursive: true);
         if (await target.exists()) {
-          throw FileSystemException('A file with this name already exists.', target.path);
+          final existingSize = await target.length();
+          final existingDigest = await sha256.bind(target.openRead()).first;
+          if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+            totalBytes += item.size;
+            onProgress(LocalTransferProgress(
+              fileName: item.name,
+              fileBytes: item.size,
+              fileSize: item.size,
+              totalBytes: totalBytes,
+              totalSize: totalSize,
+            ));
+            continue;
+          }
+          throw FileSystemException('A different file with this name already exists.', target.path);
         }
         final request = await client.getUrl(
           _endpoint(invite, '/download', {'id': item.id.toString()}),

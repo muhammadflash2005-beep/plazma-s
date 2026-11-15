@@ -229,6 +229,7 @@ class _FilesScreenState extends State<FilesScreen> {
       final files = await _service.joinAndList(invite);
       if (!mounted) return;
       setState(() {
+        _downloaded = false;
         _receiverInvite = invite;
         _availableFiles = files;
         _status = files.isEmpty ? 'Connected. The sender has no files available.' : 'Connected — ${files.length} file(s) available';
