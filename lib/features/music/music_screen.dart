@@ -18,7 +18,8 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class MusicScreen extends StatefulWidget {
-  const MusicScreen({super.key});
+  const MusicScreen({this.enabled = true, super.key});
+  final bool enabled;
 
   @override
   State<MusicScreen> createState() => _MusicScreenState();
@@ -285,6 +286,7 @@ class _MusicScreenState extends State<MusicScreen> {
       ]))),
       if (_invite == null && _receiver == null) ...[
         DeviceMediaBrowser(
+          enabled: widget.enabled,
           kind: MediaKind.music,
           onSelect: (file) {
             if (_selected.any((existing) => existing.path == file.path)) return;

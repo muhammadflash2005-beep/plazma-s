@@ -20,7 +20,8 @@ import '../../transfers/xender_local_transfer_service.dart';
 class ImagesScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static VoidCallback? sendSelected;
-  const ImagesScreen({super.key});
+  const ImagesScreen({this.enabled = true, super.key});
+  final bool enabled;
 
   @override
   State<ImagesScreen> createState() => _ImagesScreenState();
@@ -284,6 +285,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       ]))),
       if (_invite == null && _receiver == null) ...[
         DeviceMediaBrowser(
+          enabled: widget.enabled,
           kind: MediaKind.images,
           onSelect: (file) {
             if (_selected.any((existing) => existing.path == file.path)) return;
