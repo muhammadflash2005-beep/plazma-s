@@ -13,6 +13,7 @@ import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
 import 'transfers/transfer_mode.dart';
+import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
@@ -234,8 +235,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     return Scaffold(
-      body: SafeArea(
-        child: Row(
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Row(
           children: [
             if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() => _tab = value)),
             Expanded(
@@ -248,14 +251,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
                           padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
-                          child: switch (_tab) {
-                            0 => _homeContent(wide),
-                            1 => FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
-                            2 => AppsScreen(onSendSelected: _createRoomForSelectedApps),
-                            3 => const DevicesScreen(),
-                            4 => _secondaryContent(),
-                            _ => _settingsContent(),
-                          },
+                          child: IndexedStack(
+                            index: _tab,
+                            children: [
+                              _homeContent(wide),
+                              FilesScreen(transferMode: _transferMode, initialPaths: _pendingSharePaths),
+                              AppsScreen(onSendSelected: _createRoomForSelectedApps),
+                              const DevicesScreen(),
+                              _secondaryContent(),
+                              _settingsContent(),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -278,6 +284,69 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: wide ? 24 : 92,
+            child: ValueListenableBuilder<TransferOverlaySnapshot?>(
+              valueListenable: TransferOverlayController.current,
+              builder: (context, transfer, _) {
+                if (transfer == null) return const SizedBox.shrink();
+                final colors = Theme.of(context).colorScheme;
+                return Material(
+                  color: colors.surface,
+                  elevation: 8,
+                  shape: const StadiumBorder(),
+                  child: InkWell(
+                    customBorder: const StadiumBorder(),
+                    onTap: () => setState(() => _tab = 1),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 42,
+                            height: 42,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                CircularProgressIndicator(
+                                  value: transfer.progress,
+                                  strokeWidth: 3.5,
+                                  color: colors.primary,
+                                  backgroundColor: colors.primary.withValues(alpha: 0.16),
+                                ),
+                                Text(
+                                  '${transfer.fileCount}',
+                                  style: TextStyle(fontWeight: FontWeight.w800, color: colors.onSurface),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                transfer.direction == TransferOverlayDirection.sending ? 'Sending files' : 'Receiving files',
+                                style: const TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                              Text(transfer.label, style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant)),
+                            ],
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.chevron_right_rounded, color: colors.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
