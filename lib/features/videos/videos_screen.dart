@@ -295,7 +295,7 @@ class _VideosScreenState extends State<VideosScreen> {
               ClipRRect(borderRadius: BorderRadius.circular(12),
                 child: Image.file(_selected[index], fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => const ColoredBox(
-                    color: Colors.black12, child: Icon(Icons.video_not_supported)))),
+                    color: Colors.black12, child: Icon(Icons.videocam_off)))),
               Positioned(right: 4, top: 4, child: IconButton.filledTonal(
                 visualDensity: VisualDensity.compact,
                 onPressed: _busy ? null : () => setState(() => _selected.removeAt(index)),
