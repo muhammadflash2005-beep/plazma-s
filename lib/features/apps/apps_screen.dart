@@ -34,6 +34,7 @@ class _AppsScreenState extends State<AppsScreen> {
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
   bool _loading = false, _busy = false;
+  Timer? _roomRefreshTimer;
   double _progress = 0;
   String? _status, _error;
 
@@ -122,7 +123,11 @@ class _AppsScreenState extends State<AppsScreen> {
       }
       final invite = await _service.startSharing(files: files, relativePaths: paths);
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Scan this QR code on the receiving phone.'; });
+      setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for devices.'; });
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending, fileCount: packages.length,
         label: 'Sharing apps', isAppTransfer: true));
@@ -234,6 +239,8 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _stop() async {
+    _roomRefreshTimer?.cancel();
+    _roomRefreshTimer = null;
     await _service.stopSharing();
     TransferOverlayController.clear();
     if (mounted) setState(() { _invite = null; _status = 'App sharing stopped.'; });
@@ -250,6 +257,7 @@ class _AppsScreenState extends State<AppsScreen> {
 
   @override
   void dispose() {
+    _roomRefreshTimer?.cancel();
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
     AppsScreen.selectedCount.value = 0;
     unawaited(_service.stopSharing());
@@ -270,12 +278,14 @@ class _AppsScreenState extends State<AppsScreen> {
       if (_error != null) Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
       if (_loading) const LinearProgressIndicator(),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        const Text('Scan to receive these apps', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ' + _invite!.roomId + ' · Scan to receive these apps', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(padding: const EdgeInsets.all(10), color: Colors.white,
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
-        const SizedBox(height: 8), Text('Wi-Fi: ' + _invite!.ssid),
-        const Text('The receiver sees each selected app as one app, with its APK parts grouped together.', textAlign: TextAlign.center),
+        const SizedBox(height: 8), Text('Same Wi-Fi · ' + _invite!.host + ':' + _invite!.port.toString()),
+        Row(children: [Expanded(child: Text('Connected devices', style: const TextStyle(fontWeight: FontWeight.w800))), Text(_service.joinedDeviceCount.toString() + '/8')]),
+        ..._service.roomMembers.map((member) => ListTile(dense: true, leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer), title: Text(member.deviceName), subtitle: Text(member.platform), trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null))),
+        const Text('Up to seven devices can join this room. Each selected app is sent as one app, with its APK parts grouped together.', textAlign: TextAlign.center),
         OutlinedButton.icon(onPressed: _busy ? null : _stop, icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
