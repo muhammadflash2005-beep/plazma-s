@@ -380,6 +380,28 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<void> _disconnectReceiver() async {
+    if (_downloading) {
+      _message('A transfer is active. Wait for it to finish before disconnecting.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Disconnect?'),
+        content: const Text('End this Wi-Fi transfer session and disconnect from the sender?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Disconnect'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     await _service.disconnect();
     TransferOverlayController.clear();
     if (!mounted) return;
@@ -519,7 +541,7 @@ class _FilesScreenState extends State<FilesScreen> {
             const SizedBox(height: 12),
             Text('Wi-Fi: ${_invite!.ssid}', style: const TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
-            const Text('Keep this screen open while the other phone connects and receives files.', textAlign: TextAlign.center),
+            const Text('The transfer stays active while you browse other Plazma S sections.', textAlign: TextAlign.center),
             const SizedBox(height: 14),
             OutlinedButton.icon(
               onPressed: _busy ? null : _stopSharing,
