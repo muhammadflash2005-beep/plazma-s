@@ -103,6 +103,15 @@ jobs:
           import android.content.Intent
           import android.content.pm.PackageManager
           import android.net.wifi.WifiManager
+          import android.net.wifi.WifiNetworkSpecifier
+          import android.net.ConnectivityManager
+          import android.net.Network
+          import android.net.NetworkCapabilities
+          import android.net.NetworkRequest
+          import android.os.Handler
+          import android.os.Looper
+          import java.net.Inet4Address
+          import java.net.NetworkInterface
           import android.net.Uri
           import java.io.File
           import androidx.core.content.FileProvider
@@ -118,6 +127,8 @@ jobs:
               private val permissionRequest = 7041
               private var hotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
               private var pendingHotspotResult: MethodChannel.Result? = null
+              private var networkCallback: ConnectivityManager.NetworkCallback? = null
+              private var pendingJoinResult: MethodChannel.Result? = null
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
@@ -163,6 +174,12 @@ jobs:
                                   hotspotReservation = null
                                   result.success(null)
                               }
+                              "joinHotspot" -> joinHotspot(
+                                  call.argument<String>("ssid") ?: "",
+                                  call.argument<String>("password") ?: "",
+                                  result
+                              )
+                              "disconnectHotspot" -> disconnectHotspot(result)
                               "openWifiSettings" -> {
                                   startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
                                   result.success(null)
@@ -213,7 +230,12 @@ jobs:
                                   password = config?.preSharedKey?.trim('"') ?: ""
                               }
                               runOnUiThread {
-                                  result.success(mapOf("ssid" to ssid, "password" to password))
+                                  val host = findHotspotAddress()
+                                  if (host == null) {
+                                      result.error("HOTSPOT_ADDRESS_UNAVAILABLE", "Android started the hotspot but its local IP address could not be detected.", null)
+                                  } else {
+                                      result.success(mapOf("ssid" to ssid, "password" to password, "host" to host))
+                                  }
                               }
                           }
 
@@ -248,7 +270,99 @@ jobs:
                   }
               }
 
+              private fun findHotspotAddress(): String? {
+                  return try {
+                      val interfaces = NetworkInterface.getNetworkInterfaces().toList()
+                      val candidates = interfaces
+                          .filter { it.isUp && !it.isLoopback }
+                          .sortedBy {
+                              val name = it.name.lowercase()
+                              when {
+                                  name.contains("ap") || name.contains("softap") -> 0
+                                  name.contains("wlan") -> 1
+                                  else -> 2
+                              }
+                          }
+                      candidates.forEach { networkInterface ->
+                          networkInterface.inetAddresses.toList()
+                              .filterIsInstance<Inet4Address>()
+                              .firstOrNull { address ->
+                                  !address.isLoopbackAddress && !address.isLinkLocalAddress &&
+                                      (address.hostAddress.startsWith("192.168.") ||
+                                       address.hostAddress.startsWith("10.") ||
+                                       address.hostAddress.startsWith("172."))
+                              }?.let { return it.hostAddress }
+                      }
+                      null
+                  } catch (_: Exception) {
+                      null
+                  }
+              }
+
+              private fun joinHotspot(ssid: String, password: String, result: MethodChannel.Result) {
+                  if (ssid.isBlank() || password.isBlank()) {
+                      result.error("INVALID_WIFI_DETAILS", "The QR code does not contain valid Wi-Fi credentials.", null)
+                      return
+                  }
+                  if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                      result.error("MANUAL_WIFI_REQUIRED", "This Android version requires joining the Plazma S Wi-Fi network from Wi-Fi settings.", null)
+                      return
+                  }
+                  disconnectHotspot(null)
+                  try {
+                      val specifier = WifiNetworkSpecifier.Builder()
+                          .setSsid(ssid)
+                          .setWpa2Passphrase(password)
+                          .build()
+                      val request = NetworkRequest.Builder()
+                          .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                          .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                          .setNetworkSpecifier(specifier)
+                          .build()
+                      val connectivity = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                      pendingJoinResult = result
+                      val callback = object : ConnectivityManager.NetworkCallback() {
+                          override fun onAvailable(network: Network) {
+                              connectivity.bindProcessToNetwork(network)
+                              runOnUiThread {
+                                  pendingJoinResult?.success(null)
+                                  pendingJoinResult = null
+                              }
+                          }
+                          override fun onUnavailable() {
+                              runOnUiThread {
+                                  pendingJoinResult?.error("WIFI_JOIN_REJECTED", "The Wi-Fi connection was cancelled or the phone could not join the sender's hotspot.", null)
+                                  pendingJoinResult = null
+                                  networkCallback = null
+                              }
+                          }
+                      }
+                      networkCallback = callback
+                      connectivity.requestNetwork(request, callback, 30000)
+                  } catch (error: SecurityException) {
+                      pendingJoinResult = null
+                      result.error("WIFI_PERMISSION_REQUIRED", "Allow Nearby Wi-Fi access for Plazma S, then scan the QR code again.", null)
+                  } catch (error: Exception) {
+                      pendingJoinResult = null
+                      result.error("WIFI_JOIN_FAILED", error.message, null)
+                  }
+              }
+
+              private fun disconnectHotspot(result: MethodChannel.Result?) {
+                  try {
+                      val connectivity = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                      connectivity.bindProcessToNetwork(null)
+                      networkCallback?.let { connectivity.unregisterNetworkCallback(it) }
+                      networkCallback = null
+                      pendingJoinResult = null
+                      result?.success(null)
+                  } catch (error: Exception) {
+                      result?.error("WIFI_DISCONNECT_FAILED", error.message, null)
+                  }
+              }
+
               override fun onDestroy() {
+                  disconnectHotspot(null)
                   hotspotReservation?.close()
                   hotspotReservation = null
                   super.onDestroy()
