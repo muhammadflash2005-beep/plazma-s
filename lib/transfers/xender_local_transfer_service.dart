@@ -203,7 +203,7 @@ class XenderLocalTransferService {
           final match = RegExp(r'^bytes=(\d+)-$').firstMatch(range.trim());
           if (match == null) {
             request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
-            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */' + length.toString());
+            request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
             await request.response.close();
             return;
           }
@@ -217,7 +217,7 @@ class XenderLocalTransferService {
           request.response.statusCode = HttpStatus.partialContent;
           request.response.headers.set(
             HttpHeaders.contentRangeHeader,
-            'bytes ' + offset.toString() + '-' + (length - 1).toString() + '/' + length.toString(),
+            'bytes $offset-${length - 1}/$length',
           );
         } else {
           request.response.statusCode = HttpStatus.ok;
