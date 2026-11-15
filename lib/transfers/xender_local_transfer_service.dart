@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../network/android_wifi_session_service.dart';
 
@@ -73,6 +74,23 @@ class XenderLocalTransferService {
       : _wifi = wifi ?? AndroidWifiSessionService();
 
   final AndroidWifiSessionService _wifi;
+  static const MethodChannel _foregroundChannel = MethodChannel('com.plazma.s/transfer_service');
+
+  Future<void> _startForegroundService() async {
+    try {
+      await _foregroundChannel.invokeMethod<void>('start');
+    } catch (error) {
+      debugPrint('Could not start Plazma transfer notification service: $error');
+    }
+  }
+
+  Future<void> stopForegroundService() async {
+    try {
+      await _foregroundChannel.invokeMethod<void>('stop');
+    } catch (error) {
+      debugPrint('Could not stop Plazma transfer notification service: $error');
+    }
+  }
   HttpServer? _server;
   List<File> _files = const [];
   List<String> _relativePaths = const [];
@@ -117,6 +135,7 @@ class XenderLocalTransferService {
           debugPrint('Plazma local transfer server error: $error');
         },
       );
+      await _startForegroundService();
       return invite;
     } catch (_) {
       await server?.close(force: true);
@@ -190,6 +209,7 @@ class XenderLocalTransferService {
 
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
     await _wifi.join(invite);
+    await _startForegroundService();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final request = await client.getUrl(_endpoint(invite, '/manifest'));
@@ -365,9 +385,13 @@ class XenderLocalTransferService {
     _relativePaths = const [];
     await server?.close(force: true);
     await _wifi.stop();
+    await stopForegroundService();
   }
 
-  Future<void> disconnect() => _wifi.disconnect();
+  Future<void> disconnect() async {
+    await _wifi.disconnect();
+    await stopForegroundService();
+  }
 }
 ).firstMatch(range.trim());
           if (match == null) {
