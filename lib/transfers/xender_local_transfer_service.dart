@@ -94,7 +94,6 @@ class XenderLocalTransferService {
   }
   HttpServer? _server;
   List<File> _files = const [];
-  List<String> _relativePaths = const [];
   List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
 
@@ -143,7 +142,6 @@ class XenderLocalTransferService {
       // attached to the isolated local-only hotspot.
       server = await HttpServer.bind(InternetAddress(invite.host), invite.port);
       _files = checkedFiles;
-      _relativePaths = checkedPaths;
       _manifest = manifest;
       _invite = invite;
       _server = server;
@@ -427,7 +425,6 @@ class XenderLocalTransferService {
     _server = null;
     _invite = null;
     _files = const [];
-    _relativePaths = const [];
     _manifest = const [];
     await server?.close(force: true);
     await _wifi.stop();
