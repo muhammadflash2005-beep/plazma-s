@@ -6,7 +6,6 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -244,64 +243,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _tab = 0;
       });
 
-  void _showJoinDialog() {
-    var handled = false;
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Scan to join'),
-        content: SizedBox(
-          width: 320,
-          height: 360,
-          child: Column(
-            children: [
-              const Text(
-                'Point your camera at the QR code displayed on the host device.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: MobileScanner(
-                    onDetect: (capture) {
-                      if (handled) return;
-                      final raw = capture.barcodes
-                          .map((barcode) => barcode.rawValue)
-                          .whereType<String>()
-                          .firstOrNull;
-                      if (raw == null) return;
-                      final invite = Uri.tryParse(raw);
-                      if (invite == null ||
-                          invite.scheme != 'plazmas' ||
-                          invite.host != 'join') {
-                        return;
-                      }
-                      final room = invite.queryParameters['room'] ?? '';
-                      if (!RegExp(r'^[A-HJ-NP-Z2-9]{6}$').hasMatch(room)) {
-                        return;
-                      }
-                      handled = true;
-                      Navigator.of(dialogContext).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Room QR recognized: $room. Live room joining still needs the network room service.')),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
-  }
+  void _showJoinDialog() => _openTransfer(TransferMode.androidToAndroid);
 
   @override
   Widget build(BuildContext context) {
@@ -435,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 24),
-        if (_roomId == null) _roomActions(wide) else _roomPanel(),
+        _roomActions(wide),
         const SizedBox(height: 24),
         Text('Quick access', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
@@ -473,17 +415,17 @@ class _HomeScreenState extends State<HomeScreen> {
         runSpacing: 16,
         children: [
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.add_circle_rounded,
-            title: 'Create a room',
-            subtitle: 'Start a sharing space and invite nearby devices.',
-            buttonText: 'Create room',
-            onPressed: _createRoom,
+            icon: Icons.send_rounded,
+            title: 'Send files',
+            subtitle: 'Create a private Wi-Fi hotspot and share files with a QR code.',
+            buttonText: 'Choose files',
+            onPressed: () => _openTransfer(TransferMode.androidToAndroid),
           )),
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
-            icon: Icons.login_rounded,
-            title: 'Join a room',
-            subtitle: 'Enter the six-character code shared by the host.',
-            buttonText: 'Enter room code',
+            icon: Icons.qr_code_scanner_rounded,
+            title: 'Receive files',
+            subtitle: 'Scan the sender’s QR code and receive directly over Wi-Fi.',
+            buttonText: 'Scan QR code',
             onPressed: _showJoinDialog,
             outlined: true,
           )),
@@ -681,7 +623,7 @@ class _TopBar extends StatelessWidget {
         Text('plazma', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface, letterSpacing: -0.8)),
         Text(' S', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.primary)),
         const Spacer(),
-        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Join room')),
+        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Receive')),
       ]),
     );
   }
