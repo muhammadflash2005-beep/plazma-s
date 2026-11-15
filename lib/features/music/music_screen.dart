@@ -81,7 +81,7 @@ class _MusicScreenState extends State<MusicScreen> {
         },
       );
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Scan this QR code on the receiving phone.'; });
+      setState(() { _invite = invite; _status = 'Room ${_invite!.roomId} · Scan this QR code to join.'; });
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.sending,
         fileCount: _selected.length,
@@ -94,7 +94,28 @@ class _MusicScreenState extends State<MusicScreen> {
     }
   }
 
-  Future<PlazmaConnectionInvite?> _scan() => showDialog<PlazmaConnectionInvite>(
+  Future<PlazmaConnectionInvite?> _scan() async {
+    if (!Platform.isAndroid) {
+      final controller = TextEditingController();
+      final raw = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Join transfer room'),
+          content: TextField(controller: controller, minLines: 2, maxLines: 4,
+            decoration: const InputDecoration(labelText: 'Paste Plazma S room code')),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()), child: const Text('Join')),
+          ],
+        ),
+      );
+      controller.dispose();
+      if (raw == null) return null;
+      final invite = PlazmaConnectionInvite.tryParse(raw);
+      if (invite == null) _message('That is not a valid Plazma S room code.');
+      return invite;
+    }
+    return showDialog<PlazmaConnectionInvite>(
     context: context,
     builder: (dialogContext) {
       var handled = false;
@@ -122,6 +143,7 @@ class _MusicScreenState extends State<MusicScreen> {
       );
     },
   );
+  }
 
   Future<void> _receiveMusic() async {
     if (_busy) return;
