@@ -416,7 +416,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _TransferModeCard(
                 icon: Icons.phone_android_rounded,
                 title: 'Android to Android',
-                subtitle: 'Send files and installed apps between Android phones using QR pairing.',
+                subtitle: 'Send apps and media between Android devices on the same Wi-Fi, with up to seven recipients.',
                 onTap: () => _openTransfer(TransferMode.androidToAndroid),
               ),
             ),
@@ -449,7 +449,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 10),
             const Expanded(child: Text(
-              'PC-to-PC and Android-to-PC transfers use your current local Wi-Fi or hotspot. Android-to-Android can also create a private hotspot automatically. No cloud relay or internet connection is used.',
+              'All devices must already be connected to the same Wi-Fi network. Plazma S does not create or switch hotspots. Rooms support up to one sender and seven recipients across Android and PC.',
               style: TextStyle(height: 1.4, fontSize: 13),
             )),
           ]),
@@ -463,7 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SizedBox(width: wide ? 350 : double.infinity, child: _ActionCard(
             icon: Icons.send_rounded,
             title: 'Send files',
-            subtitle: 'Share over your local Wi-Fi or create a private Android hotspot, then show a QR code.',
+            subtitle: 'Create a room on your current Wi-Fi and invite up to seven devices with a QR code.',
             buttonText: 'Choose files',
             onPressed: () => _openTransfer(TransferMode.androidToAndroid),
           )),
