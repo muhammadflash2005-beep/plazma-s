@@ -55,6 +55,7 @@ class _MusicScreenState extends State<MusicScreen> {
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _pickMusic() async {
     if (_busy) return;
     try {
@@ -170,6 +171,7 @@ class _MusicScreenState extends State<MusicScreen> {
   );
   }
 
+  // ignore: unused_element
   Future<void> _receiveMusic() async {
     if (_busy) return;
     final invite = await _scan();
