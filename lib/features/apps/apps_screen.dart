@@ -400,7 +400,14 @@ class _AppsScreenState extends State<AppsScreen> {
             icon: const Icon(Icons.send), label: Text(Platform.isAndroid ? 'Send selected' : 'Send installers'))),
         ]),
         const SizedBox(height: 18),
-        Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
+        if (!Platform.isAndroid) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Computer application packages', style: TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          const Text('Send complete installers or portable bundles. Recipients can join from another PC or Android device and save the package locally.'),
+          const SizedBox(height: 6),
+          const Text('Supported formats: EXE, MSI, MSIX, AppImage, DEB, RPM, DMG, PKG and ZIP.'),
+        ]))),
+        if (Platform.isAndroid) ...[\n        Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))]),
         LayoutBuilder(builder: (context, c) {
@@ -451,7 +458,7 @@ class _AppsScreenState extends State<AppsScreen> {
         if (_selected.isNotEmpty) Padding(padding: const EdgeInsets.only(top:12),
           child: SizedBox(width:double.infinity,child:FilledButton.icon(
             onPressed:_busy ? null : _send,icon:const Icon(Icons.send),
-            label:Text('Send ' + _selected.length.toString() + ' selected app(s)')))),
+            label:Text('Send ' + _selected.length.toString() + ' selected app(s)')))),\n        ],
       ],
     ]);
   }
