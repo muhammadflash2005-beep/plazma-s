@@ -10,6 +10,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../media/device_media_browser.dart';
+
 import '../../network/android_wifi_session_service.dart';
 import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_overlay_controller.dart';
@@ -269,6 +271,17 @@ class _VideosScreenState extends State<VideosScreen> {
           icon: const Icon(Icons.download), label: const Text('Receive videos')),
       ]))),
       if (_invite == null && _receiver == null) ...[
+        DeviceMediaBrowser(
+          kind: MediaKind.videos,
+          onSelect: (file) {
+            if (_selected.any((existing) => existing.path == file.path)) return;
+            setState(() {
+              _selected.add(file);
+              _status = '${_selected.length} video(s) selected';
+            });
+          },
+        ),
+        const SizedBox(height: 10),
         Row(children: [
           Expanded(child: FilledButton.icon(onPressed: _busy ? null : _pickVideos,
             icon: const Icon(Icons.add_photo_alternate), label: const Text('Choose videos'))),
