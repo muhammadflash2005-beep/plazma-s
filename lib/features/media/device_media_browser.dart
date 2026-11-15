@@ -1,5 +1,4 @@
 // Flutter 3.50 currently reports the Material library import as deprecated.
-// Keep the import because this widget uses Flutter Material components.
 // ignore_for_file: deprecated_member_use
 
 import 'dart:io';
@@ -15,20 +14,22 @@ class DeviceMediaBrowser extends StatefulWidget {
   const DeviceMediaBrowser({
     required this.kind,
     required this.onSelect,
+    this.enabled = true,
     super.key,
   });
 
   final MediaKind kind;
   final ValueChanged<File> onSelect;
+  final bool enabled;
 
   @override
   State<DeviceMediaBrowser> createState() => _DeviceMediaBrowserState();
 }
 
-class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBindingObserver {
-  // One shared Android media-library permission covers images, videos and audio.
-  // Persist the first request so a denial never causes repeated system prompts.
+class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
+    with WidgetsBindingObserver {
   static const String _permissionRequestedKey = 'plazma_media_permission_requested';
+  static const int _pageSize = 48;
   static Future<PermissionState>? _permissionCheck;
 
   static Future<PermissionState> _ensureMediaPermission() {
@@ -42,41 +43,55 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
     const requestOption = PermissionRequestOption(
       androidPermission: AndroidPermission(type: RequestType.all, mediaLocation: false),
     );
-
-    // Always check the OS first: a grant made in Settings must take effect
-    // immediately, even if this app previously recorded a denied request.
-    final current = await PhotoManager.getPermissionState(
-      requestOption: requestOption,
-    );
+    final current = await PhotoManager.getPermissionState(requestOption: requestOption);
     if (current.hasAccess) {
       await prefs.setBool(_permissionRequestedKey, true);
       return current;
     }
-
-    if (prefs.getBool(_permissionRequestedKey) == true) {
-      return current;
-    }
-
-    // Save before showing the native dialog, preventing repeat prompts if the
-    // app is interrupted while Android is displaying it.
+    if (prefs.getBool(_permissionRequestedKey) == true) return current;
     await prefs.setBool(_permissionRequestedKey, true);
     return PhotoManager.requestPermissionExtend(requestOption: requestOption);
   }
+
+  AssetPathEntity? _album;
   List<AssetEntity> _assets = [];
+  final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
+  int _totalCount = 0;
   bool _loading = false;
+  bool _loadingMore = false;
   bool _loaded = false;
+  bool _hasMore = false;
+  bool _needsRefresh = false;
   String? _message;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    if (widget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.enabled) _load();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant DeviceMediaBrowser oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.enabled && widget.enabled && (!_loaded || _needsRefresh)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.enabled) _load();
+      });
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _load();
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      _needsRefresh = true;
+    } else if (state == AppLifecycleState.resumed && widget.enabled && _needsRefresh) {
+      _load();
+    }
   }
 
   @override
@@ -98,7 +113,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
       };
 
   Future<void> _load() async {
-    if (_loading) return;
+    if (!widget.enabled || _loading) return;
     setState(() {
       _loading = true;
       _message = null;
@@ -121,20 +136,32 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
       if (albums.isEmpty) {
         if (mounted) {
           setState(() {
+            _album = null;
             _assets = [];
+            _totalCount = 0;
             _loaded = true;
+            _hasMore = false;
             _message = 'No $_label found on this device.';
           });
         }
         return;
       }
-      final count = await albums.first.assetCountAsync;
-      final assets = await albums.first.getAssetListRange(start: 0, end: count);
+      final album = albums.first;
+      final count = await album.assetCountAsync;
+      final firstPage = await album.getAssetListRange(
+        start: 0,
+        end: count < _pageSize ? count : _pageSize,
+      );
       if (!mounted) return;
       setState(() {
-        _assets = assets;
+        _album = album;
+        _assets = firstPage;
+        _totalCount = count;
+        _hasMore = firstPage.length < count;
+        _thumbnailFutures.clear();
         _loaded = true;
-        _message = assets.isEmpty ? 'No $_label found on this device.' : null;
+        _needsRefresh = false;
+        _message = firstPage.isEmpty ? 'No $_label found on this device.' : null;
       });
     } catch (error) {
       if (mounted) {
@@ -146,6 +173,37 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadMore() async {
+    final album = _album;
+    if (!widget.enabled || album == null || _loadingMore || !_hasMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final start = _assets.length;
+      final end = (start + _pageSize).clamp(0, _totalCount);
+      final next = await album.getAssetListRange(start: start, end: end);
+      if (!mounted) return;
+      setState(() {
+        _assets.addAll(next);
+        _hasMore = _assets.length < _totalCount;
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load more $_label: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  Future<Uint8List?> _thumbnail(AssetEntity asset) {
+    return _thumbnailFutures.putIfAbsent(
+      asset.id,
+      () => asset.thumbnailDataWithSize(const ThumbnailSize(180, 180)),
+    );
   }
 
   Future<void> _select(AssetEntity asset) async {
@@ -172,20 +230,36 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    if (!widget.enabled && !_loaded) {
+      return Text(
+        'Open this tab to load device $_label.',
+        style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
-          Expanded(child: Text(
-            _loading ? 'Loading device $_label…' : 'On this device · $_label',
-            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w700),
-          )),
+          Expanded(
+            child: Text(
+              _loading ? 'Loading device $_label…' : 'On this device · $_label',
+              style: TextStyle(
+                color: colors.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'Refresh device media',
             visualDensity: VisualDensity.compact,
-            onPressed: _loading ? null : _load,
+            onPressed: _loading || !widget.enabled ? null : _load,
             icon: _loading
-                ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 17,
+                    height: 17,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.refresh_rounded),
           ),
         ]),
@@ -205,21 +279,29 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
         if (_loaded && _assets.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text(
-            'On this device · ${_assets.length} recent item(s)',
-            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w600),
+            'Showing ${_assets.length} of $_totalCount',
+            style: TextStyle(
+              color: colors.onSurfaceVariant,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 8),
           if (widget.kind == MediaKind.music)
             Card(
               child: Column(
-                children: _assets.map((asset) => ListTile(
-                  dense: true,
-                  leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                  title: Text(asset.title ?? 'Audio file', maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
-                  trailing: const Icon(Icons.add_circle_outline_rounded),
-                  onTap: () => _select(asset),
-                )).toList(),
+                children: [
+                  for (final asset in _assets)
+                    ListTile(
+                      dense: true,
+                      leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
+                      title: Text(asset.title ?? 'Audio file',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
+                      trailing: const Icon(Icons.add_circle_outline_rounded),
+                      onTap: () => _select(asset),
+                    ),
+                ],
               ),
             )
           else
@@ -243,13 +325,15 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
                       fit: StackFit.expand,
                       children: [
                         FutureBuilder<Uint8List?>(
-                          future: asset.thumbnailDataWithSize(const ThumbnailSize(300, 300)),
+                          future: _thumbnail(asset),
                           builder: (context, snapshot) {
                             final bytes = snapshot.data;
                             if (bytes == null) {
                               return const ColoredBox(
                                 color: Color(0x22000000),
-                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                child: Center(
+                                  child: Icon(Icons.photo_outlined, size: 22),
+                                ),
                               );
                             }
                             return Image.memory(bytes, fit: BoxFit.cover);
@@ -257,18 +341,39 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> with WidgetsBin
                         ),
                         if (widget.kind == MediaKind.videos)
                           const Center(
-                            child: Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 32),
+                            child: Icon(Icons.play_circle_fill_rounded,
+                                color: Colors.white, size: 32),
                           ),
                         Positioned(
                           right: 5,
                           bottom: 5,
-                          child: Icon(Icons.add_circle_rounded, color: Colors.white.withValues(alpha: .95)),
+                          child: Icon(
+                            Icons.add_circle_rounded,
+                            color: Colors.white.withValues(alpha: .95),
+                          ),
                         ),
                       ],
                     ),
                   ),
                 );
               },
+            ),
+          if (_hasMore)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: OutlinedButton.icon(
+                  onPressed: _loadingMore ? null : _loadMore,
+                  icon: _loadingMore
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.expand_more_rounded),
+                  label: Text(_loadingMore ? 'Loading…' : 'Load more'),
+                ),
+              ),
             ),
         ],
       ],
