@@ -8,12 +8,14 @@ class TransferOverlaySnapshot {
     required this.fileCount,
     required this.label,
     this.progress,
+    this.isAppTransfer = false,
   });
 
   final TransferOverlayDirection direction;
   final int fileCount;
   final String label;
   final double? progress;
+  final bool isAppTransfer;
 }
 
 class TransferOverlayController {
