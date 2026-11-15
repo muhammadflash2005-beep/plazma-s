@@ -247,12 +247,12 @@ class _MusicScreenState extends State<MusicScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Music', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 6),
-      Text('Choose audio files stored on your device, and share them directly with another phone.',
+      Text('Browse audio files on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        const Text('Scan to receive this music', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        const Text('Room ${_invite!.roomId} · Scan to receive music', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
