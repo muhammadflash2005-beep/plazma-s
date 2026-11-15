@@ -129,6 +129,8 @@ jobs:
               private var pendingHotspotResult: MethodChannel.Result? = null
               private var networkCallback: ConnectivityManager.NetworkCallback? = null
               private var pendingJoinResult: MethodChannel.Result? = null
+              private var pendingJoinSsid: String? = null
+              private var pendingJoinPassword: String? = null
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
@@ -262,11 +264,23 @@ jobs:
                   if (requestCode != permissionRequest) return
                   val result = pendingHotspotResult
                   pendingHotspotResult = null
-                  if (result == null) return
+                  val joinResult = pendingJoinResult
+                  val joinSsid = pendingJoinSsid
+                  val joinPassword = pendingJoinPassword
                   if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                      beginHotspot(result)
+                      if (result != null) {
+                          beginHotspot(result)
+                      } else if (joinResult != null && joinSsid != null && joinPassword != null) {
+                          pendingJoinSsid = null
+                          pendingJoinPassword = null
+                          joinHotspot(joinSsid, joinPassword, joinResult)
+                      }
                   } else {
-                      result.error("PERMISSION_DENIED", "Nearby Wi-Fi permission is required to create a local hotspot.", null)
+                      result?.error("PERMISSION_DENIED", "Nearby Wi-Fi permission is required to create a local hotspot.", null)
+                      joinResult?.error("PERMISSION_DENIED", "Nearby Wi-Fi permission is required to join a local hotspot.", null)
+                      pendingJoinResult = null
+                      pendingJoinSsid = null
+                      pendingJoinPassword = null
                   }
               }
 
@@ -302,6 +316,18 @@ jobs:
               private fun joinHotspot(ssid: String, password: String, result: MethodChannel.Result) {
                   if (ssid.isBlank() || password.isBlank()) {
                       result.error("INVALID_WIFI_DETAILS", "The QR code does not contain valid Wi-Fi credentials.", null)
+                      return
+                  }
+                  val wifiPermission = if (Build.VERSION.SDK_INT >= 33) {
+                      Manifest.permission.NEARBY_WIFI_DEVICES
+                  } else {
+                      Manifest.permission.ACCESS_FINE_LOCATION
+                  }
+                  if (checkSelfPermission(wifiPermission) != PackageManager.PERMISSION_GRANTED) {
+                      pendingJoinSsid = ssid
+                      pendingJoinPassword = password
+                      pendingJoinResult = result
+                      ActivityCompat.requestPermissions(this, arrayOf(wifiPermission), permissionRequest)
                       return
                   }
                   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
