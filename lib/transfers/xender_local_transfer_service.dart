@@ -94,7 +94,7 @@ class XenderLocalTransferService {
   }
   HttpServer? _server;
   List<File> _files = const [];
-  List<String> _relativePaths = const [];
+  List<Map<String, Object>> _manifest = const [];
   PlazmaConnectionInvite? _invite;
 
   PlazmaConnectionInvite? get invite => _invite;
@@ -119,6 +119,21 @@ class XenderLocalTransferService {
     }
     if (checkedFiles.isEmpty) throw ArgumentError('No readable files were selected.');
 
+    // Prepare APK checksums before displaying the QR code. Hashing large APKs
+    // during the receiver's first HTTP request can exceed its connection timeout.
+    final manifest = <Map<String, Object>>[];
+    for (var index = 0; index < checkedFiles.length; index++) {
+      final file = checkedFiles[index];
+      final digest = await sha256.bind(file.openRead()).first;
+      manifest.add({
+        'id': index,
+        'name': _displayName(checkedPaths[index]),
+        'relativePath': checkedPaths[index],
+        'size': await file.length(),
+        'sha256': digest.toString(),
+      });
+    }
+
     final invite = await _wifi.createInvite(port: 45454);
     HttpServer? server;
     try {
@@ -127,7 +142,7 @@ class XenderLocalTransferService {
       // attached to the isolated local-only hotspot.
       server = await HttpServer.bind(InternetAddress(invite.host), invite.port);
       _files = checkedFiles;
-      _relativePaths = checkedPaths;
+      _manifest = manifest;
       _invite = invite;
       _server = server;
       server.listen(
@@ -165,21 +180,9 @@ class XenderLocalTransferService {
         return;
       }
       if (request.uri.path == '/manifest') {
-        final manifest = <Map<String, Object>>[];
-        for (var index = 0; index < _files.length; index++) {
-          final file = _files[index];
-          final digest = await sha256.bind(file.openRead()).first;
-          manifest.add({
-            'id': index,
-            'name': _displayName(_relativePaths[index]),
-            'relativePath': _relativePaths[index],
-            'size': await file.length(),
-            'sha256': digest.toString(),
-          });
-        }
         request.response.headers.contentType = ContentType.json;
         request.response.headers.set('Cache-Control', 'no-store');
-        request.response.write(jsonEncode({'version': 1, 'files': manifest}));
+        request.response.write(jsonEncode({'version': 1, 'files': _manifest}));
         await request.response.close();
         return;
       }
@@ -248,7 +251,7 @@ class XenderLocalTransferService {
     try {
       final request = await client.getUrl(_endpoint(invite, '/manifest'));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-      final response = await request.close().timeout(const Duration(seconds: 20));
+      final response = await request.close().timeout(const Duration(seconds: 60));
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('Could not read the sender file list (HTTP ${response.statusCode}).');
       }
@@ -422,7 +425,7 @@ class XenderLocalTransferService {
     _server = null;
     _invite = null;
     _files = const [];
-    _relativePaths = const [];
+    _manifest = const [];
     await server?.close(force: true);
     await _wifi.stop();
     TransferOverlayController.clear();

@@ -12,6 +12,7 @@ import 'updates/app_update_card.dart';
 import 'features/apps/apps_screen.dart';
 import 'features/devices/devices_screen.dart';
 import 'features/files/files_screen.dart';
+import 'features/images/images_screen.dart';
 import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
@@ -249,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               _homeContent(wide),
                               FilesScreen(transferMode: _transferMode),
                               const AppsScreen(),
+                              const ImagesScreen(),
                               const DevicesScreen(),
                               _secondaryContent(),
                               _settingsContent(),
@@ -266,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
                         NavigationDestination(icon: Icon(Icons.folder_rounded), label: 'Files'),
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
+                        NavigationDestination(icon: Icon(Icons.photo_library_rounded), label: 'Images'),
                         NavigationDestination(icon: Icon(Icons.devices_rounded), label: 'Devices'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                         NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
@@ -277,6 +280,25 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
           ),
+          if (_tab == 2)
+            Positioned(
+              left: wide ? 300 : 16,
+              right: 16,
+              bottom: wide ? 92 : 158,
+              child: ValueListenableBuilder<int>(
+                valueListenable: AppsScreen.selectedCount,
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : SizedBox(
+                        height: 54,
+                        child: FilledButton.icon(
+                          onPressed: AppsScreen.sendSelected,
+                          icon: const Icon(Icons.send_rounded),
+                          label: Text('Send $count selected app${count == 1 ? '' : 's'}'),
+                        ),
+                      ),
+              ),
+            ),
           Positioned(
             right: 16,
             bottom: wide ? 24 : 92,
@@ -587,9 +609,10 @@ class _Sidebar extends StatelessWidget {
       _navItem(context, Icons.home_rounded, 'Home', 0),
       _navItem(context, Icons.folder_rounded, 'Files', 1),
       _navItem(context, Icons.apps_rounded, 'Apps', 2),
-      _navItem(context, Icons.devices_rounded, 'Devices', 3),
-      _navItem(context, Icons.history_rounded, 'History', 4),
-      _navItem(context, Icons.settings_rounded, 'Settings', 5),
+      _navItem(context, Icons.photo_library_rounded, 'Images', 3),
+      _navItem(context, Icons.devices_rounded, 'Devices', 4),
+      _navItem(context, Icons.history_rounded, 'History', 5),
+      _navItem(context, Icons.settings_rounded, 'Settings', 6),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),
