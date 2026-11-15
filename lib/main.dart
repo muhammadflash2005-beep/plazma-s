@@ -247,6 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
+                          physics: const ClampingScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
                           child: IndexedStack(
                             index: _tab,
@@ -305,6 +306,28 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ),
+              ),
+            ),
+          if (_tab == 0 && _category == 1)
+            Positioned(
+              right: 16, bottom: wide ? 92 : 158,
+              child: ValueListenableBuilder<int>(
+                valueListenable: ImagesScreen.selectedCount,
+                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
+                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
+                        child: InkWell(customBorder: const CircleBorder(), onTap: ImagesScreen.sendSelected,
+                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+              ),
+            ),
+          if (_tab == 0 && _category == 3)
+            Positioned(
+              right: 16, bottom: wide ? 92 : 158,
+              child: ValueListenableBuilder<int>(
+                valueListenable: VideosScreen.selectedCount,
+                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
+                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
+                        child: InkWell(customBorder: const CircleBorder(), onTap: VideosScreen.sendSelected,
+                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
               ),
             ),
           Positioned(
