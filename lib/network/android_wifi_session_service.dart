@@ -58,11 +58,17 @@ class PlazmaConnectionInvite {
         (octets[0] == 10 ||
             (octets[0] == 192 && octets[1] == 168) ||
             (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31));
+    final hasHotspotCredentials =
+        (ssid?.isNotEmpty ?? false) || (password?.isNotEmpty ?? false);
+    final validHotspotCredentials = !hasHotspotCredentials ||
+        (ssid != null && ssid.isNotEmpty && ssid.length <= 32 &&
+            password != null && password.length >= 8 && password.length <= 63);
     const roomAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final validRoomId = roomId.isEmpty ||
         (roomId.length == 6 && roomId.split('').every(roomAlphabet.contains));
     if (ssid == null ||
         password == null ||
+        !validHotspotCredentials ||
         !validRoomId ||
         !isPrivateIpv4 ||
         port == null ||
