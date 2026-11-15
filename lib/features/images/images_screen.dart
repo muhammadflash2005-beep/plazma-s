@@ -295,19 +295,9 @@ class _ImagesScreenState extends State<ImagesScreen> {
               } else {
                 _selected.add(file);
               }
-              _status = _selected.isEmpty ? null : '${_selected.length} image(s) selected';
             });
             _updateSelectionCount();
           },
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: _busy ? null : _receiveImages,
-            icon: const Icon(Icons.qr_code_scanner, size: 18),
-            label: const Text('Receive'),
-          ),
         ),
       ],
       if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
