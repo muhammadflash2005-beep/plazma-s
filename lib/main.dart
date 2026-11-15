@@ -290,45 +290,21 @@ class _HomeScreenState extends State<HomeScreen> {
         Text('Your files. Your devices.\nOne local connection.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
         const SizedBox(height: 10),
-        Text('Share directly across devices on the same Wi-Fi or hotspot.',
+        Text('Connect two Android phones directly using a private Wi-Fi hotspot. No internet or mobile data needed.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
         const SizedBox(height: 22),
         _notice(),
         const SizedBox(height: 22),
-        Text('Choose your connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        Text('Available connection', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 14,
-          runSpacing: 14,
-          children: [
-            SizedBox(
-              width: wide ? 350 : double.infinity,
-              child: _TransferModeCard(
-                icon: Icons.computer_rounded,
-                title: 'PC to PC',
-                subtitle: 'Share between Windows, macOS and Linux computers.',
-                onTap: () => _openTransfer(TransferMode.pcToPc),
-              ),
-            ),
-            SizedBox(
-              width: wide ? 350 : double.infinity,
-              child: _TransferModeCard(
-                icon: Icons.phone_android_rounded,
-                title: 'Android to Android',
-                subtitle: 'Send files between Android phones and tablets.',
-                onTap: () => _openTransfer(TransferMode.androidToAndroid),
-              ),
-            ),
-            SizedBox(
-              width: wide ? 350 : double.infinity,
-              child: _TransferModeCard(
-                icon: Icons.devices_rounded,
-                title: 'PC to Android',
-                subtitle: 'Move files between a computer and an Android device.',
-                onTap: () => _openTransfer(TransferMode.pcToAndroid),
-              ),
-            ),
-          ],
+        SizedBox(
+          width: wide ? 350 : double.infinity,
+          child: _TransferModeCard(
+            icon: Icons.phone_android_rounded,
+            title: 'Android to Android',
+            subtitle: 'Send files and installed apps between Android phones using QR pairing.',
+            onTap: () => _openTransfer(TransferMode.androidToAndroid),
+          ),
         ),
         const SizedBox(height: 24),
         _roomActions(wide),
@@ -357,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 10),
             const Expanded(child: Text(
-              'Plazma S is designed for direct local-network transfers. Connect devices to the same reachable Wi-Fi or hotspot. Internet transfer is not part of this app.',
+              'Android-to-Android sharing uses a private local Wi-Fi hotspot created by the sending phone. No internet or mobile data is required. PC transfers are not available in this version.',
               style: TextStyle(height: 1.4, fontSize: 13),
             )),
           ]),
