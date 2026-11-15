@@ -16,6 +16,9 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class AppsScreen extends StatefulWidget {
+  static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
+  static VoidCallback? sendSelected;
+
   const AppsScreen({super.key});
   @override
   State<AppsScreen> createState() => _AppsScreenState();
@@ -35,7 +38,9 @@ class _AppsScreenState extends State<AppsScreen> {
   String? _status, _error;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() { super.initState(); AppsScreen.sendSelected = _send; _load(); }
+
+  void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
 
   Future<void> _load() async {
     if (kIsWeb || !Platform.isAndroid) {
@@ -245,6 +250,8 @@ class _AppsScreenState extends State<AppsScreen> {
 
   @override
   void dispose() {
+    if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
+    AppsScreen.selectedCount.value = 0;
     unawaited(_service.stopSharing());
     unawaited(_service.disconnect());
     super.dispose();
@@ -306,6 +313,7 @@ class _AppsScreenState extends State<AppsScreen> {
               return Card(margin: EdgeInsets.zero, clipBehavior: Clip.antiAlias,
                 child: InkWell(onTap: pkg == null ? null : () => setState(() {
                   if (selected) { _selected.remove(pkg); } else { _selected.add(pkg); }
+                  _updateSelectionCount();
                 }), child: Padding(padding: const EdgeInsets.all(3), child: Column(
                   mainAxisAlignment: MainAxisAlignment.center, children: [
                     Stack(children: [icon, if (selected) const Positioned(right:0,top:0,
