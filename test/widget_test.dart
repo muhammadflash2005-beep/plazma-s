@@ -19,13 +19,13 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     await tester.tap(find.text('Transfer').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Create room'), findsOneWidget);
     expect(find.text('Join room'), findsOneWidget);
 
     await tester.tap(find.text('Join room').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Share files'), findsOneWidget);
     expect(find.text('Enter connection code'), findsOneWidget);
@@ -38,7 +38,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     await tester.tap(find.text('Me').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 700));
 
     expect(find.text('Plazma Light'), findsOneWidget);
     expect(find.text('Plazma Dark'), findsOneWidget);
