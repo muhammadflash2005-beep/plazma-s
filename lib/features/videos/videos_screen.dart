@@ -54,6 +54,7 @@ class _VideosScreenState extends State<VideosScreen> {
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _pickVideos() async {
     if (_busy) return;
     try {
@@ -155,6 +156,7 @@ class _VideosScreenState extends State<VideosScreen> {
   );
   }
 
+  // ignore: unused_element
   Future<void> _receiveVideos() async {
     if (_busy) return;
     final invite = await _scan();
