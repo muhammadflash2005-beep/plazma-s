@@ -283,7 +283,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
         FilledButton.icon(onPressed: _busy ? null : _downloadImages,
           icon: const Icon(Icons.download), label: const Text('Receive images')),
       ]))),
-      if (_invite == null && _receiver == null) ...[
+      if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
           kind: MediaKind.images,
