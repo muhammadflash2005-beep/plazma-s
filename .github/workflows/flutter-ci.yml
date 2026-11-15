@@ -167,6 +167,20 @@ jobs:
                               result.error("INSTALL_FAILED", error.message, null)
                           }
                       }
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
+                      .setMethodCallHandler { call, result ->
+                          when (call.method) {
+                              "exportApks" -> {
+                                  val packageNames = call.argument<List<String>>("packageNames") ?: emptyList()
+                                  try {
+                                      result.success(exportApks(packageNames))
+                                  } catch (error: Exception) {
+                                      result.error("APK_EXPORT_FAILED", error.message, null)
+                                  }
+                              }
+                              else -> result.notImplemented()
+                          }
+                      }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
@@ -189,6 +203,35 @@ jobs:
                               else -> result.notImplemented()
                           }
                       }
+              }
+
+              private fun exportApks(packageNames: List<String>): List<Map<String, Any>> {
+                  val exported = mutableListOf<Map<String, Any>>()
+                  packageNames.distinct().forEach { packageName ->
+                      val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                      val appName = packageManager.getApplicationLabel(appInfo).toString()
+                      val sourcePaths = mutableListOf(appInfo.sourceDir)
+                      appInfo.splitSourceDirs?.let { sourcePaths.addAll(it) }
+                      val outputDirectory = File(cacheDir, "plazma_shared_apps/$packageName")
+                      if (!outputDirectory.exists() && !outputDirectory.mkdirs()) {
+                          throw IllegalStateException("Could not create APK export directory for $packageName")
+                      }
+                      sourcePaths.forEachIndexed { index, sourcePath ->
+                          val source = File(sourcePath)
+                          if (!source.isFile) throw IllegalStateException("APK source is missing for $packageName")
+                          val fileName = if (index == 0) "base.apk" else "split_$index.apk"
+                          val destination = File(outputDirectory, fileName)
+                          source.copyTo(destination, overwrite = true)
+                          exported.add(mapOf(
+                              "packageName" to packageName,
+                              "appName" to appName,
+                              "relativePath" to "$packageName/$fileName",
+                              "path" to destination.absolutePath,
+                              "size" to destination.length()
+                          ))
+                      }
+                  }
+                  return exported
               }
 
               private fun startHotspot(result: MethodChannel.Result) {
