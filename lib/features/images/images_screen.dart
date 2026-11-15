@@ -81,12 +81,12 @@ class _ImagesScreenState extends State<ImagesScreen> {
     final fileCount = _selected.length;
     try {
       final names = _selected.map((f) => f.uri.pathSegments.last).toList();
-      final invite = await _service.startSharing(
-        files: List<File>.from(_selected),
-        relativePaths: names,
-      );
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: List<File>.from(_selected), relativePaths: names)
+              .then((_) => _service.invite!)
+          : _service.startSharing(files: List<File>.from(_selected), relativePaths: names));
       if (!mounted) return;
-      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
+      setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · ${_service.roomMembers.length} device(s) connected'; });
       _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
