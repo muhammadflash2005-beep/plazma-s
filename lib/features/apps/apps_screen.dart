@@ -356,40 +356,6 @@ class _AppsScreenState extends State<AppsScreen> {
     finally { if (mounted) setState(() => _busy = false); }
   }
 
-  Future<void> _install(String pkg) async {
-    if (_library == null) return;
-    final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
-    final apks = <File>[];
-    if (!await folder.exists()) return;
-    await for (final entity in folder.list(followLinks: false)) {
-      if (entity is File && entity.path.toLowerCase().endsWith('.apk')) apks.add(entity);
-    }
-    apks.sort((a,b) {
-      final an = a.uri.pathSegments.last, bn = b.uri.pathSegments.last;
-      int rank(String n) {
-        if (n == 'base.apk') return 0;
-        final m = RegExp(r'^split_(\d+)\.apk$').firstMatch(n);
-        return int.tryParse(m?.group(1) ?? '') ?? 999999;
-      }
-      return rank(an).compareTo(rank(bn));
-    });
-    if (apks.isEmpty || apks.first.uri.pathSegments.last != 'base.apk') {
-      _message('Saved app is incomplete. Save or receive it again.'); return;
-    }
-    try {
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>('installApkSet',
-        {'packageName': pkg, 'paths': apks.map((f) => f.path).toList()});
-      _message('Android installer opened. Review and approve the installation.');
-    } catch (e) { _message('Could not install app: ' + e.toString()); }
-  }
-
-  Future<void> _delete(String pkg) async {
-    if (_library == null) return;
-    final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
-    if (await folder.exists()) await folder.delete(recursive: true);
-    if (mounted) setState(() => _saved.remove(pkg));
-  }
-
   Future<void> _stop() async {
     _roomRefreshTimer?.cancel();
     _roomRefreshTimer = null;
