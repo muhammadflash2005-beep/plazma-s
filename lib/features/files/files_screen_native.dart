@@ -317,6 +317,7 @@ class _FilesScreenState extends State<FilesScreen> {
         _downloaded = true;
       });
       TransferOverlayController.clear();
+      await _service.stopForegroundService();
       _message('Transfer complete. Files saved to $destination');
     } catch (error) {
       TransferOverlayController.show(TransferOverlaySnapshot(
