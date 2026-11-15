@@ -58,6 +58,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   AssetPathEntity? _album;
   List<AssetEntity> _assets = [];
   final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
+  final Map<String, String> _assetPaths = {};
   int _totalCount = 0;
   bool _loading = false;
   bool _loadingMore = false;
@@ -219,6 +220,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         }
         return;
       }
+      _assetPaths[asset.id] = file.path;
       widget.onSelect(file);
     } catch (error) {
       if (mounted) {
@@ -301,7 +303,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                           maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
                       trailing: Icon(
-                        widget.selectedPaths.contains(asset.id) ? Icons.check_circle : Icons.circle_outlined,
+                        widget.selectedPaths.contains(_assetPaths[asset.id]) ? Icons.check_circle : Icons.circle_outlined,
                         color: widget.selectedPaths.contains(asset.id) ? colors.primary : colors.onSurfaceVariant,
                       ),
                       onTap: () => _select(asset),
