@@ -185,6 +185,18 @@ class _ImagesScreenState extends State<ImagesScreen> {
     }
   }
 
+  Future<void> _refreshImages() async {
+    if (_receiver == null || _busy) return;
+    try {
+      final all = await _service.refreshManifest(_receiver!);
+      final items = all.where((item) { final n=item.relativePath.toLowerCase(); return n.endsWith('.jpg') || n.endsWith('.jpeg') || n.endsWith('.png') || n.endsWith('.webp') || n.endsWith('.gif') || n.endsWith('.bmp') || n.endsWith('.heic') || n.endsWith('.heif'); }).toList();
+      setState(() {
+        _incoming..clear()..addAll(items);
+        _status = '${items.length} image(s) available in this room.';
+      });
+    } catch (e) { _message('Could not refresh shared items: $e'); }
+  }
+
   Future<void> _downloadImages() async {
     if (_receiver == null || _incoming.isEmpty || _busy) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving images…'; });
@@ -278,6 +290,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       ]))),
       if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
         Row(children: [Expanded(child: Text('${_incoming.length} image(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
+          TextButton(onPressed: _busy ? null : _refreshImages, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
         FilledButton.icon(onPressed: _busy ? null : _downloadImages,
