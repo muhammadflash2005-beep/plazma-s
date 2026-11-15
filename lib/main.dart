@@ -237,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: Row(
           children: [
-            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() => _tab = value)),
+            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() { _tab = value; if (value != 2) { _transferMode = null; _transferAction = null; } })),
             Expanded(
               child: Column(
                 children: [
@@ -499,7 +499,7 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: 'Scan the host QR code on Android or enter the connection code on a computer to receive shared content.',
         buttonText: 'Join room',
         outlined: true,
-        onPressed: () => _openTransfer(null),
+        onPressed: () => _openTransfer(null, 'create'),
       ),
     ]);
   }
