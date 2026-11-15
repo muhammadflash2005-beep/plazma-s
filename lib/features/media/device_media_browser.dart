@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum MediaKind { images, videos, music }
 
@@ -25,6 +26,42 @@ class DeviceMediaBrowser extends StatefulWidget {
 }
 
 class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
+  // One shared Android media-library permission covers images, videos and audio.
+  // Persist the first request so a denial never causes repeated system prompts.
+  static const String _permissionRequestedKey = 'plazma_media_permission_requested';
+  static Future<PermissionState>? _permissionCheck;
+
+  static Future<PermissionState> _ensureMediaPermission() {
+    return _permissionCheck ??= _readOrRequestMediaPermission().whenComplete(() {
+      _permissionCheck = null;
+    });
+  }
+
+  static Future<PermissionState> _readOrRequestMediaPermission() async {
+    final prefs = await SharedPreferences.getInstance();
+    const requestOption = PermissionRequestOption(
+      androidPermission: AndroidPermission(type: RequestType.all, mediaLocation: false),
+    );
+
+    // Always check the OS first: a grant made in Settings must take effect
+    // immediately, even if this app previously recorded a denied request.
+    final current = await PhotoManager.getPermissionState(
+      requestOption: requestOption,
+    );
+    if (current.hasAccess) {
+      await prefs.setBool(_permissionRequestedKey, true);
+      return current;
+    }
+
+    if (prefs.getBool(_permissionRequestedKey) == true) {
+      return current;
+    }
+
+    // Save before showing the native dialog, preventing repeat prompts if the
+    // app is interrupted while Android is displaying it.
+    await prefs.setBool(_permissionRequestedKey, true);
+    return PhotoManager.requestPermissionExtend(requestOption: requestOption);
+  }
   List<AssetEntity> _assets = [];
   bool _loading = false;
   bool _loaded = false;
@@ -49,15 +86,11 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser> {
       _message = null;
     });
     try {
-      final permission = await PhotoManager.requestPermissionExtend(
-        requestOption: PermissionRequestOption(
-          androidPermission: AndroidPermission(type: RequestType.all, mediaLocation: false),
-        ),
-      );
+      final permission = await _ensureMediaPermission();
       if (!permission.hasAccess) {
         if (mounted) {
           setState(() {
-            _message = 'Allow Plazma S to access your $_label in Android settings.';
+            _message = 'Allow Plazma S to access images, videos and music in Android settings.';
             _loaded = true;
           });
         }
