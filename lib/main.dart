@@ -248,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(22, 20, 22, 34),
+                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
                           child: IndexedStack(
                             index: _tab,
                             children: [
@@ -374,29 +374,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _homeContent(bool wide) {
-    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Your devices. One room.\nSend together.',
             style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.15)),
-        const SizedBox(height: 10),
+        const SizedBox(height: 6),
         Text('Connect Android phones and computers on the same Wi-Fi. Create a room, invite up to seven other devices, and send apps, files, images, music and videos.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 15)),
-        const SizedBox(height: 22),
+        const SizedBox(height: 12),
         _notice(),
-        const SizedBox(height: 22),
+        const SizedBox(height: 14),
         Text('Multi-device transfer room', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _roomActions(wide),
-        const SizedBox(height: 24),
-        Text('Quick access', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 12),
-        Wrap(spacing: 14, runSpacing: 14, children: const [
-          _QuickCard(icon: Icons.folder_rounded, title: 'Files', subtitle: 'Photos, videos & documents'),
-          _QuickCard(icon: Icons.android_rounded, title: 'Apps', subtitle: 'APK sharing for Android'),
-          _QuickCard(icon: Icons.devices_rounded, title: 'Devices', subtitle: 'Nearby device connections'),
-        ]),
       ],
     );
   }
@@ -714,25 +705,3 @@ class _ActionCard extends StatelessWidget {
 }
 
 
-class _QuickCard extends StatelessWidget {
-  const _QuickCard({required this.icon, required this.title, required this.subtitle});
-  final IconData icon;
-  final String title, subtitle;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 225,
-    child: Card(child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(children: [
-        Icon(icon, color: Theme.of(context).colorScheme.primary, size: 25),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 3),
-          Text(subtitle, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-        ])),
-      ]),
-    )),
-  );
-}
