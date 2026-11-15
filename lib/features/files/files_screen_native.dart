@@ -528,8 +528,8 @@ class _FilesScreenState extends State<FilesScreen> {
             ]),
             const SizedBox(height: 8),
             Text(Platform.isAndroid
-                ? 'Choose files or a folder. Plazma S will create a private Wi-Fi hotspot and show a QR code.'
-                : 'Choose files or a folder. Plazma S will share them over your current Wi-Fi or wired LAN and show a QR code.'),
+                ? 'Choose files or a folder. Plazma S will share them over your current Wi-Fi and show a room QR code.'
+                : 'Choose files or a folder. Plazma S will share them over your current Wi-Fi or wired LAN and show a room QR code.'),
             const SizedBox(height: 14),
             Wrap(spacing: 10, runSpacing: 10, children: [
               OutlinedButton.icon(
