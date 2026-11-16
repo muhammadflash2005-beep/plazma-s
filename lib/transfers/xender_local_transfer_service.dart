@@ -340,6 +340,21 @@ class XenderLocalTransferService {
         return;
       }
       if (request.method == 'POST' && request.uri.path == '/complete') {
+        // Do not acknowledge a receiver while new room items are still waiting.
+        // The receiver will refresh the manifest and drain those additions.
+        final waitingCount = _manifest.where(
+          (item) => item['status'] == 'waiting',
+        ).length;
+        if (waitingCount > 0) {
+          request.response.statusCode = HttpStatus.conflict;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({
+            'pendingCount': waitingCount,
+            'revision': _manifestRevision,
+          }));
+          await request.response.close();
+          return;
+        }
         final deviceId = request.uri.queryParameters['deviceId'];
         final wasFirst = (_room?.completedCount ?? 0) == 0;
         final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
@@ -678,9 +693,14 @@ class XenderLocalTransferService {
     var totalBytes = 0;
     var hadFailure = false;
     var wasCancelled = false;
+    var queueRefreshAttempts = 0;
+    var pendingFiles = List<SharedLocalFile>.from(files);
+    final processedIds = <int>{};
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      for (final item in files) {
+      while (true) {
+      for (final item in pendingFiles) {
+        if (!processedIds.add(item.id)) continue;
         if (item.status == 'cancelled') {
           wasCancelled = true;
           continue;
@@ -843,10 +863,27 @@ class XenderLocalTransferService {
         if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
       }));
       final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      if (completeResponse.statusCode == HttpStatus.conflict) {
+        await completeResponse.drain<void>();
+        final snapshot = await _fetchManifest(invite);
+        _joinedManifest = snapshot.files;
+        _publishRoomFiles();
+        pendingFiles = snapshot.files.where((item) => item.status == 'waiting').toList();
+        if (pendingFiles.isEmpty || ++queueRefreshAttempts > 20) {
+          throw StateError('The room queue changed but could not be acknowledged. Refresh and retry.');
+        }
+        for (final item in pendingFiles) {
+          processedIds.remove(item.id);
+        }
+        continue;
+      }
       if (completeResponse.statusCode != HttpStatus.ok) {
+        await completeResponse.drain<void>();
         throw HttpException('The sender did not acknowledge transfer completion.');
       }
       await completeResponse.drain<void>();
+      break;
+      }
     } finally {
       client.close(force: true);
     }
