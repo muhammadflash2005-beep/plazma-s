@@ -67,6 +67,8 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   int _totalCount = 0;
   bool _loading = false;
   bool _loadingMore = false;
+  bool _selectingAll = false;
+  int _selectAllProgress = 0;
   bool _loaded = false;
   bool _hasMore = false;
   bool _needsRefresh = false;
@@ -265,35 +267,50 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   }
 
   Future<void> _selectAllVisible() async {
-    for (final asset in _filteredAssets) {
-      try {
-        final file = await asset.file;
-        if (file == null || !await file.exists()) continue;
-        _assetPaths[asset.id] = file.path;
-        if (!widget.selectedPaths.contains(file.path)) widget.onSelect(file);
-      } catch (_) {}
+    final album = _album;
+    if (album == null || _selectingAll) return;
+    final query = _searchQuery.trim().toLowerCase();
+    final selected = <String>{...widget.selectedPaths};
+    setState(() { _selectingAll = true; _selectAllProgress = 0; });
+    try {
+      // Walk the complete album in bounded pages; Select all must not silently
+      // mean only the first page currently loaded for infinite scrolling.
+      for (var start = 0; start < _totalCount; start += _pageSize) {
+        final end = (start + _pageSize).clamp(0, _totalCount).toInt();
+        final page = await album.getAssetListRange(start: start, end: end);
+        for (final asset in page) {
+          if (query.isNotEmpty &&
+              !(asset.title ?? '').toLowerCase().contains(query)) continue;
+          try {
+            final mediaFile = await asset.file;
+            if (mediaFile == null || !await mediaFile.exists()) continue;
+            _assetPaths[asset.id] = mediaFile.path;
+            if (selected.add(mediaFile.path)) widget.onSelect(mediaFile);
+          } catch (_) {}
+          if (mounted) setState(() => _selectAllProgress++);
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _selectingAll = false);
     }
   }
 
   Future<void> _clearVisibleSelection() async {
-    // Resolve paths for the visible page as well as assets selected before a
-    // refresh. The in-memory cache can be empty after the browser reloads.
+    final selected = <String>{...widget.selectedPaths};
+    // Clear cached selections from every loaded page, including items hidden
+    // by the current search filter.
+    for (final path in _assetPaths.values.toSet()) {
+      if (selected.remove(path)) widget.onSelect(File(path));
+    }
+    // Resolve paths after a refresh if a selected asset is not cached.
     for (final asset in _filteredAssets) {
-      var path = _assetPaths[asset.id];
-      if (path == null) {
-        try {
-          final file = await asset.file;
-          if (file != null) {
-            path = file.path;
-            _assetPaths[asset.id] = path;
-          }
-        } catch (_) {
-          continue;
+      try {
+        final mediaFile = await asset.file;
+        if (mediaFile != null && selected.remove(mediaFile.path)) {
+          _assetPaths[asset.id] = mediaFile.path;
+          widget.onSelect(mediaFile);
         }
-      }
-      if (path != null && widget.selectedPaths.contains(path)) {
-        widget.onSelect(File(path));
-      }
+      } catch (_) {}
     }
   }
   Future<void> _select(AssetEntity asset) async {
@@ -379,15 +396,30 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             onChanged: (value) => setState(() => _searchQuery = value),
           ),
           Row(children: [
-            TextButton(onPressed: _selectAllVisible, child: const Text('Select all')),
-            TextButton(onPressed: _clearVisibleSelection, child: const Text('Clear selection')),
+            TextButton(
+              onPressed: _selectingAll ? null : _selectAllVisible,
+              child: Text(_selectingAll ? 'Selecting…' : 'Select all'),
+            ),
+            TextButton(
+              onPressed: _selectingAll ? null : _clearVisibleSelection,
+              child: const Text('Clear selection'),
+            ),
             const Spacer(),
             Text('${widget.selectedPaths.length} selected',
               style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
           ]),
 
+          if (_selectingAll)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 8),
+                Text('Selecting $_selectAllProgress media item(s)…'),
+              ]),
+            ),
           Text(
-            'Showing ${_filteredAssets.length} of $_totalCount',
+            'Showing ${_assets.length} of $_totalCount',
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 12,
