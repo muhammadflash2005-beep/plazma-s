@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 import 'app_bundle.dart';
+import 'apk_bundle.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -363,44 +364,16 @@ class _AppsScreenState extends State<AppsScreen> {
       if (mounted) setState(() { _preparing = false; _busy = true; _preparingAppName = null; });
 
       final files = <File>[], paths = <String>[];
-      final bundleDirectory = Directory(
-        _library!.path + Platform.pathSeparator + 'outgoing_bundles');
-      await bundleDirectory.create(recursive: true);
       for (final pkg in packages) {
-        final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
-        final savedFiles = <File>[];
-        await for (final entity in folder.list(recursive: true, followLinks: false)) {
-          if (entity is File && entity.path.toLowerCase().endsWith('.apk')) {
-            savedFiles.add(entity);
-          }
+        // Native Android export reads sourceDir and splitSourceDirs directly
+        // and creates one uncompressed .apks ZIP on a worker thread.
+        final bundlePath = await ApkBundle.bundle(pkg);
+        final bundle = File(bundlePath);
+        if (!await bundle.exists() || await bundle.length() == 0) {
+          throw StateError('Android did not create a valid app bundle for $pkg.');
         }
-        savedFiles.sort((x, y) {
-          final xn = x.uri.pathSegments.last, yn = y.uri.pathSegments.last;
-          if (xn == 'base.apk') return -1;
-          if (yn == 'base.apk') return 1;
-          return xn.compareTo(yn);
-        });
-        if (savedFiles.isEmpty || savedFiles.first.uri.pathSegments.last != 'base.apk') {
-          throw StateError('The saved APK set for $pkg is incomplete.');
-        }
-        final details = _appDetails[pkg] ?? const <String, dynamic>{};
-        final app = _apps.firstWhere((value) => value.packageName == pkg);
-        String safe(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_').replaceAll(RegExp(r'_+'), '_').replaceAll(RegExp(r'^_+|_+$'), '');
-        final appName = safe(app.appName ?? pkg);
-        final versionName = safe((details['versionName'] ?? '').toString());
-        final bundleName = (appName.isEmpty ? pkg : appName) + '_' +
-            (versionName.isEmpty ? 'unknown' : versionName) + '.plazmaapp';
-        final bundle = File(bundleDirectory.path + Platform.pathSeparator + pkg + '_' + bundleName);
-        await AppBundle.create(
-          output: bundle,
-          packageName: pkg,
-          appName: app.appName ?? pkg,
-          versionName: (details['versionName'] ?? '').toString(),
-          versionCode: (details['versionCode'] as num?)?.toInt() ?? 0,
-          apks: savedFiles,
-        );
         files.add(bundle);
-        paths.add('Apps/' + pkg + '/' + bundleName);
+        paths.add('Apps/' + pkg + '/' + pkg + '.apks');
       }
 
       final invite = await (_service.isSharing
@@ -627,14 +600,14 @@ class _AppsScreenState extends State<AppsScreen> {
 
   bool _isAppTransfer(SharedLocalFile item) {
     final path = item.relativePath.toLowerCase();
-    return path.endsWith('.plazmaapp') || path.endsWith('.apk');
+    return path.endsWith('.plazmaapp') || path.endsWith('.apk') || path.endsWith('.apks') || path.endsWith('.xapk') || path.endsWith('.zip');
   }
 
   String? _incomingPackageName(SharedLocalFile item) {
     final segments = item.relativePath.split('/');
     if (segments.isEmpty) return null;
     final filename = segments.last;
-    final isBundle = filename.toLowerCase().endsWith('.plazmaapp');
+    final isBundle = filename.toLowerCase().endsWith('.plazmaapp') || filename.toLowerCase().endsWith('.apks') || filename.toLowerCase().endsWith('.xapk') || filename.toLowerCase().endsWith('.zip');
     final packageName = isBundle && segments.length >= 2 ? segments[1] : segments.first;
     if (!RegExp(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$').hasMatch(packageName)) {
       return null;
@@ -779,8 +752,26 @@ class _AppsScreenState extends State<AppsScreen> {
         b.uri.pathSegments.last == 'base.apk' ? 1 : a.path.compareTo(b.path));
     try {
       final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
-      final bundles = manifestParts.where((part) =>
-          part.relativePath.toLowerCase().endsWith('.plazmaapp')).toList();
+      final bundles = manifestParts.where((part) {
+        final lower = part.relativePath.toLowerCase();
+        return lower.endsWith('.plazmaapp') || ApkBundle.isBundle(lower) || lower.endsWith('.zip');
+      }).toList();
+      if (bundles.length == 1 && !bundles.single.relativePath.toLowerCase().endsWith('.plazmaapp')) {
+        final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
+            Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+        final bundleItem = bundles.single;
+        final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
+            Platform.pathSeparator + packageName + Platform.pathSeparator +
+            bundleItem.relativePath.split('/').last);
+        if (!await bundle.exists()) throw StateError('The received app bundle is missing.');
+        final actual = await sha256.bind(bundle.openRead()).first;
+        if (actual.toString() != bundleItem.sha256) {
+          throw StateError('The received app bundle failed its transfer checksum. Receive it again.');
+        }
+        await ApkBundle.install(bundle.path);
+        _message('Android installer opened. Review and approve the installation.');
+        return;
+      }
       if (bundles.length == 1) {
         final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
             Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
@@ -821,10 +812,14 @@ class _AppsScreenState extends State<AppsScreen> {
         throw StateError('The base APK is invalid or belongs to a different app.');
       }
       if (mounted) setState(() => _incomingDetails[packageName] = inspected);
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
-        'installApkSet',
-        {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
-      );
+      if (apks.length == 1) {
+        await ApkBundle.install(apks.single.path);
+      } else {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'installApkSet',
+          {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
+        );
+      }
       _message('Android installer opened. Review and approve the installation.');
     } on PlatformException catch (error) {
       final detail = (error.message ?? error.toString()).toLowerCase();
