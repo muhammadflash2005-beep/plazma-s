@@ -8,10 +8,10 @@ class ElectricProgressBar extends StatefulWidget {
   final double height;
 
   @override
-  State<ElectricProgressBar> createState() => ElectricProgressBarState();
+  State<ElectricProgressBar> createState() => _ElectricProgressBarState();
 }
 
-class ElectricProgressBarState extends State<ElectricProgressBar>
+class _ElectricProgressBarState extends State<ElectricProgressBar>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse = AnimationController(
     vsync: this, duration: const Duration(milliseconds: 1250),
