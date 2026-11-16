@@ -497,7 +497,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   bottom: wide ? 84 : 158,
                   child: Align(
                     alignment: Alignment.centerRight,
-                    child: _stickySendButton(onPressed: _sendAllSelected),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (AppsScreen.selectedCount.value > 0) ...[
+                          OutlinedButton.icon(
+                            onPressed: AppsScreen.deleteSelected == null ? null : () => AppsScreen.deleteSelected!(),
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Delete'),
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.surface,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        _stickySendButton(onPressed: _sendAllSelected),
+                      ],
+                    ),
                   ),
                 );
               },
