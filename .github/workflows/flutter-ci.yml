@@ -303,7 +303,7 @@ jobs:
                               result.error("INVALID_SAVE", "A source file and name are required.", null)
                               return@setMethodCallHandler
                           }
-                          val safeRequestedName = safeRequestedName ?: "received_file"
+                          val safeRequestedName = requestedName ?: "received_file"
                           val source = File(sourcePath)
                           if (!source.isFile) {
                               result.error("SOURCE_MISSING", "The completed temporary file is missing.", null)
@@ -341,7 +341,7 @@ jobs:
                                   var finalName = safeRequestedName
                                   var suffix = 1
                                   val dot = safeRequestedName.lastIndexOf('.')
-                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else requestedName
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else safeRequestedName
                                   val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
                                   while (destinationFolder.findFile(finalName)?.exists() == true) {
                                       finalName = "$stem ($suffix)$ext"
