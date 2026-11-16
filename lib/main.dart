@@ -15,6 +15,7 @@ import 'updates/app_update_card.dart';
 import 'features/apps/apps_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
+import 'features/media/device_media_browser.dart';
 import 'features/music/music_screen.dart';
 import 'features/videos/videos_screen.dart';
 import 'transfers/transfer_overlay_controller.dart';
@@ -702,9 +703,25 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (AppsScreen.selectedCount.value > 0) ...[
+                        if (AppsScreen.selectedCount.value > 0 ||
+                            ImagesScreen.selectedCount.value > 0 ||
+                            VideosScreen.selectedCount.value > 0 ||
+                            MusicScreen.selectedCount.value > 0) ...[
                           OutlinedButton.icon(
-                            onPressed: AppsScreen.deleteSelected == null ? null : () => AppsScreen.deleteSelected!(),
+                            onPressed: () async {
+                              final mediaDelete = [
+                                DeviceMediaBrowser.deleteSelected[MediaKind.images],
+                                DeviceMediaBrowser.deleteSelected[MediaKind.videos],
+                                DeviceMediaBrowser.deleteSelected[MediaKind.music],
+                              ];
+                              for (final delete in mediaDelete) {
+                                if (delete != null) await delete();
+                              }
+                              if (AppsScreen.selectedCount.value > 0 &&
+                                  AppsScreen.deleteSelected != null) {
+                                await AppsScreen.deleteSelected!();
+                              }
+                            },
                             icon: const Icon(Icons.delete_outline_rounded),
                             label: const Text('Delete'),
                             style: OutlinedButton.styleFrom(
