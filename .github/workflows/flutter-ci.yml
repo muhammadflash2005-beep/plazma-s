@@ -100,7 +100,7 @@ jobs:
               gradle_text = gradle_kts.read_text()
               gradle_text = gradle_text.replace(
                   "dependencies {",
-                  'dependencies {\n    implementation("androidx.core:core:1.15.0")',
+                  'dependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")',
                   1,
               )
               gradle_kts.write_text(gradle_text)
@@ -135,6 +135,7 @@ jobs:
           import android.os.Build
           import android.provider.Settings
           import androidx.core.app.ActivityCompat
+          import androidx.documentfile.provider.DocumentFile
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
@@ -177,6 +178,32 @@ jobs:
               private var pendingJoinResult: MethodChannel.Result? = null
               private var pendingJoinSsid: String? = null
               private var pendingJoinPassword: String? = null
+              private var pendingFolderPickerResult: MethodChannel.Result? = null
+
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode != 7044) return
+                  val pending = pendingFolderPickerResult ?: return
+                  pendingFolderPickerResult = null
+                  if (resultCode != android.app.Activity.RESULT_OK) {
+                      pending.error("FOLDER_PICKER_CANCELLED", "Folder selection was cancelled.", null)
+                      return
+                  }
+                  val uri = data?.data
+                  if (uri == null) {
+                      pending.error("FOLDER_SELECTION_FAILED", "Android did not return a folder.", null)
+                      return
+                  }
+                  try {
+                      val flags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                      contentResolver.takePersistableUriPermission(uri, flags)
+                      val folder = DocumentFile.fromTreeUri(this, uri)
+                          ?: throw IllegalStateException("Android could not open the selected folder.")
+                      pending.success(mapOf("uri" to uri.toString(), "name" to (folder.name ?: "Selected folder")))
+                  } catch (error: Exception) {
+                      pending.error("FOLDER_PERMISSION_FAILED", error.message, null)
+                  }
+              }
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
@@ -197,6 +224,23 @@ jobs:
                       }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
                       .setMethodCallHandler { call, result ->
+                          if (call.method == "selectSaveFolder") {
+                              if (pendingFolderPickerResult != null) {
+                                  result.error("FOLDER_PICKER_BUSY", "A folder picker is already open.", null)
+                                  return@setMethodCallHandler
+                              }
+                              pendingFolderPickerResult = result
+                              try {
+                                  val picker = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                                  }
+                                  startActivityForResult(picker, 7044)
+                              } catch (error: Exception) {
+                                  pendingFolderPickerResult = null
+                                  result.error("FOLDER_PICKER_FAILED", error.message, null)
+                              }
+                              return@setMethodCallHandler
+                          }
                           if (call.method == "openSavedFile") {
                               val rawUri = call.argument<String>("uri")
                               if (rawUri.isNullOrBlank()) {
@@ -225,6 +269,7 @@ jobs:
                           val requestedName = call.argument<String>("name")
                           val type = call.argument<String>("type") ?: "file"
                           val transferKey = call.argument<String>("transferKey").orEmpty()
+                          val customFolderUri = call.argument<String>("customFolderUri")
                           if (sourcePath.isNullOrBlank() || requestedName.isNullOrBlank()) {
                               result.error("INVALID_SAVE", "A source file and name are required.", null)
                               return@setMethodCallHandler
@@ -246,6 +291,47 @@ jobs:
                           val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
                               ?: "application/octet-stream"
                           try {
+                              if (!customFolderUri.isNullOrBlank()) {
+                                  val root = DocumentFile.fromTreeUri(this, Uri.parse(customFolderUri))
+                                      ?: throw IllegalStateException("The selected save folder is no longer available. Choose it again in Settings.")
+                                  val destinationFolder = if (type == "app") {
+                                      val packageFolderName = source.parentFile?.name ?: "Apps"
+                                      root.findFile(packageFolderName) ?: root.createDirectory(packageFolderName)
+                                          ?: throw IllegalStateException("Could not create the app folder in the selected destination.")
+                                  } else root
+                                  val savedKey = "plazma_saved_uri_" + transferKey
+                                  val existingUri = getSharedPreferences("plazma_save_locations", MODE_PRIVATE).getString(savedKey, null)
+                                  if (!existingUri.isNullOrBlank()) {
+                                      val existing = DocumentFile.fromSingleUri(this, Uri.parse(existingUri))
+                                      if (existing?.exists() == true) {
+                                          result.success(mapOf("uri" to existingUri, "path" to ((destinationFolder.name ?: "Selected folder") + "/" + (existing.name ?: requestedName))))
+                                          return@setMethodCallHandler
+                                      }
+                                  }
+                                  var finalName = requestedName
+                                  var suffix = 1
+                                  val dot = requestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) requestedName.substring(0, dot) else requestedName
+                                  val ext = if (dot > 0) requestedName.substring(dot) else ""
+                                  while (destinationFolder.findFile(finalName)?.exists() == true) {
+                                      finalName = "$stem ($suffix)$ext"
+                                      suffix++
+                                  }
+                                  val document = destinationFolder.createFile(mime, finalName)
+                                      ?: throw IllegalStateException("Android could not create the file in the selected folder.")
+                                  try {
+                                      contentResolver.openOutputStream(document.uri, "w")?.use { output ->
+                                          source.inputStream().use { input -> input.copyTo(output) }
+                                      } ?: throw IllegalStateException("Android could not write to the selected folder.")
+                                      getSharedPreferences("plazma_save_locations", MODE_PRIVATE).edit().putString(savedKey, document.uri.toString()).apply()
+                                      if (type != "app") source.delete()
+                                      result.success(mapOf("uri" to document.uri.toString(), "path" to ((destinationFolder.name ?: "Selected folder") + "/" + finalName)))
+                                  } catch (error: Exception) {
+                                      document.delete()
+                                      throw error
+                                  }
+                                  return@setMethodCallHandler
+                              }
                               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                   val collection = when (type) {
                                       "image" -> android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
