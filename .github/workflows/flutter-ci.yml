@@ -209,6 +209,7 @@ jobs:
                           val sourcePath = call.argument<String>("sourcePath")
                           val requestedName = call.argument<String>("name")
                           val type = call.argument<String>("type") ?: "file"
+                          val transferKey = call.argument<String>("transferKey").orEmpty()
                           if (sourcePath.isNullOrBlank() || requestedName.isNullOrBlank()) {
                               result.error("INVALID_SAVE", "A source file and name are required.", null)
                               return@setMethodCallHandler
@@ -238,6 +239,27 @@ jobs:
                                       "app" -> android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
                                       else -> android.provider.MediaStore.Files.getContentUri("external")
                                   }
+                                  if (transferKey.isNotBlank()) {
+                                      val selection = "${android.provider.MediaStore.MediaColumns.DESCRIPTION}=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
+                                      contentResolver.query(collection,
+                                          arrayOf(android.provider.MediaStore.MediaColumns._ID,
+                                              android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
+                                              android.provider.MediaStore.MediaColumns.IS_PENDING),
+                                          selection, arrayOf("plazma:$transferKey", "$relativeFolder/"), null)?.use { cursor ->
+                                          if (cursor.moveToFirst()) {
+                                              val existingId = cursor.getLong(0)
+                                              val existingName = cursor.getString(1)
+                                              val pending = cursor.getInt(2)
+                                              val existingUri = android.content.ContentUris.withAppendedId(collection, existingId)
+                                              if (pending == 0) {
+                                                  result.success(mapOf("uri" to existingUri.toString(), "path" to "$relativeFolder/$existingName"))
+                                                  return@setMethodCallHandler
+                                              } else {
+                                                  contentResolver.delete(existingUri, null, null)
+                                              }
+                                          }
+                                      }
+                                  }
                                   var finalName = requestedName
                                   var suffix = 1
                                   fun exists(name: String): Boolean {
@@ -256,6 +278,7 @@ jobs:
                                       put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
                                       put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
                                       put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "$relativeFolder/")
+                                      if (transferKey.isNotBlank()) put(android.provider.MediaStore.MediaColumns.DESCRIPTION, "plazma:$transferKey")
                                       put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
                                   }
                                   val uri = contentResolver.insert(collection, values)
