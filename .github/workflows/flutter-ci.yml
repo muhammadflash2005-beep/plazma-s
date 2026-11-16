@@ -1484,7 +1484,7 @@ jobs:
 
             Cross-platform local file and app sharing update.
 
-            Download the Android APK and SHA256 checksum below.
+            Download the Android APK or Windows x64 ZIP package. Both include SHA256 checksums.
 
   desktop-build:
     name: Build ${{ matrix.target }} desktop app
