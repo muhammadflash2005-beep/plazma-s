@@ -361,7 +361,7 @@ class _AppsScreenState extends State<AppsScreen> {
       ConvertTo-Json -InputObject $apps -Depth 3 -Compress
     ''';
     try {
-      final encoded = base64.encode(utf16.encode(script));
+      final encoded = base64.encode(script.codeUnits.expand((unit) => [unit & 0xff, (unit >> 8) & 0xff]).toList());
       final result = await Process.run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded]);
       if (result.exitCode != 0) throw ProcessException('powershell.exe', [], result.stderr.toString(), result.exitCode);
       final output = result.stdout.toString().trim();
@@ -400,18 +400,20 @@ class _AppsScreenState extends State<AppsScreen> {
     final safeName = app.name.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_').trim();
     final destination = '${output.path}${Platform.pathSeparator}${safeName.isEmpty ? 'Application' : safeName}.zip';
     String quote(String value) => "'" + value.replaceAll("'", "''") + "'";
-    final script = '''
+    final script = r'''
       $ErrorActionPreference = 'Stop'
-      $source = ${quote(source)}
-      $destination = ${quote(destination)}
+      $source = __SOURCE__
+      $destination = __DESTINATION__
       if (!(Test-Path -LiteralPath $source -PathType Container)) { throw 'Application folder is no longer available.' }
       $items = @(Get-ChildItem -LiteralPath $source -Force | Select-Object -ExpandProperty FullName)
       if ($items.Count -eq 0) { throw 'Application folder is empty.' }
       if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }
       Compress-Archive -Path (Join-Path $source '*') -DestinationPath $destination -CompressionLevel Fastest -Force
       if (!(Test-Path -LiteralPath $destination -PathType Leaf)) { throw 'Bundle archive was not created.' }
-    ''';
-    final encoded = base64.encode(utf16.encode(script));
+    '''
+      .replaceAll('__SOURCE__', quote(source))
+      .replaceAll('__DESTINATION__', quote(destination));
+    final encoded = base64.encode(script.codeUnits.expand((unit) => [unit & 0xff, (unit >> 8) & 0xff]).toList());
     final result = await Process.run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded]);
     if (result.exitCode != 0 || !await File(destination).exists()) {
       throw StateError('Could not bundle ${app.name}: ${result.stderr}');
