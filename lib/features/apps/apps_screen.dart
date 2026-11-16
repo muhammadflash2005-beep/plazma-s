@@ -95,6 +95,9 @@ class _AppsScreenState extends State<AppsScreen> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isAndroid) {
+      const MethodChannel('com.plazma.s/apps').setMethodCallHandler(_handleInstallerCallback);
+    }
     AppsScreen.sendSelected = _send;
     _service.roomFiles.addListener(_syncRoomFiles);
     _syncRoomFiles();
@@ -102,6 +105,14 @@ class _AppsScreenState extends State<AppsScreen> {
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingApps(_receiver!);
     _load();
+  }
+
+  Future<void> _handleInstallerCallback(MethodCall call) async {
+    if (call.method != 'installStatus' || !mounted) return;
+    final details = Map<String, dynamic>.from(call.arguments as Map);
+    final message = (details['message'] ?? 'Android installer returned an unknown result.').toString();
+    setState(() => _status = message);
+    _message(message);
   }
 
   void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
@@ -770,6 +781,9 @@ class _AppsScreenState extends State<AppsScreen> {
 
   @override
   void dispose() {
+    if (Platform.isAndroid) {
+      const MethodChannel('com.plazma.s/apps').setMethodCallHandler(null);
+    }
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
     _service.roomFiles.removeListener(_syncRoomFiles);
