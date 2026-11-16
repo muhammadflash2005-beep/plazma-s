@@ -205,6 +205,12 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     }
   }
 
+  String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainder = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+  }
+
   Future<Uint8List?> _thumbnail(AssetEntity asset) {
     return _thumbnailFutures.putIfAbsent(
       asset.id,
@@ -343,9 +349,9 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                     ListTile(
                       dense: true,
                       leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                      title: Text(asset.title ?? 'Audio file',
+                      title: Text(asset.title ?? asset.relativePath ?? 'Audio file',
                           maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
+                      subtitle: Text(asset.duration > 0 ? _formatDuration(asset.duration) : 'Audio file'),
                       trailing: Icon(
                         widget.selectedPaths.contains(_assetPaths[asset.id]) ? Icons.check_circle : Icons.circle_outlined,
                         color: widget.selectedPaths.contains(asset.id) ? colors.primary : colors.onSurfaceVariant,

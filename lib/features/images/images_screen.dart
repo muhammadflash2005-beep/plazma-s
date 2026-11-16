@@ -290,13 +290,18 @@ class _ImagesScreenState extends State<ImagesScreen> {
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('Room ${_invite!.roomId} · Scan to receive images', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ${_invite!.roomId}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
         Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
         TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        PopupMenuButton<String>(
+          tooltip: 'More room actions',
+          onSelected: (value) { if (value == 'link') Clipboard.setData(ClipboardData(text: _invite!.toQrValue())); },
+          itemBuilder: (context) => const [PopupMenuItem(value: 'link', child: Text('Copy connection link'))],
+        ),
         Row(children: [
           const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
           Text('${_service.joinedDeviceCount}/7'),

@@ -41,6 +41,7 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _downloading = false;
   bool _downloaded = false;
   Timer? _roomRefreshTimer;
+  String _fileSearchQuery = '';
   StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
@@ -58,6 +59,13 @@ class _FilesScreenState extends State<FilesScreen> {
     if (oldWidget.initialPaths != widget.initialPaths) {
       _addInitialPaths(widget.initialPaths);
     }
+  }
+
+  List<int> get _visibleFileIndexes {
+    final query = _fileSearchQuery.trim().toLowerCase();
+    return List<int>.generate(_files.length, (index) => index)
+        .where((index) => query.isEmpty || _relativePaths[index].toLowerCase().contains(query))
+        .toList();
   }
 
   void _addInitialPaths(List<String> paths) {
@@ -576,10 +584,14 @@ class _FilesScreenState extends State<FilesScreen> {
             ]),
             if (_files.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text('${_files.length} selected · ${_formatBytes(_files.fold<int>(0, (sum, file) => sum + file.lengthSync()))}',
+              TextField(
+                decoration: const InputDecoration(hintText: 'Search selected files', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+                onChanged: (value) => setState(() => _fileSearchQuery = value),
+              ),
+              Text('${_visibleFileIndexes.length} shown · ${_files.length} selected · ${_formatBytes(_files.fold<int>(0, (sum, file) => sum + file.lengthSync()))}',
                   style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              ...List.generate(_files.length > 5 ? 5 : _files.length, (index) => ListTile(
+              ..._visibleFileIndexes.take(5).map((index) => ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.insert_drive_file_outlined),
@@ -594,7 +606,7 @@ class _FilesScreenState extends State<FilesScreen> {
                       icon: const Icon(Icons.close_rounded),
                     ),
                   )),
-              if (_files.length > 5) Text('And ${_files.length - 5} more…'),
+              if (_visibleFileIndexes.length > 5) Text('And ${_visibleFileIndexes.length - 5} more…'),
             ],
             const SizedBox(height: 14),
             SizedBox(
@@ -602,7 +614,7 @@ class _FilesScreenState extends State<FilesScreen> {
               child: FilledButton.icon(
                 onPressed: _busy || _files.isEmpty ? null : _startSharing,
                 icon: const Icon(Icons.qr_code_2_rounded),
-                label: const Text('Start sharing'),
+                label: Text(_service.isSharing ? 'Add to room' : 'Start sharing'),
               ),
             ),
           ]),
@@ -633,6 +645,18 @@ class _FilesScreenState extends State<FilesScreen> {
               icon: const Icon(Icons.copy_rounded, size: 16),
               label: const Text('Copy room code'),
             ),
+            PopupMenuButton<String>(
+              tooltip: 'More room actions',
+              onSelected: (value) {
+                if (value == 'link') {
+                  Clipboard.setData(ClipboardData(text: _invite!.toQrValue()));
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'link', child: Text('Copy connection link')),
+              ],
+            ),
+
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: Text(

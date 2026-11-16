@@ -261,7 +261,7 @@ class _AppsScreenState extends State<AppsScreen> {
           ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
           : _service.startSharing(files: files, relativePaths: paths));
       if (!mounted) return;
-      setState(() { _invite = invite; _selected.clear(); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
+      setState(() { _invite = invite; _selected.removeAll(packages); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
       _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -451,7 +451,12 @@ class _AppsScreenState extends State<AppsScreen> {
     _roomRefreshTimer = null;
     await _service.stopSharing();
     TransferOverlayController.clear();
-    if (mounted) setState(() { _invite = null; _status = 'App sharing stopped.'; });
+    if (mounted) {
+      setState(() { _invite = null; _status = 'App sharing stopped.'; });
+      _roomRefreshTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && _status == 'App sharing stopped.') setState(() => _status = null);
+      });
+    }
   }
 
   Future<void> _disconnect() async {
@@ -494,12 +499,17 @@ class _AppsScreenState extends State<AppsScreen> {
         ]),
       ),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('Room ' + _invite!.roomId + ' · Scan to receive these apps', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ' + _invite!.roomId, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(padding: const EdgeInsets.all(10), color: Colors.white,
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8), Text('Same Wi-Fi · ' + _invite!.host + ':' + _invite!.port.toString()),
         TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        PopupMenuButton<String>(
+          tooltip: 'More room actions',
+          onSelected: (value) { if (value == 'link') Clipboard.setData(ClipboardData(text: _invite!.toQrValue())); },
+          itemBuilder: (context) => const [PopupMenuItem(value: 'link', child: Text('Copy connection link'))],
+        ),
         Row(children: [Expanded(child: Text('Connected devices', style: const TextStyle(fontWeight: FontWeight.w800))), Text(_service.joinedDeviceCount.toString() + '/7')]),
         ..._service.roomMembers.map((member) => ListTile(dense: true, leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer), title: Text(member.deviceName), subtitle: Text(member.platform), trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null))),
         const Text('Up to seven devices can join this room. Each selected app is sent as one app, with its APK parts grouped together.', textAlign: TextAlign.center),
@@ -521,7 +531,7 @@ class _AppsScreenState extends State<AppsScreen> {
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
           const SizedBox(width: 10),
           Expanded(child: OutlinedButton.icon(onPressed: _busy || _preparing || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
-            icon: const Icon(Icons.send), label: Text(Platform.isAndroid ? 'Send selected' : 'Send installers'))),
+            icon: const Icon(Icons.send), label: Text(_service.isSharing ? 'Add to room' : (Platform.isAndroid ? 'Send selected' : 'Send installers')))),
         ]),
         const SizedBox(height: 18),
         if (!Platform.isAndroid) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

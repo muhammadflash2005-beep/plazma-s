@@ -256,6 +256,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   ]),
                   Text('${items.length} item(s) in this room',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  if (items.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, children: [
+                      OutlinedButton.icon(onPressed: () => service.cancelAllQueuedItems(),
+                        icon: const Icon(Icons.cancel_outlined, size: 16), label: const Text('Cancel all')),
+                      OutlinedButton.icon(onPressed: () => service.retryFailedQueueItems(),
+                        icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry failed')),
+                    ]),
+                  ],
                   const SizedBox(height: 10),
                   Expanded(child: items.isEmpty
                     ? const Center(child: Text('No items in this room yet. Add files from any category.'))
@@ -268,7 +277,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             leading: const Icon(Icons.insert_drive_file_outlined),
                             title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(item.relativePath),
-                            trailing: Text('${item.size} B', style: const TextStyle(fontSize: 11)),
+                            trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              Text(item.status, style: const TextStyle(fontSize: 10)),
+                              const SizedBox(height: 4),
+                              LinearProgressIndicator(value: item.size <= 0 ? 0 : (item.bytesTransferred / item.size).clamp(0.0, 1.0)),
+                              if (item.status == 'waiting' || item.status == 'sending')
+                                IconButton(visualDensity: VisualDensity.compact, tooltip: 'Cancel item',
+                                  onPressed: () => service.cancelQueuedItem(item.id),
+                                  icon: const Icon(Icons.close_rounded, size: 17)),
+                            ])),
                           );
                         },
                       )),
