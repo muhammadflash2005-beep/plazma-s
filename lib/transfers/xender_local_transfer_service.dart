@@ -378,9 +378,8 @@ class XenderLocalTransferService {
         // Completion is acknowledged independently for each receiver. A
         // slower second phone must not hold the first phone at 100%.
         final deviceId = request.uri.queryParameters['deviceId'];
-        final isMember = deviceId != null &&
-            (_room?.members.any((member) => member.deviceId == deviceId) ?? false);
-        if (!isMember) {
+        if (deviceId == null ||
+            !(_room?.members.any((member) => member.deviceId == deviceId) ?? false)) {
           request.response.statusCode = HttpStatus.forbidden;
           await request.response.close();
           return;
@@ -775,6 +774,7 @@ class XenderLocalTransferService {
     // A new room must never inherit a retry destination from an older room.
     _lastDownloadDestination = null;
     _lastDownloadProgress = null;
+    _recordedReceivedHistory.clear();
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final deviceId = List.generate(
