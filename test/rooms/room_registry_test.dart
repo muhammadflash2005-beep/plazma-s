@@ -29,6 +29,15 @@ void main() {
       expect(room.joinedCount, 2);
     });
 
+    test('a missed heartbeat does not immediately remove a connected receiver', () {
+      final room = RoomRegistry(roomId: 'ABC234');
+      const id = '0123456789abcdef0123456789abcdef';
+      room.join(deviceId: id, deviceName: 'Phone', platform: 'android');
+      expect(room.heartbeat(id), isTrue);
+      expect(room.members.single.isConnected, isTrue);
+      expect(room.heartbeat('f'.padLeft(32, 'f')), isFalse);
+    });
+
     test('tracks completion independently and supports leaving', () {
       final room = RoomRegistry(roomId: 'ABC234');
       const first = '0123456789abcdef0123456789abcdef';
