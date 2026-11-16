@@ -171,10 +171,10 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 trailing: category == 'app' && direction == 'received'
-                    ? IconButton(
-                        tooltip: 'Install app',
+                    ? TextButton.icon(
                         onPressed: () => _installApp(entry),
-                        icon: const Icon(Icons.install_mobile_rounded),
+                        icon: const Icon(Icons.install_mobile_rounded, size: 18),
+                        label: const Text('Install'),
                       )
                     : null,
               )),
