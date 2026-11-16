@@ -343,8 +343,9 @@ class _ImagesScreenState extends State<ImagesScreen> {
           TextButton(onPressed: _busy ? null : _refreshImages, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadImages,
-          icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive images')),
+        if (!_service.isReceiving)
+          FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadImages,
+            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive images')),
       ]))),
       if (_receiver == null) ...[
         DeviceMediaBrowser(

@@ -344,8 +344,9 @@ class _MusicScreenState extends State<MusicScreen> {
           TextButton(onPressed: _busy ? null : _refreshMusic, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadMusic,
-          icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive music')),
+        if (!_service.isReceiving)
+          FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadMusic,
+            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive music')),
       ]))),
       if (_receiver == null) ...[
         DeviceMediaBrowser(

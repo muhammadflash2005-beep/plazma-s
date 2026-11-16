@@ -538,7 +538,7 @@ class _FilesScreenState extends State<FilesScreen> {
     if (parts.isEmpty || _destination == null) return;
     final paths = parts.map((item) {
       final relative = item.relativePath.replaceAll('/', Platform.pathSeparator);
-      return '$_destination${Platform.pathSeparator}$relative';
+      return '$_destination${Platform.pathSeparator}Download${Platform.pathSeparator}Plazma S${Platform.pathSeparator}$relative';
     }).toList();
     try {
       await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
