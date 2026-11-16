@@ -540,10 +540,19 @@ class _FilesScreenState extends State<FilesScreen> {
       return '$_destination${Platform.pathSeparator}Download${Platform.pathSeparator}Plazma S${Platform.pathSeparator}$relative';
     }).toList();
     try {
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
-        'installApkSet',
-        {'packageName': packageName, 'paths': paths},
-      );
+      if (paths.length == 1) {
+        final cache = await getTemporaryDirectory();
+        final staged = File(cache.path + Platform.pathSeparator + '$packageName.apk');
+        await File(paths.single).copy(staged.path);
+        await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
+          'installApk', {'path': staged.path},
+        );
+      } else {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'installApkSet',
+          {'packageName': packageName, 'paths': paths},
+        );
+      }
       _message('Android package installer opened for $packageName. Review and approve the installation there.');
     } catch (error) {
       _message('Could not start installation: $error');

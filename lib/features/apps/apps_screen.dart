@@ -664,10 +664,19 @@ class _AppsScreenState extends State<AppsScreen> {
       return;
     }
     try {
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
-        'installApkSet',
-        {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
-      );
+      if (apks.length == 1) {
+        final cache = await getTemporaryDirectory();
+        final staged = File(cache.path + Platform.pathSeparator + '$packageName.apk');
+        await apks.single.copy(staged.path);
+        await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
+          'installApk', {'path': staged.path},
+        );
+      } else {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'installApkSet',
+          {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
+        );
+      }
       _message('Android installer opened. Review and approve the installation.');
     } catch (error) {
       _message(error.toString().contains('INSTALL_PERMISSION_REQUIRED')
