@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -58,6 +59,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   AssetPathEntity? _album;
   List<AssetEntity> _assets = [];
   final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
+  final Map<String, Future<Map<String, String?>>> _musicMetadataFutures = {};
   final Map<String, String> _assetPaths = {};
   int _totalCount = 0;
   bool _loading = false;
@@ -211,6 +213,23 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
   }
 
+  Future<Map<String, String?>> _musicMetadata(AssetEntity asset) {
+    return _musicMetadataFutures.putIfAbsent(asset.id, () async {
+      try {
+        final file = await asset.file;
+        if (file == null || !await file.exists()) return const {};
+        final metadata = readMetadata(file, getImage: false);
+        return {
+          'title': metadata.title,
+          'artist': metadata.artist,
+          'duration': metadata.duration?.inSeconds.toString(),
+        };
+      } catch (_) {
+        return const {};
+      }
+    });
+  }
+
   Future<Uint8List?> _thumbnail(AssetEntity asset) {
     return _thumbnailFutures.putIfAbsent(
       asset.id,
@@ -346,17 +365,34 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
               child: Column(
                 children: [
                   for (final asset in _filteredAssets)
-                    ListTile(
-                      dense: true,
-                      leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                      title: Text(asset.title ?? asset.relativePath ?? 'Audio file',
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(asset.duration > 0 ? _formatDuration(asset.duration) : 'Audio file'),
-                      trailing: Icon(
-                        widget.selectedPaths.contains(_assetPaths[asset.id]) ? Icons.check_circle : Icons.circle_outlined,
-                        color: widget.selectedPaths.contains(asset.id) ? colors.primary : colors.onSurfaceVariant,
-                      ),
-                      onTap: () => _select(asset),
+                    FutureBuilder<Map<String, String?>>(
+                      future: _musicMetadata(asset),
+                      builder: (context, snapshot) {
+                        final details = snapshot.data ?? const <String, String?>{};
+                        final title = (details['title']?.trim().isNotEmpty ?? false)
+                            ? details['title']!
+                            : (asset.title?.trim().isNotEmpty ?? false)
+                                ? asset.title!
+                                : (asset.relativePath ?? 'Audio file').split('/').last;
+                        final artist = details['artist']?.trim();
+                        final duration = int.tryParse(details['duration'] ?? '') ?? asset.duration;
+                        final subtitle = [
+                          artist?.isNotEmpty == true ? artist! : 'Unknown artist',
+                          duration > 0 ? _formatDuration(duration) : 'Duration unavailable',
+                        ].join(' · ');
+                        final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
+                        return ListTile(
+                          dense: true,
+                          leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
+                          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          trailing: Icon(
+                            selected ? Icons.check_circle : Icons.circle_outlined,
+                            color: selected ? colors.primary : colors.onSurfaceVariant,
+                          ),
+                          onTap: () => _select(asset),
+                        );
+                      },
                     ),
                 ],
               ),

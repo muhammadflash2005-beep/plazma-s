@@ -76,7 +76,7 @@ class LocalTransferProgress {
   final int totalBytes;
   final int totalSize;
 
-  double get fraction => totalSize == 0 ? 1 : totalBytes / totalSize;
+  double get fraction => totalSize == 0 ? 1 : (totalBytes / totalSize).clamp(0.0, 1.0);
 }
 
 /// Direct device-to-device sharing over the existing Wi-Fi/LAN network.
