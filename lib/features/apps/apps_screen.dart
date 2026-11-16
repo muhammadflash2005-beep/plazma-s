@@ -375,9 +375,11 @@ class _AppsScreenState extends State<AppsScreen> {
           {'packageName': packageName},
         );
       } catch (error) {
-        if (mounted) _message(action == 'settings'
-            ? 'Could not open Android app settings: $error'
-            : 'Could not open Android uninstall confirmation: $error');
+        if (mounted) {
+          _message(action == 'settings'
+              ? 'Could not open Android app settings: $error'
+              : 'Could not open Android uninstall confirmation: $error');
+        }
       }
     }
   }
