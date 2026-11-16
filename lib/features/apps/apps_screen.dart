@@ -737,9 +737,35 @@ class _AppsScreenState extends State<AppsScreen> {
   Future<void> _installReceivedApp(String packageName) async {
     if (!Platform.isAndroid) return;
     final root = await getApplicationDocumentsDirectory();
-    final folder = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
-        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S' +
-        Platform.pathSeparator + packageName);
+    final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
+        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+    final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
+    final bundles = manifestParts.where((part) {
+      final lower = part.relativePath.toLowerCase();
+      return lower.endsWith('.plazmaapp') || ApkBundle.isBundle(lower) || lower.endsWith('.zip');
+    }).toList();
+    if (bundles.length == 1 && !bundles.single.relativePath.toLowerCase().endsWith('.plazmaapp')) {
+      final bundleItem = bundles.single;
+      final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
+          Platform.pathSeparator + packageName + Platform.pathSeparator +
+          bundleItem.relativePath.split('/').last);
+      if (!await bundle.exists()) {
+        _message('The received app bundle is missing. Receive it again.');
+        return;
+      }
+      try {
+        final actual = await sha256.bind(bundle.openRead()).first;
+        if (actual.toString() != bundleItem.sha256) {
+          throw StateError('The received app bundle failed its transfer checksum. Receive it again.');
+        }
+        await ApkBundle.install(bundle.path);
+        _message('Android installer opened. Review and approve the installation.');
+      } catch (error) {
+        _message('Could not install app: $error');
+      }
+      return;
+    }
+    final folder = Directory(receiveRoot.path + Platform.pathSeparator + packageName);
     if (!await folder.exists()) {
       _message('This app has not been saved on this device yet.');
       return;
@@ -751,27 +777,7 @@ class _AppsScreenState extends State<AppsScreen> {
     apks.sort((a, b) => a.uri.pathSegments.last == 'base.apk' ? -1 :
         b.uri.pathSegments.last == 'base.apk' ? 1 : a.path.compareTo(b.path));
     try {
-      final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
-      final bundles = manifestParts.where((part) {
-        final lower = part.relativePath.toLowerCase();
-        return lower.endsWith('.plazmaapp') || ApkBundle.isBundle(lower) || lower.endsWith('.zip');
-      }).toList();
-      if (bundles.length == 1 && !bundles.single.relativePath.toLowerCase().endsWith('.plazmaapp')) {
-        final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
-            Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
-        final bundleItem = bundles.single;
-        final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-            Platform.pathSeparator + packageName + Platform.pathSeparator +
-            bundleItem.relativePath.split('/').last);
-        if (!await bundle.exists()) throw StateError('The received app bundle is missing.');
-        final actual = await sha256.bind(bundle.openRead()).first;
-        if (actual.toString() != bundleItem.sha256) {
-          throw StateError('The received app bundle failed its transfer checksum. Receive it again.');
-        }
-        await ApkBundle.install(bundle.path);
-        _message('Android installer opened. Review and approve the installation.');
-        return;
-      }
+      final bundles = manifestParts.where((part) => part.relativePath.toLowerCase().endsWith('.plazmaapp')).toList();
       if (bundles.length == 1) {
         final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
             Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
@@ -972,7 +978,7 @@ class _AppsScreenState extends State<AppsScreen> {
           final iconData = details?['iconBase64'];
           final appName = (details?['appName'] ?? e.key).toString();
           final version = (details?['versionName'] ?? '').toString();
-          final isGroupedBundle = e.value.any((item) => item.relativePath.toLowerCase().endsWith('.plazmaapp'));
+          final isGroupedBundle = e.value.any((item) => ['.plazmaapp', '.apks', '.xapk', '.zip'].any((extension) => item.relativePath.toLowerCase().endsWith(extension)));
           final partCount = _bundleMetadata[e.key]?.apkPaths.length ?? e.value.length;
           return ListTile(
           leading: iconData is String
