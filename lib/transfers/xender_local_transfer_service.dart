@@ -539,6 +539,23 @@ class XenderLocalTransferService {
     _bumpManifestRevision();
   }
 
+  void _updateJoinedQueueStatus(int id, String status, int bytesTransferred) {
+    _joinedManifest = _joinedManifest.map((item) {
+      if (item.id != id) return item;
+      return SharedLocalFile(
+        id: item.id,
+        name: item.name,
+        relativePath: item.relativePath,
+        size: item.size,
+        sha256: item.sha256,
+        status: status,
+        bytesTransferred: bytesTransferred.clamp(0, item.size),
+        type: item.type,
+      );
+    }).toList();
+    _publishRoomFiles();
+  }
+
   Future<void> cancelQueuedItem(int id) async {
     if (_server != null) {
       if (id >= 0 && id < _manifest.length) {
@@ -546,7 +563,9 @@ class XenderLocalTransferService {
         if (status == 'waiting' || status == 'sending') _setQueueStatus(id, 'cancelled', _manifest[id]['bytesTransferred'] as int? ?? 0);
       }
     } else if (_joinedInvite != null && id >= 0 && id < _joinedManifest.length) {
-      await _postQueueStatus(_joinedInvite!, id, 'cancelled', _joinedManifest[id].bytesTransferred);
+      final bytes = _joinedManifest[id].bytesTransferred;
+      final status = await _postQueueStatus(_joinedInvite!, id, 'cancelled', bytes);
+      if (status == 'cancelled') _updateJoinedQueueStatus(id, 'cancelled', bytes);
     }
   }
 
@@ -563,7 +582,10 @@ class XenderLocalTransferService {
     } else if (_joinedInvite != null) {
       for (final item in _joinedManifest) {
         if (item.status == 'waiting' || item.status == 'sending') {
-          await _postQueueStatus(_joinedInvite!, item.id, 'cancelled', item.bytesTransferred);
+          final status = await _postQueueStatus(_joinedInvite!, item.id, 'cancelled', item.bytesTransferred);
+          if (status == 'cancelled') {
+            _updateJoinedQueueStatus(item.id, 'cancelled', item.bytesTransferred);
+          }
         }
       }
     }
@@ -580,7 +602,10 @@ class XenderLocalTransferService {
       if (changed) { _manifest = next; _bumpManifestRevision(); }
     } else if (_joinedInvite != null) {
       for (final item in _joinedManifest) {
-        if (item.status == 'failed') await _postQueueStatus(_joinedInvite!, item.id, 'waiting', 0);
+        if (item.status == 'failed') {
+          final status = await _postQueueStatus(_joinedInvite!, item.id, 'waiting', 0);
+          if (status == 'waiting') _updateJoinedQueueStatus(item.id, 'waiting', 0);
+        }
       }
     }
   }
@@ -996,6 +1021,7 @@ class XenderLocalTransferService {
     _files = const [];
     _manifest = const [];
     _joinedManifest = const [];
+    _receiverQueueStatuses.clear();
     _manifestRevision = 0;
     _publishRoomFiles();
     final changed = _manifestChanged;
