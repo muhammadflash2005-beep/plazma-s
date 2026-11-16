@@ -516,17 +516,18 @@ class XenderLocalTransferService {
     }
   }
 
-  Future<String?> _postQueueStatus(PlazmaConnectionInvite invite, int id, String status, int bytes, [String? error]) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+  Future<String?> _postQueueStatus(PlazmaConnectionInvite invite, int id, String status, int bytes, {String? error, HttpClient? client}) async {
+    final ownsClient = client == null;
+    final httpClient = client ?? (HttpClient()..connectionTimeout = const Duration(seconds: 5));
     try {
-      final request = await client.postUrl(_endpoint(invite, '/queue-status'));
+      final request = await httpClient.postUrl(_endpoint(invite, '/queue-status'));
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode({'id': id, 'status': status, 'bytesTransferred': bytes, if (error != null) 'error': error}));
       final response = await request.close().timeout(const Duration(seconds: 8));
       final decoded = jsonDecode(await utf8.decoder.bind(response).join());
       return decoded is Map ? decoded['status'] as String? : null;
     } catch (_) { return null; }
-    finally { client.close(force: true); }
+    finally { if (ownsClient) httpClient.close(force: true); }
   }
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
     // Receivers must already be connected to the same Wi-Fi/LAN.
@@ -641,7 +642,7 @@ class XenderLocalTransferService {
     try {
       for (final item in files) {
         if (item.status == 'cancelled') { wasCancelled = true; continue; }
-        final initialStatus = await _postQueueStatus(invite, item.id, 'sending', 0);
+        final initialStatus = await _postQueueStatus(invite, item.id, 'sending', 0, client: client);
         if (initialStatus == 'cancelled') { wasCancelled = true; continue; }
         final relative = _safeRelativePath(item.relativePath);
         final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
@@ -651,7 +652,7 @@ class XenderLocalTransferService {
           final existingDigest = await sha256.bind(target.openRead()).first;
           if (existingSize == item.size && existingDigest.toString() == item.sha256) {
             totalBytes += item.size;
-            await _postQueueStatus(invite, item.id, 'done', item.size);
+            await _postQueueStatus(invite, item.id, 'done', item.size, client: client);
             onProgress(LocalTransferProgress(
               fileName: item.name,
               fileBytes: item.size,
@@ -661,7 +662,7 @@ class XenderLocalTransferService {
             ));
             continue;
           }
-          await _postQueueStatus(invite, item.id, 'failed', 0, 'A different file with this name already exists.');
+          await _postQueueStatus(invite, item.id, 'failed', 0, error: 'A different file with this name already exists.', client: client);
           throw FileSystemException('A different file with this name already exists.', target.path);
         }
         final partial = File('${target.path}.plazma-partial');
@@ -674,7 +675,7 @@ class XenderLocalTransferService {
           final digest = await sha256.bind(partial.openRead()).first;
           if (digest.toString() == item.sha256) {
             await partial.rename(target.path);
-            await _postQueueStatus(invite, item.id, 'done', item.size);
+            await _postQueueStatus(invite, item.id, 'done', item.size, client: client);
             totalBytes += item.size;
             onProgress(LocalTransferProgress(
               fileName: item.name,
@@ -695,7 +696,7 @@ class XenderLocalTransferService {
         final response = await request.close().timeout(const Duration(seconds: 30));
         final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
         if (response.statusCode != expectedStatus) {
-          await _postQueueStatus(invite, item.id, 'failed', offset, 'Download could not resume (HTTP ${response.statusCode}).');
+          await _postQueueStatus(invite, item.id, 'failed', offset, error: 'Download could not resume (HTTP ${response.statusCode}).', client: client);
           throw HttpException(
             'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
           );
@@ -723,8 +724,8 @@ class XenderLocalTransferService {
               totalBytes: totalBytes,
               totalSize: totalSize,
             ));
-            if (fileBytes - lastQueueUpdate >= 1024 * 1024) {
-              final status = await _postQueueStatus(invite, item.id, 'sending', fileBytes);
+            if (fileBytes - lastQueueUpdate >= 16 * 1024 * 1024) {
+              final status = await _postQueueStatus(invite, item.id, 'sending', fileBytes, client: client);
               if (status == 'cancelled') throw StateError('Transfer cancelled by sender.');
               lastQueueUpdate = fileBytes;
             }
@@ -740,11 +741,11 @@ class XenderLocalTransferService {
             );
           }
           await partial.rename(target.path);
-          await _postQueueStatus(invite, item.id, 'done', item.size);
+          await _postQueueStatus(invite, item.id, 'done', item.size, client: client);
         } catch (error) {
           await sink.close();
           final cancelled = error.toString().contains('cancelled');
-          await _postQueueStatus(invite, item.id, cancelled ? 'cancelled' : 'failed', fileBytes, error.toString());
+          await _postQueueStatus(invite, item.id, cancelled ? 'cancelled' : 'failed', fileBytes, error: error.toString(), client: client);
           rethrow;
         }
       }

@@ -48,6 +48,8 @@ class _FilesScreenState extends State<FilesScreen> {
   void initState() {
     super.initState();
     _invite = _service.invite;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
     _receiverInvite = _service.joinedInvite;
     if (_receiverInvite != null) _watchIncomingFiles(_receiverInvite!);
     _addInitialPaths(widget.initialPaths);
@@ -89,9 +91,15 @@ class _FilesScreenState extends State<FilesScreen> {
   void dispose() {
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
   }
 
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    if (!mounted) return;
+    setState(() { _receiverInvite = invite; _availableFiles = invite == null ? const [] : _service.roomFiles.value; });
+  }
   Future<void> _pickFiles() async {
     if (_busy) return;
     setState(() => _busy = true);

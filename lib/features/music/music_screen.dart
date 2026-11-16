@@ -44,6 +44,8 @@ class _MusicScreenState extends State<MusicScreen> {
   void initState() {
     super.initState();
     MusicScreen.sendSelected = _sendMusic;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
     _invite = _service.invite;
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingMusic(_receiver!);
@@ -55,9 +57,19 @@ class _MusicScreenState extends State<MusicScreen> {
     MusicScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
   }
 
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    final items = invite == null ? <SharedLocalFile>[] : _service.roomFiles.value.where((item) {
+      final name = item.relativePath.toLowerCase();
+      return ['.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus', '.wma'].any(name.endsWith);
+    }).toList();
+    if (!mounted) return;
+    setState(() { _receiver = invite; _incoming..clear()..addAll(items); });
+  }
   void _watchIncomingMusic(PlazmaConnectionInvite invite) {
     _manifestSubscription?.cancel();
     _manifestSubscription = _service.watchManifest(invite).listen((manifest) {

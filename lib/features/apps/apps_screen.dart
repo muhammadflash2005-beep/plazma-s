@@ -53,6 +53,8 @@ class _AppsScreenState extends State<AppsScreen> {
   void initState() {
     super.initState();
     AppsScreen.sendSelected = _send;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
     _invite = _service.invite;
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingApps(_receiver!);
@@ -348,6 +350,19 @@ class _AppsScreenState extends State<AppsScreen> {
     });
   }
 
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    final groups = <String, List<SharedLocalFile>>{};
+    if (invite != null) {
+      for (final item in _service.roomFiles.value) {
+        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        final package = item.relativePath.split('/').first;
+        if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
+      }
+    }
+    if (!mounted) return;
+    setState(() { _receiver = invite; _incoming..clear()..addAll(groups); });
+  }
   void _watchIncomingApps(PlazmaConnectionInvite invite) {
     _manifestSubscription?.cancel();
     _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
@@ -472,6 +487,7 @@ class _AppsScreenState extends State<AppsScreen> {
   void dispose() {
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
     AppsScreen.selectedCount.value = 0;
     super.dispose();

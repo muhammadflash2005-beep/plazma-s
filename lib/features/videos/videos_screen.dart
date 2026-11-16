@@ -44,6 +44,8 @@ class _VideosScreenState extends State<VideosScreen> {
   void initState() {
     super.initState();
     VideosScreen.sendSelected = _sendVideos;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
     _invite = _service.invite;
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingVideos(_receiver!);
@@ -57,9 +59,19 @@ class _VideosScreenState extends State<VideosScreen> {
     VideosScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
   }
 
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    final items = invite == null ? <SharedLocalFile>[] : _service.roomFiles.value.where((item) {
+      final name = item.relativePath.toLowerCase();
+      return ['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.3gp'].any(name.endsWith);
+    }).toList();
+    if (!mounted) return;
+    setState(() { _receiver = invite; _incoming..clear()..addAll(items); });
+  }
   void _watchIncomingVideos(PlazmaConnectionInvite invite) {
     _manifestSubscription?.cancel();
     _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
