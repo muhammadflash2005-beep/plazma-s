@@ -24,11 +24,12 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class DesktopInstalledApp {
-  const DesktopInstalledApp({required this.name, required this.version, required this.publisher, required this.installLocation});
+  const DesktopInstalledApp({required this.name, required this.version, required this.publisher, required this.installLocation, this.iconPath});
   final String name;
   final String version;
   final String publisher;
   final String? installLocation;
+  final String? iconPath;
   bool get canBundle => installLocation != null;
 
   factory DesktopInstalledApp.fromRegistry(Map<String, dynamic> value) {
@@ -55,7 +56,7 @@ class DesktopInstalledApp {
       }
     }
     return DesktopInstalledApp(name: read('DisplayName'), version: read('DisplayVersion'),
-      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location);
+      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location,\n      iconPath: read('IconPath').isEmpty ? null : read('IconPath'));
   }
 }
 
@@ -1122,7 +1123,7 @@ class _AppsScreenState extends State<AppsScreen> {
                 child: CheckboxListTile(
                   value: selected,
                   onChanged: app.canBundle && !_busy ? (_) => _toggleDesktopApp(app) : null,
-                  secondary: Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
+                  secondary: app.iconPath != null && File(app.iconPath!).existsSync()\n                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(app.iconPath!), width: 38, height: 38, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined)))\n                      : Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
                   title: Text(app.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text([
                     if (app.version.isNotEmpty) 'Version ${app.version}',
