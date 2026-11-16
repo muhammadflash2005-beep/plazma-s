@@ -346,7 +346,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     if (!mounted) return;
     final confirmed = await confirmPermanentDelete(
       context,
-      itemDescription: '\${selectedAssets.length} selected \${_label} item(s) (\${names.take(3).join(', ')}\${names.length > 3 ? ', …' : ''})',
+      itemDescription: '${selectedAssets.length} selected ${_label} item(s) (${names.take(3).join(', ')}${names.length > 3 ? ', …' : ''})',
     );
     if (!confirmed || !mounted) return;
     try {
@@ -366,13 +366,13 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Deleted \${deletedSet.length} selected \${_label} item(s).')),
+          SnackBar(content: Text('Deleted ${deletedSet.length} selected ${_label} item(s).')),
         );
       }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not delete selected \${_label}: $error')),
+          SnackBar(content: Text('Could not delete selected ${_label}: $error')),
         );
       }
     }
