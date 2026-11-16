@@ -307,7 +307,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     if (selected.isEmpty) return;
     final confirmed = await confirmPermanentDelete(
       context,
-      itemDescription: '${selected.length} selected ${_label}',
+      itemDescription: '$selected.length selected $_label',
     );
     if (!confirmed || !mounted) return;
     try {
@@ -345,7 +345,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     if (move) {
       final confirmed = await confirmPermanentDelete(
         context,
-        itemDescription: '${selected.length} original ${_label} after copying them to another folder',
+        itemDescription: '$selected.length original $_label after copying them to another folder',
       );
       if (!confirmed || !mounted) return;
     }
