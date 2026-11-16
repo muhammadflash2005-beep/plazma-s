@@ -27,8 +27,8 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
   bool _busy = false;
   bool _available = false;
   String _status = 'Check GitHub for the latest Plazma S release.';
-  String? _latestVersion, _releaseNotes, _apkUrl, _checksumUrl, _currentVersion, _error;
-  File? _downloadedApk;
+  String? _latestVersion, _releaseNotes, _updateUrl, _checksumUrl, _updateFileName, _currentVersion, _error;
+  File? _downloadedUpdate;
   double? _progress;
 
   @override
@@ -82,7 +82,7 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
 
     final assets = <Map<String, dynamic>>[];
     final assetPattern = RegExp(
-      r'href="([^"]*/releases/download/[^"]*/(app-release\.apk|SHA256SUMS\.txt))"',
+      r'href="([^"]*/releases/download/[^"]*/(app-release\.apk|SHA256SUMS\.txt|plazma-s-windows-x64\.zip|SHA256SUMS-windows\.txt))"',
       caseSensitive: false,
     );
     for (final match in assetPattern.allMatches(html)) {
@@ -109,16 +109,24 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
       final latest = tag.startsWith('v') ? tag.substring(1) : tag;
       if (latest.isEmpty) throw Exception('The latest release has no version tag.');
       final assets = (release['assets'] as List<dynamic>? ?? const []).whereType<Map<String, dynamic>>().toList();
-      final apk = assets.where((a) => (a['name'] as String? ?? '').toLowerCase() == 'app-release.apk').firstOrNull;
-      final checksum = assets.where((a) => (a['name'] as String? ?? '').toLowerCase() == 'sha256sums.txt').firstOrNull;
-      if (apk == null || checksum == null) throw Exception('The release is missing its APK or SHA256 checksum.');
+      final windows = Platform.isWindows;
+      final updateName = windows ? 'plazma-s-windows-x64.zip' : 'app-release.apk';
+      final checksumName = windows ? 'sha256sums-windows.txt' : 'sha256sums.txt';
+      final update = assets.where((a) => (a['name'] as String? ?? '').toLowerCase() == updateName).firstOrNull;
+      final checksum = assets.where((a) => (a['name'] as String? ?? '').toLowerCase() == checksumName).firstOrNull;
+      if (update == null || checksum == null) {
+        throw Exception(windows
+          ? 'This release does not contain the Windows update package yet.'
+          : 'The release is missing its APK or SHA256 checksum.');
+      }
       final current = package.version;
       final hasUpdate = _compareVersions(latest, current) > 0;
       if (!mounted) return;
       setState(() {
         _currentVersion = current; _latestVersion = latest; _available = hasUpdate;
-        _apkUrl = apk['browser_download_url'] as String?;
+        _updateUrl = update['browser_download_url'] as String?;
         _checksumUrl = checksum['browser_download_url'] as String?;
+        _updateFileName = updateName;
         _releaseNotes = (release['body'] as String? ?? '').trim();
         _status = hasUpdate ? 'Version $latest is available.' : 'You are using the latest version ($current).';
         _busy = false;
@@ -156,25 +164,25 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
   }
 
   Future<void> _downloadAndInstall() async {
-    if (_downloadedApk != null) { await _installDownloadedApk(); return; }
-    final apkUrl = _apkUrl, checksumUrl = _checksumUrl;
-    if (apkUrl == null || checksumUrl == null) return;
+    if (_downloadedUpdate != null) { await _installDownloadedUpdate(); return; }
+    final updateUrl = _updateUrl, checksumUrl = _checksumUrl, updateFileName = _updateFileName;
+    if (updateUrl == null || checksumUrl == null || updateFileName == null) return;
     setState(() { _busy = true; _error = null; _progress = 0; _status = 'Downloading update…'; });
     final client = http.Client();
     try {
       final checksumResponse = await client.get(Uri.parse(checksumUrl)).timeout(const Duration(seconds: 25));
       if (checksumResponse.statusCode != 200) throw Exception('Could not retrieve the release checksum.');
       final checksumLine = checksumResponse.body.split('\n').map((line) => line.trim())
-          .firstWhere((line) => line.endsWith('app-release.apk'), orElse: () => '');
+          .firstWhere((line) => line.endsWith(updateFileName), orElse: () => '');
       final expectedHash = checksumLine.split(RegExp(r'\s+')).first.toLowerCase();
       if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(expectedHash)) throw Exception('The release checksum file is invalid.');
-      final request = http.Request('GET', Uri.parse(apkUrl));
+      final request = http.Request('GET', Uri.parse(updateUrl));
       request.headers['User-Agent'] = 'Plazma-S-Updater';
       final streamed = await client.send(request).timeout(const Duration(seconds: 60));
-      if (streamed.statusCode != 200) throw Exception('APK download failed with HTTP ${streamed.statusCode}.');
+      if (streamed.statusCode != 200) throw Exception('Update download failed with HTTP ${streamed.statusCode}.');
       final total = streamed.contentLength ?? 0;
       final directory = await getTemporaryDirectory();
-      final file = File('${directory.path}/plazma-s-update.apk');
+      final file = File('${directory.path}/$updateFileName');
       final sink = file.openWrite();
       final digestSink = AccumulatorSink<Digest>();
       final input = sha256.startChunkedConversion(digestSink);
@@ -186,21 +194,70 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
       input.close(); await sink.flush(); await sink.close();
       if (digestSink.events.single.toString() != expectedHash) {
         await file.delete();
-        throw Exception('The downloaded APK failed its SHA256 integrity check.');
+        throw Exception('The downloaded update failed its SHA256 integrity check.');
       }
       if (!mounted) return;
-      setState(() { _downloadedApk = file; _busy = false; _progress = 1; _status = 'Download verified. Ready to install.'; });
-      await _installDownloadedApk();
+      setState(() { _downloadedUpdate = file; _busy = false; _progress = 1; _status = 'Download verified. Ready to install.'; });
+      await _installDownloadedUpdate();
     } catch (error) {
       if (!mounted) return;
       setState(() { _busy = false; _error = error.toString().replaceFirst('Exception: ', ''); _status = 'Update could not be downloaded.'; });
     } finally { client.close(); }
   }
 
-  Future<void> _installDownloadedApk() async {
-    final file = _downloadedApk;
+  Future<void> _installDownloadedUpdate() async {
+    final file = _downloadedUpdate;
     if (file == null) return;
-    if (!Platform.isAndroid) { setState(() => _status = 'APK installation is available on Android only.'); return; }
+    if (Platform.isWindows) {
+      try {
+        final executable = File(Platform.resolvedExecutable);
+        final installDirectory = executable.parent.path;
+        final script = r'''
+param([int]$ProcessId, [string]$Archive, [string]$InstallDirectory, [string]$Executable)
+$ErrorActionPreference = 'Stop'
+try {
+  Wait-Process -Id $ProcessId -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 800
+  $stage = Join-Path $env:TEMP ('plazma-s-update-' + [guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Path $stage -Force | Out-Null
+  Expand-Archive -LiteralPath $Archive -DestinationPath $stage -Force
+  Get-ChildItem -LiteralPath $stage -Force | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $InstallDirectory -Recurse -Force
+  }
+  Remove-Item -LiteralPath $stage -Recurse -Force
+  Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue
+  Start-Process -FilePath $Executable -WorkingDirectory $InstallDirectory
+} catch {
+  Add-Content -LiteralPath (Join-Path $env:TEMP 'plazma-s-update-error.log') -Value $_.ToString()
+  exit 1
+}
+''';
+        final directory = await getTemporaryDirectory();
+        final scriptFile = File('\${directory.path}\${Platform.pathSeparator}plazma-s-update.ps1');
+        await scriptFile.writeAsString(script);
+        await Process.start('powershell.exe', [
+          '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptFile.path,
+          '-ProcessId', pid.toString(), '-Archive', file.path,
+          '-InstallDirectory', installDirectory, '-Executable', executable.path,
+        ], mode: ProcessStartMode.detached);
+        if (mounted) {
+          setState(() => _status = 'Windows update verified. Plazma S will close, update its files, and reopen.');
+        }
+        exit(0);
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _error = error.toString();
+            _status = 'Could not start the Windows updater. If Plazma S is installed in Program Files, run it with administrator permission.';
+          });
+        }
+      }
+      return;
+    }
+    if (!Platform.isAndroid) {
+      if (mounted) setState(() => _status = 'Automatic installation is supported on Windows and Android.');
+      return;
+    }
     try {
       await _installer.invokeMethod<void>('installApk', {'path': file.path});
       if (!mounted) return;
@@ -215,7 +272,7 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() { _error = error.toString(); _status = 'Could not start the Android installer.'; });
+      setState(() { _error = error.toString(); _status = 'Could not start the installer.'; });
     }
   }
 
@@ -255,11 +312,11 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
           if (_available) FilledButton.icon(
             onPressed: _busy ? null : _downloadAndInstall,
             icon: const Icon(Icons.download_rounded),
-            label: Text(_downloadedApk == null ? 'Download & install' : 'Install update'),
+            label: Text(_downloadedUpdate == null ? 'Download & install' : 'Install update'),
           ),
         ]),
         const SizedBox(height: 4),
-        Text('Updates come from official Plazma S GitHub releases and are verified before Android opens the installer. Android will ask you to confirm installation.', style: theme.textTheme.bodySmall),
+        Text('Updates are downloaded from official Plazma S GitHub releases and verified with SHA-256 before installation. Windows restarts into the updated app; Android asks you to confirm installation.', style: theme.textTheme.bodySmall),
       ]),
     ));
   }
