@@ -625,6 +625,7 @@ jobs:
 
               override fun onNewIntent(intent: Intent) {
                   super.onNewIntent(intent)
+                  setIntent(intent)
                   if (intent.action != "com.plazma.s.INSTALL_STATUS") return
                   val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, android.content.pm.PackageInstaller.STATUS_FAILURE)
                   val message = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
@@ -643,6 +644,9 @@ jobs:
                       android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_BLOCKED -> "Android or the device administrator blocked this installation."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED -> "The installation was cancelled."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_TIMEOUT -> "Android timed out while installing this app. Try again."
                       else -> message.ifBlank { "Android could not install this app (status $status)." }
                   }
                   flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
@@ -737,21 +741,34 @@ jobs:
               }
 
               private fun installApkSet(packageName: String, paths: List<String>) {
-                  if (packageName.isBlank() || paths.isEmpty()) {
-                      throw IllegalArgumentException("An app package and its APK files are required.")
+                  if (packageName.isBlank() || paths.isEmpty() || paths.size > 100) {
+                      throw IllegalArgumentException("A package and between one and 100 APK files are required.")
                   }
+                  val splitNames = mutableSetOf<String>()
+                  var expectedVersion: Long? = null
                   paths.forEachIndexed { index, path ->
                       val apk = File(path)
                       if (!apk.isFile || apk.length() == 0L) {
                           throw IllegalStateException("APK file is missing or empty: $path")
+                      }
+                      if (!splitNames.add(apk.name)) {
+                          throw IllegalStateException("The installation set contains a duplicate APK part: ${apk.name}")
                       }
                       val info = packageManager.getPackageArchiveInfo(path, 0)
                           ?: throw IllegalStateException("APK is corrupted or unreadable: $path")
                       if (info.packageName != packageName) {
                           throw IllegalStateException("APK package mismatch. Expected $packageName but found ${info.packageName}.")
                       }
-                      if (index == 0 && !path.substringAfterLast('/').equals("base.apk", ignoreCase = true)) {
+                      val version = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                      if (expectedVersion == null) expectedVersion = version
+                      if (version != expectedVersion) {
+                          throw IllegalStateException("The base APK and split APKs have different versions.")
+                      }
+                      if (index == 0 && !apk.name.equals("base.apk", ignoreCase = true)) {
                           throw IllegalStateException("The base APK must be first in the installation set.")
+                      }
+                      if (index > 0 && (!apk.name.startsWith("split_") || !apk.name.endsWith(".apk", ignoreCase = true))) {
+                          throw IllegalStateException("An APK split has an invalid file name: ${apk.name}")
                       }
                   }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
@@ -786,6 +803,7 @@ jobs:
                           android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
                       )
                       session.commit(callback.intentSender)
+                      session.close()
                   } catch (error: Exception) {
                       session.abandon()
                       throw error
