@@ -41,6 +41,7 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _downloading = false;
   bool _downloaded = false;
   Timer? _roomRefreshTimer;
+  Timer? _statusMessageTimer;
   String _fileSearchQuery = '';
   StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
@@ -90,6 +91,7 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
+    _statusMessageTimer?.cancel();
     _manifestSubscription?.cancel();
     _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
@@ -465,9 +467,16 @@ class _FilesScreenState extends State<FilesScreen> {
     await _service.stopSharing();
     TransferOverlayController.clear();
     if (!mounted) return;
+    _statusMessageTimer?.cancel();
     setState(() {
       _invite = null;
       _status = 'Sharing stopped';
+    });
+    // Keep the confirmation visible briefly, then clear it so the idle
+    // Files screen does not retain a stale session message indefinitely.
+    _statusMessageTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted || _status != 'Sharing stopped') return;
+      setState(() => _status = null);
     });
   }
 
