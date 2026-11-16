@@ -303,6 +303,7 @@ jobs:
                               result.error("INVALID_SAVE", "A source file and name are required.", null)
                               return@setMethodCallHandler
                           }
+                          val safeRequestedName = safeRequestedName ?: "received_file"
                           val source = File(sourcePath)
                           if (!source.isFile) {
                               result.error("SOURCE_MISSING", "The completed temporary file is missing.", null)
@@ -316,7 +317,7 @@ jobs:
                               else -> android.os.Environment.DIRECTORY_DOCUMENTS
                           }
                           val relativeFolder = "$baseFolder/Plazma S" + if (type == "app") "/${source.parentFile?.name ?: "Apps"}" else ""
-                          val extension = requestedName.substringAfterLast('.', "").lowercase()
+                          val extension = safeRequestedName.substringAfterLast('.', "").lowercase()
                           val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
                               ?: "application/octet-stream"
                           try {
@@ -333,15 +334,15 @@ jobs:
                                   if (!existingUri.isNullOrBlank()) {
                                       val existing = DocumentFile.fromSingleUri(this, Uri.parse(existingUri))
                                       if (existing?.exists() == true) {
-                                          result.success(mapOf("uri" to existingUri, "path" to ((destinationFolder.name ?: "Selected folder") + "/" + (existing.name ?: requestedName))))
+                                          result.success(mapOf("uri" to existingUri, "path" to ((destinationFolder.name ?: "Selected folder") + "/" + (existing.name ?: safeRequestedName))))
                                           return@setMethodCallHandler
                                       }
                                   }
-                                  var finalName = requestedName
+                                  var finalName = safeRequestedName
                                   var suffix = 1
-                                  val dot = requestedName.lastIndexOf('.')
-                                  val stem = if (dot > 0) requestedName.substring(0, dot) else requestedName
-                                  val ext = if (dot > 0) requestedName.substring(dot) else ""
+                                  val dot = safeRequestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else requestedName
+                                  val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
                                   while (destinationFolder.findFile(finalName)?.exists() == true) {
                                       finalName = "$stem ($suffix)$ext"
                                       suffix++
@@ -392,7 +393,7 @@ jobs:
                                       else -> android.provider.MediaStore.Files.getContentUri("external")
                                   }
                                   if (transferKey.isNotBlank()) {
-                                      val selection = "${"description"}=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
+                                      val selection = "description=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
                                       contentResolver.query(collection,
                                           arrayOf(android.provider.MediaStore.MediaColumns._ID,
                                               android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
@@ -412,16 +413,16 @@ jobs:
                                           }
                                       }
                                   }
-                                  var finalName = requestedName
+                                  var finalName = safeRequestedName
                                   var suffix = 1
                                   fun exists(name: String): Boolean {
                                       val selection = "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
                                       return contentResolver.query(collection, arrayOf(android.provider.MediaStore.MediaColumns._ID),
                                           selection, arrayOf(name, "$relativeFolder/"), null)?.use { it.moveToFirst() } == true
                                   }
-                                  val dot = requestedName.lastIndexOf('.')
-                                  val stem = if (dot > 0) requestedName.substring(0, dot) else requestedName
-                                  val ext = if (dot > 0) requestedName.substring(dot) else ""
+                                  val dot = safeRequestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else requestedName
+                                  val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
                                   while (exists(finalName)) {
                                       finalName = "$stem ($suffix)$ext"
                                       suffix++
@@ -485,11 +486,11 @@ jobs:
                                   val publicRoot = android.os.Environment.getExternalStoragePublicDirectory(baseFolder)
                                   val directory = File(publicRoot, "Plazma S" + if (type == "app") "/${source.parentFile?.name ?: "Apps"}" else "")
                                   if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("Could not create the public save folder.")
-                                  var finalName = requestedName
+                                  var finalName = safeRequestedName
                                   var suffix = 1
-                                  val dot = requestedName.lastIndexOf('.')
-                                  val stem = if (dot > 0) requestedName.substring(0, dot) else requestedName
-                                  val ext = if (dot > 0) requestedName.substring(dot) else ""
+                                  val dot = safeRequestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else requestedName
+                                  val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
                                   while (File(directory, finalName).exists()) {
                                       finalName = "$stem ($suffix)$ext"
                                       suffix++
