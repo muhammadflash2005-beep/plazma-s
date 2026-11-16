@@ -499,6 +499,7 @@ class _FilesScreenState extends State<FilesScreen> {
             progress: progress.fraction.clamp(0, 1),
           ));
         },
+        onSaved: (item, path, uri) => _savedMessage(path, uri),
       );
       if (!mounted) return;
       setState(() {
@@ -608,6 +609,21 @@ class _FilesScreenState extends State<FilesScreen> {
       _destination = null;
       _status = 'Disconnected';
     });
+  }
+
+  void _savedMessage(String path, String? uri) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $path'),
+      action: uri == null ? null : SnackBarAction(
+        label: 'Open',
+        onPressed: () {
+          unawaited(const MethodChannel('com.plazma.s/storage').invokeMethod<void>(
+            'openSavedFile', {'uri': uri},
+          ));
+        },
+      ),
+    ));
   }
 
   void _message(String message) {

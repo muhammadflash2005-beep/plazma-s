@@ -251,6 +251,7 @@ class _VideosScreenState extends State<VideosScreen> {
         onProgress: (p) {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
         },
+        onSaved: (item, path, uri) => _savedMessage(path, uri),
       );
       if (!mounted) return;
       setState(() {
@@ -279,6 +280,21 @@ class _VideosScreenState extends State<VideosScreen> {
     await _service.disconnect();
     TransferOverlayController.clear();
     if (mounted) setState(() { _receiver = null; _incoming.clear(); _status = 'Disconnected.'; });
+  }
+
+  void _savedMessage(String path, String? uri) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $path'),
+      action: uri == null ? null : SnackBarAction(
+        label: 'Open',
+        onPressed: () {
+          unawaited(const MethodChannel('com.plazma.s/storage').invokeMethod<void>(
+            'openSavedFile', {'uri': uri},
+          ));
+        },
+      ),
+    ));
   }
 
   void _message(String value) {
