@@ -49,8 +49,6 @@ class _ImagesScreenState extends State<ImagesScreen> {
     if (ImagesScreen.sendSelected == _sendImages) ImagesScreen.sendSelected = null;
     ImagesScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 

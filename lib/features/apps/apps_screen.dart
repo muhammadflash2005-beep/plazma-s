@@ -410,8 +410,6 @@ class _AppsScreenState extends State<AppsScreen> {
     _roomRefreshTimer?.cancel();
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
     AppsScreen.selectedCount.value = 0;
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 

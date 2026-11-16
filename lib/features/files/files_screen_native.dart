@@ -76,8 +76,6 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 
