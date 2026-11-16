@@ -88,7 +88,9 @@ class TransferQueue {
   void cancelAll() {
     for (final item in items) {
       if (item.status == TransferItemStatus.waiting ||
-          item.status == TransferItemStatus.sending) cancel(item.id);
+          item.status == TransferItemStatus.sending) {
+        cancel(item.id);
+      }
     }
   }
 
