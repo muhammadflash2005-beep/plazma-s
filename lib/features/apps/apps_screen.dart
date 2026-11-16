@@ -689,7 +689,8 @@ class _AppsScreenState extends State<AppsScreen> {
         receiveRoot = _library!;
       }
       await _service.downloadAll(invite: _receiver!, files: all, destination: receiveRoot,
-        onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); });
+        onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); },
+        onSaved: (item, path, uri) => _savedMessage(path, uri));
       if (!Platform.isAndroid) {
         if (!mounted) return;
         setState(() => _status = 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path);
