@@ -102,6 +102,44 @@ class _FilesScreenState extends State<FilesScreen> {
     if (!mounted) return;
     setState(() { _receiverInvite = invite; _availableFiles = invite == null ? const [] : _service.roomFiles.value; });
   }
+  Future<void> _deleteSelectedFiles() async {
+    if (_files.isEmpty || _busy) return;
+    final count = _files.length;
+    final confirmed = await confirmPermanentDelete(
+      context,
+      itemDescription: '$count selected file(s)',
+    );
+    if (!confirmed) return;
+    var deleted = 0;
+    final errors = <String>[];
+    for (final file in List<File>.from(_files)) {
+      try {
+        if (await file.exists()) await file.delete();
+        deleted++;
+      } catch (error) {
+        errors.add('${file.uri.pathSegments.last}: $error');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      if (errors.isEmpty) {
+        _files.clear();
+        _relativePaths.clear();
+      } else {
+        final failedPaths = errors.map((entry) => entry.split(':').first).toSet();
+        for (var i = _files.length - 1; i >= 0; i--) {
+          if (!failedPaths.contains(_files[i].uri.pathSegments.last)) {
+            _files.removeAt(i);
+            _relativePaths.removeAt(i);
+          }
+        }
+      }
+    });
+    _message(errors.isEmpty
+        ? 'Permanently deleted $deleted file(s).'
+        : 'Deleted $deleted file(s); ${errors.length} could not be deleted.');
+  }
+
   Future<void> _pickFiles() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -597,6 +635,12 @@ class _FilesScreenState extends State<FilesScreen> {
                     _status = 'Selection cleared';
                   }),
                   child: const Text('Clear'),
+                ),
+                TextButton.icon(
+                  onPressed: _busy ? null : _deleteSelectedFiles,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 17),
+                  label: const Text('Delete selected'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
                 ),
             ]),
             if (_files.isNotEmpty) ...[
