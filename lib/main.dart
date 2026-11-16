@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 // Flutter stable 3.50 marks Material's umbrella library and legacy RadioListTile
 // selection parameters deprecated while transitioning to the new Material API.
 // Keep the UI compatible with the current stable SDK during that migration.
@@ -222,7 +221,7 @@ class _PlazmaAppState extends State<PlazmaApp> {
 
 
 class _ElectricTransferProgress extends StatefulWidget {
-  const _ElectricTransferProgress({required this.value, this.height = 8, super.key});
+  const _ElectricTransferProgress({required this.value, this.height = 8});
   final double value;
   final double height;
 
