@@ -22,6 +22,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   static const _audioExtensions = {
     'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff',
   };
+  static const _videoExtensions = {'mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', '3gp', 'wmv', 'flv'};
   static const _imageExtensions = {
     'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
   };
@@ -45,11 +46,13 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     if (entry.type == 'app') return 'app';
     if (entry.type == 'music') return 'music';
     if (entry.type == 'image') return 'image';
+    if (entry.type == 'video') return 'video';
     final extension = entry.name.contains('.')
         ? entry.name.split('.').last.toLowerCase()
         : '';
     if (_audioExtensions.contains(extension)) return 'music';
     if (_imageExtensions.contains(extension)) return 'image';
+    if (_videoExtensions.contains(extension)) return 'video';
     return 'file';
   }
 
@@ -222,6 +225,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
             _categorySection(direction, 'app', 'Apps', Icons.android_rounded),
             _categorySection(direction, 'music', 'Music', Icons.music_note_rounded),
             _categorySection(direction, 'image', 'Images', Icons.image_outlined),
+            _categorySection(direction, 'video', 'Videos', Icons.video_library_rounded),
           ],
         ),
       ),
