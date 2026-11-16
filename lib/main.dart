@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:io' as io;
+import 'dart:ui' as ui;
 // Flutter stable 3.50 marks Material's umbrella library and legacy RadioListTile
 // selection parameters deprecated while transitioning to the new Material API.
 // Keep the UI compatible with the current stable SDK during that migration.
@@ -15,6 +16,7 @@ import 'updates/app_update_card.dart';
 import 'features/apps/apps_screen.dart';
 import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
+import 'features/media/device_media_browser.dart';
 import 'features/music/music_screen.dart';
 import 'features/videos/videos_screen.dart';
 import 'transfers/transfer_overlay_controller.dart';
@@ -287,7 +289,7 @@ class _ElectricBoltPainter extends CustomPainter {
       ).createShader(rect);
     canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(size.height)), fill);
 
-    final path = Path();
+    final path = ui.Path();
     final mid = size.height / 2;
     path.moveTo(0, mid);
     final segments = (size.width / 13).ceil().clamp(1, 180);
@@ -402,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _chooseSaveFolder(String type) async {
-    if (!Platform.isAndroid) return;
+    if (!io.Platform.isAndroid) return;
     try {
       final selected = await const MethodChannel('com.plazma.s/storage')
           .invokeMapMethod<String, dynamic>('selectSaveFolder', {'type': type});
@@ -431,7 +433,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _resetSaveFolder(String type) async {
     final prefs = await SharedPreferences.getInstance();
     final uri = prefs.getString('plazma_save_folder_$type');
-    if (Platform.isAndroid && uri != null && uri.isNotEmpty) {
+    if (io.Platform.isAndroid && uri != null && uri.isNotEmpty) {
       try {
         await const MethodChannel('com.plazma.s/storage')
             .invokeMethod<void>('releaseSaveFolder', {'uri': uri});
@@ -463,7 +465,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _transferItemIcon(SharedLocalFile item) {
     final packageName = _packageFromTransferPath(item);
-    if (packageName == null || !Platform.isAndroid) {
+    if (packageName == null || !io.Platform.isAndroid) {
       return Icon(switch (item.type) {
         'app' => Icons.android_rounded,
         'image' => Icons.image_outlined,
@@ -702,9 +704,25 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (AppsScreen.selectedCount.value > 0) ...[
+                        if (AppsScreen.selectedCount.value > 0 ||
+                            ImagesScreen.selectedCount.value > 0 ||
+                            VideosScreen.selectedCount.value > 0 ||
+                            MusicScreen.selectedCount.value > 0) ...[
                           OutlinedButton.icon(
-                            onPressed: AppsScreen.deleteSelected == null ? null : () => AppsScreen.deleteSelected!(),
+                            onPressed: () async {
+                              final mediaDelete = [
+                                DeviceMediaBrowser.deleteSelected[MediaKind.images],
+                                DeviceMediaBrowser.deleteSelected[MediaKind.videos],
+                                DeviceMediaBrowser.deleteSelected[MediaKind.music],
+                              ];
+                              for (final delete in mediaDelete) {
+                                if (delete != null) await delete();
+                              }
+                              if (AppsScreen.selectedCount.value > 0 &&
+                                  AppsScreen.deleteSelected != null) {
+                                await AppsScreen.deleteSelected!();
+                              }
+                            },
                             icon: const Icon(Icons.delete_outline_rounded),
                             label: const Text('Delete'),
                             style: OutlinedButton.styleFrom(
@@ -909,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> {
         value: _autoSaveReceivedFiles,
         onChanged: _setAutoSaveReceivedFiles,
       )),
-      if (Platform.isAndroid) ...[
+      if (io.Platform.isAndroid) ...[
         const SizedBox(height: 14),
         Text('Save locations', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 4),
