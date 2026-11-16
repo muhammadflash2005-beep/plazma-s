@@ -723,7 +723,14 @@ jobs:
                       sourcePaths.forEachIndexed { index, sourcePath ->
                           val source = File(sourcePath)
                           if (!source.isFile) throw IllegalStateException("APK source is missing for $packageName")
-                          val fileName = if (index == 0) "base.apk" else "split_$index.apk"
+                          val fileName = if (index == 0) "base.apk" else {
+                              val sourceName = source.name
+                              if (sourceName.startsWith("split_") && sourceName.endsWith(".apk", ignoreCase = true)) {
+                                  sourceName
+                              } else {
+                                  "split_$index.apk"
+                              }
+                          }
                           val destination = File(outputDirectory, fileName)
                           source.copyTo(destination, overwrite = true)
                           exported.add(mapOf(
@@ -786,7 +793,7 @@ jobs:
                       paths.forEachIndexed { index, path ->
                           val apk = File(path)
                           if (!apk.isFile) throw IllegalStateException("APK file is missing: $path")
-                          val entryName = if (index == 0) "base.apk" else "split_$index.apk"
+                          val entryName = apk.name
                           session.openWrite(entryName, 0, apk.length()).use { output ->
                               apk.inputStream().use { input -> input.copyTo(output) }
                               session.fsync(output)
