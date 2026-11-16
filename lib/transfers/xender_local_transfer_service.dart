@@ -1008,6 +1008,7 @@ class XenderLocalTransferService {
         'sourcePath': file.path,
         'name': item.name,
         'type': item.type,
+        'transferKey': '${_joinedInvite?.roomId ?? 'room'}:${item.id}',
       }).timeout(const Duration(seconds: 30));
       final path = saved?['path'];
       final uri = saved?['uri'];
