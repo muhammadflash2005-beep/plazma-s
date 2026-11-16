@@ -105,6 +105,7 @@ class XenderLocalTransferService {
     }
   }
   HttpServer? _server;
+  Future<void> _roomMutationTail = Future<void>.value();
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
   List<SharedLocalFile> _joinedManifest = const [];
@@ -142,7 +143,36 @@ class XenderLocalTransferService {
     }
   }
 
+  Future<T> _serializeRoomMutation<T>(Future<T> Function() action) {
+    final operation = _roomMutationTail.then((_) => action());
+    _roomMutationTail = operation.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    return operation;
+  }
+
   Future<PlazmaConnectionInvite> startSharing({
+    required List<File> files,
+    required List<String> relativePaths,
+    Future<void> Function()? onTransferCompleted,
+  }) {
+    return _serializeRoomMutation(() async {
+      // Two category tabs can be tapped almost simultaneously. The second
+      // request must append to the room created by the first, never replace it.
+      if (_server != null && _invite != null) {
+        await _addFilesInternal(files: files, relativePaths: relativePaths);
+        return _invite!;
+      }
+      return _startSharingInternal(
+        files: files,
+        relativePaths: relativePaths,
+        onTransferCompleted: onTransferCompleted,
+      );
+    });
+  }
+
+  Future<PlazmaConnectionInvite> _startSharingInternal({
     required List<File> files,
     required List<String> relativePaths,
     Future<void> Function()? onTransferCompleted,
@@ -225,6 +255,15 @@ class XenderLocalTransferService {
 
   /// Adds more files to the currently hosted room without changing its QR code.
   Future<void> addFiles({
+    required List<File> files,
+    required List<String> relativePaths,
+  }) {
+    return _serializeRoomMutation(
+      () => _addFilesInternal(files: files, relativePaths: relativePaths),
+    );
+  }
+
+  Future<void> _addFilesInternal({
     required List<File> files,
     required List<String> relativePaths,
   }) async {
