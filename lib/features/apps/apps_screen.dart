@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../media/permanent_delete_confirmation.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
@@ -193,6 +195,35 @@ class _AppsScreenState extends State<AppsScreen> {
     }
     if (!mounted) return;
     setState(() => _saved[pkg] = name);
+  }
+
+  Future<void> _manageInstalledApp(String packageName, String appName, String action) async {
+    if (action == 'deleteSaved') {
+      final directory = Directory(_library!.path + Platform.pathSeparator + packageName);
+      if (!await directory.exists()) {
+        if (mounted) setState(() => _saved.remove(packageName));
+        return;
+      }
+      final confirmed = await confirmPermanentDelete(context, itemDescription: 'the saved APK copy of $appName');
+      if (!confirmed) return;
+      try {
+        await directory.delete(recursive: true);
+        if (mounted) {
+          setState(() => _saved.remove(packageName));
+          _message('Saved APK copy deleted. The installed app was not uninstalled.');
+        }
+      } catch (error) {
+        if (mounted) _message('Could not delete saved APK copy: $error');
+      }
+    } else if (action == 'settings') {
+      try {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'openAppSettings', {'packageName': packageName},
+        );
+      } catch (error) {
+        if (mounted) _message('Could not open Android app settings: $error');
+      }
+    }
   }
 
   Future<void> _toggleAppSelection(String pkg, String name) async {
@@ -605,27 +636,40 @@ class _AppsScreenState extends State<AppsScreen> {
                     width: selected ? 1.6 : 0.7,
                   ),
                 ),
-                child: InkWell(
-                  onTap: pkg == null || _busy
-                      ? null
-                      : () => _toggleAppSelection(pkg, app.appName ?? pkg),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        icon,
-                        const SizedBox(height: 6),
-                        Text(
-                          app.appName ?? pkg ?? 'App',
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: InkWell(
+                        onTap: pkg == null || _busy ? null : () => _toggleAppSelection(pkg, app.appName ?? pkg),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              icon,
+                              const SizedBox(height: 6),
+                              Text(app.appName ?? pkg ?? 'App', textAlign: TextAlign.center,
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    if (pkg != null)
+                      Positioned(
+                        top: 0, right: 0,
+                        child: PopupMenuButton<String>(
+                          tooltip: 'Manage app', padding: EdgeInsets.zero, iconSize: 16,
+                          onSelected: (action) => _manageInstalledApp(pkg, app.appName ?? pkg, action),
+                          itemBuilder: (_) => [
+                            if (_saved.containsKey(pkg))
+                              const PopupMenuItem(value: 'deleteSaved', child: Text('Delete saved APK copy')),
+                            const PopupMenuItem(value: 'settings', child: Text('App settings / uninstall')),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               );
             });

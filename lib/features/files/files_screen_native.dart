@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+
+import '../media/permanent_delete_confirmation.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -139,6 +141,64 @@ class _FilesScreenState extends State<FilesScreen> {
     _message(errors.isEmpty
         ? 'Permanently deleted $deleted file(s).'
         : 'Deleted $deleted file(s); ${errors.length} could not be deleted.');
+  }
+
+  Future<void> _manageStagedFile(int index, String action) async {
+    if (index < 0 || index >= _files.length || _busy) return;
+    final source = _files[index];
+    final name = _relativePaths[index].split('/').last;
+    try {
+      if (action == 'remove') {
+        setState(() { _files.removeAt(index); _relativePaths.removeAt(index); });
+        return;
+      }
+      if (action == 'rename') {
+        final controller = TextEditingController(text: name);
+        final nextName = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Rename file'),
+            content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'New name')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Rename')),
+            ],
+          ),
+        );
+        controller.dispose();
+        if (nextName == null || nextName.isEmpty || nextName == name) return;
+        final target = File('${source.parent.path}${Platform.pathSeparator}$nextName');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists.', target.path);
+        final renamed = await source.rename(target.path);
+        if (!mounted) return;
+        setState(() { _files[index] = renamed; _relativePaths[index] = nextName; });
+        _message('File renamed');
+      } else if (action == 'copy' || action == 'move') {
+        final directory = await FilePicker.getDirectoryPath();
+        if (directory == null) return;
+        final target = File('$directory${Platform.pathSeparator}$name');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists in the selected folder.', target.path);
+        await source.copy(target.path);
+        if (action == 'move') {
+          final confirmed = await confirmPermanentDelete(context,
+            itemDescription: 'the original $name after it is copied to the selected folder');
+          if (!confirmed) { await target.delete(); return; }
+          await source.delete();
+          if (!mounted) return;
+          setState(() { _files[index] = target; _relativePaths[index] = name; });
+        }
+        _message(action == 'move' ? 'File moved' : 'File copied to selected folder');
+      } else if (action == 'delete') {
+        final confirmed = await confirmPermanentDelete(context, itemDescription: name);
+        if (!confirmed) return;
+        await source.delete();
+        if (!mounted) return;
+        setState(() { _files.removeAt(index); _relativePaths.removeAt(index); });
+        _message('File permanently deleted');
+      }
+    } catch (error) {
+      if (mounted) _message('Could not $action file: $error');
+    }
   }
 
   Future<void> _pickFiles() async {
@@ -659,13 +719,17 @@ class _FilesScreenState extends State<FilesScreen> {
                     leading: const Icon(Icons.insert_drive_file_outlined),
                     title: Text(_relativePaths[index], maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(_formatBytes(_files[index].lengthSync())),
-                    trailing: IconButton(
-                      tooltip: 'Remove',
-                      onPressed: _busy ? null : () => setState(() {
-                        _files.removeAt(index);
-                        _relativePaths.removeAt(index);
-                      }),
-                      icon: const Icon(Icons.close_rounded),
+                    trailing: PopupMenuButton<String>(
+                      tooltip: 'Manage file',
+                      onSelected: (action) => _manageStagedFile(index, action),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'rename', child: Text('Rename')),
+                        PopupMenuItem(value: 'copy', child: Text('Copy to folder')),
+                        PopupMenuItem(value: 'move', child: Text('Move to folder')),
+                        PopupMenuDivider(),
+                        PopupMenuItem(value: 'delete', child: Text('Delete permanently')),
+                        PopupMenuItem(value: 'remove', child: Text('Remove from selection')),
+                      ],
                     ),
                   )),
               if (_visibleFileIndexes.length > 5) Text('And ${_visibleFileIndexes.length - 5} more…'),
