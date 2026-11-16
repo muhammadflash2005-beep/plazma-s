@@ -373,7 +373,7 @@ class XenderLocalTransferService {
         // every connected receiver. A single fast receiver cannot mark the
         // shared item done while another device is still downloading it.
         _refreshAggregateQueueStatus(id);
-        if (status == 'done' && deviceId is String) {
+        if (status == 'done') {
           final itemType = _manifest[id]['type'] as String? ?? 'file';
           final relative = _manifest[id]['relativePath'] as String? ?? '';
           final isApp = itemType == 'app';
@@ -434,7 +434,7 @@ class XenderLocalTransferService {
           return;
         }
         final wasFirst = (_room?.completedCount ?? 0) == 0;
-        final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
+        final marked = _room?.markCompleted(deviceId) ?? false;
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         final onCompleted = marked && wasFirst ? _onTransferCompleted : null;

@@ -542,7 +542,7 @@ class _FilesScreenState extends State<FilesScreen> {
     try {
       if (paths.length == 1) {
         final cache = await getTemporaryDirectory();
-        final staged = File(cache.path + Platform.pathSeparator + '$packageName.apk');
+        final staged = File('${cache.path}${Platform.pathSeparator}$packageName.apk');
         await File(paths.single).copy(staged.path);
         await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
           'installApk', {'path': staged.path},

@@ -108,7 +108,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     try {
       if (apks.length == 1) {
         final cache = await getTemporaryDirectory();
-        final staged = File(cache.path + Platform.pathSeparator + '${entry.name}.apk');
+        final staged = File('${cache.path}${Platform.pathSeparator}${entry.name}.apk');
         await apks.single.copy(staged.path);
         await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
           'installApk', {'path': staged.path},
