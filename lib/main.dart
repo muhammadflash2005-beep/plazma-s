@@ -254,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
                           physics: const ClampingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+                          padding: EdgeInsets.fromLTRB(16, 10, 16, _tab == 0 ? 112 : 18),
                           child: IndexedStack(
                             index: _tab,
                             children: [
@@ -269,6 +269,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   if (!wide)
                     NavigationBar(
+                      labelTextStyle: WidgetStateProperty.resolveWith((states) => const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                       selectedIndex: _tab,
                       onDestinationSelected: (value) => setState(() {
                         _tab = value;
@@ -289,7 +290,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Positioned(
               left: wide ? 300 : 16,
               right: 16,
-              bottom: wide ? 92 : 158,
+              bottom: wide ? 84 : 84,
               child: ValueListenableBuilder<int>(
                 valueListenable: AppsScreen.selectedCount,
                 builder: (context, count, _) => count == 0
@@ -304,8 +305,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             customBorder: const CircleBorder(),
                             onTap: AppsScreen.sendSelected,
                             child: const SizedBox(
-                              width: 58,
-                              height: 58,
+                              width: 52,
+                              height: 52,
                               child: Icon(Icons.send_rounded, color: Colors.white, size: 25),
                             ),
                           ),
@@ -321,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
                     : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
                         child: InkWell(customBorder: const CircleBorder(), onTap: ImagesScreen.sendSelected,
-                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                          child: const SizedBox(width: 52, height: 52, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
               ),
             ),
           if (_tab == 0 && _category == 2)
@@ -441,6 +442,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return SizedBox(
       height: 54,
       child: ListView.separated(
+        clipBehavior: Clip.hardEdge,
+        physics: const ClampingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         scrollDirection: Axis.horizontal,
         itemCount: labels.length,
