@@ -1,28 +1,33 @@
 class RoomDevice {
-  const RoomDevice({
+  RoomDevice({
     required this.deviceId,
     required this.deviceName,
     required this.platform,
     this.completed = false,
-  });
+    DateTime? lastSeenAt,
+  }) : lastSeenAt = lastSeenAt ?? DateTime.now();
 
   final String deviceId;
   final String deviceName;
   final String platform;
   final bool completed;
+  final DateTime lastSeenAt;
 
-  RoomDevice copyWith({bool? completed}) => RoomDevice(
+  bool get isConnected => DateTime.now().difference(lastSeenAt) < const Duration(seconds: 55);
+
+  RoomDevice copyWith({bool? completed, DateTime? lastSeenAt}) => RoomDevice(
         deviceId: deviceId,
         deviceName: deviceName,
         platform: platform,
         completed: completed ?? this.completed,
+        lastSeenAt: lastSeenAt ?? this.lastSeenAt,
       );
 
   Map<String, Object> toJson() => {
         'deviceId': deviceId,
         'deviceName': deviceName,
         'platform': platform,
-        'status': completed ? 'completed' : 'joined',
+        'status': completed ? 'completed' : (isConnected ? 'joined' : 'reconnecting'),
       };
 }
 
@@ -60,7 +65,15 @@ class RoomRegistry {
       deviceId: deviceId,
       deviceName: deviceName.trim(),
       platform: platform.trim(),
+      lastSeenAt: DateTime.now(),
     );
+    return true;
+  }
+
+  bool heartbeat(String deviceId) {
+    final member = _members[deviceId];
+    if (member == null) return false;
+    _members[deviceId] = member.copyWith(lastSeenAt: DateTime.now());
     return true;
   }
 

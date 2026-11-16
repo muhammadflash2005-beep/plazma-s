@@ -3,6 +3,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
+import 'app_bundle.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -15,7 +19,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../network/android_wifi_session_service.dart';
-import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
@@ -70,6 +73,10 @@ class _AppsScreenState extends State<AppsScreen> {
   final Set<String> _selected = {};
   final Map<String, List<SharedLocalFile>> _incoming = {};
   final Map<String, String> _saved = {};
+  final Map<String, int> _appSizes = {};
+  final Map<String, Map<String, dynamic>> _appDetails = {};
+  final Map<String, AppBundleMetadata> _bundleMetadata = {};
+  final Map<String, Map<String, dynamic>> _incomingDetails = {};
   final Map<String, Future<void>> _saveTasks = {};
   final Map<String, Future<Uint8List?>> _iconFutures = {};
   final List<DesktopInstalledApp> _desktopApps = [];
@@ -86,6 +93,7 @@ class _AppsScreenState extends State<AppsScreen> {
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
   bool _loading = false, _busy = false;
+  bool _receivedRoom = false;
   Timer? _roomRefreshTimer;
   StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
   double _progress = 0;
@@ -94,6 +102,9 @@ class _AppsScreenState extends State<AppsScreen> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isAndroid) {
+      const MethodChannel('com.plazma.s/apps').setMethodCallHandler(_handleInstallerCallback);
+    }
     AppsScreen.sendSelected = _send;
     _service.roomFiles.addListener(_syncRoomFiles);
     _syncRoomFiles();
@@ -101,6 +112,14 @@ class _AppsScreenState extends State<AppsScreen> {
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingApps(_receiver!);
     _load();
+  }
+
+  Future<void> _handleInstallerCallback(MethodCall call) async {
+    if (call.method != 'installStatus' || !mounted) return;
+    final details = Map<String, dynamic>.from(call.arguments as Map);
+    final message = (details['message'] ?? 'Android installer returned an unknown result.').toString();
+    setState(() => _status = message);
+    _message(message);
   }
 
   void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
@@ -163,7 +182,21 @@ class _AppsScreenState extends State<AppsScreen> {
       await library.create(recursive: true);
       final apps = await FlutterDeviceApps.listApps(
         includeSystem: false, onlyLaunchable: true, includeIcons: false);
+      apps.removeWhere((app) => (app.packageName ?? '').startsWith('org.chromium.webapk.'));
       apps.sort((a,b) => (a.appName ?? '').toLowerCase().compareTo((b.appName ?? '').toLowerCase()));
+      final nativeDetails = await const MethodChannel('com.plazma.s/apps')
+          .invokeListMethod<dynamic>('listInstalledApps') ?? const <dynamic>[];
+      final appSizes = <String, int>{};
+      final appDetails = <String, Map<String, dynamic>>{};
+      for (final value in nativeDetails.whereType<Map>()) {
+        final detail = Map<String, dynamic>.from(value);
+        final packageName = detail['packageName'];
+        final size = detail['sizeBytes'];
+        if (packageName is String) {
+          appDetails[packageName] = detail;
+          if (size is num) appSizes[packageName] = size.toInt();
+        }
+      }
       final saved = <String,String>{};
       await for (final entity in library.list(followLinks: false)) {
         if (entity is Directory) {
@@ -178,13 +211,27 @@ class _AppsScreenState extends State<AppsScreen> {
       setState(() {
         _library = library;
         _apps..clear()..addAll(apps);
+        _appSizes..clear()..addAll(appSizes);
+        _appDetails..clear()..addAll(appDetails);
         _visibleAppCount = _appPageSize;
         _iconFutures.clear();
         _saved..clear()..addAll(saved);
         _selected.removeWhere((p) => !apps.any((a) => a.packageName == p));
+        _error = apps.isEmpty ? 'No installed apps were returned. Check app visibility permissions, then tap refresh.' : null;
       });
     } catch (e) { if (mounted) setState(() => _error = 'Could not load apps: ' + e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  String _formatAppSize(int bytes) {
+    const units = ['B', 'KB', 'MB', 'GB'];
+    var value = bytes.toDouble();
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return '${value.toStringAsFixed(unit == 0 ? 0 : 1)} ${units[unit]}';
   }
 
   Future<Uint8List?> _appIcon(String packageName) {
@@ -316,6 +363,9 @@ class _AppsScreenState extends State<AppsScreen> {
       if (mounted) setState(() { _preparing = false; _busy = true; _preparingAppName = null; });
 
       final files = <File>[], paths = <String>[];
+      final bundleDirectory = Directory(
+        _library!.path + Platform.pathSeparator + 'outgoing_bundles');
+      await bundleDirectory.create(recursive: true);
       for (final pkg in packages) {
         final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
         final savedFiles = <File>[];
@@ -333,10 +383,24 @@ class _AppsScreenState extends State<AppsScreen> {
         if (savedFiles.isEmpty || savedFiles.first.uri.pathSegments.last != 'base.apk') {
           throw StateError('The saved APK set for $pkg is incomplete.');
         }
-        for (final file in savedFiles) {
-          files.add(file);
-          paths.add(pkg + '/' + file.uri.pathSegments.last);
-        }
+        final details = _appDetails[pkg] ?? const <String, dynamic>{};
+        final app = _apps.firstWhere((value) => value.packageName == pkg);
+        String safe(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_').replaceAll(RegExp(r'_+'), '_').replaceAll(RegExp(r'^_+|_+$'), '');
+        final appName = safe(app.appName ?? pkg);
+        final versionName = safe((details['versionName'] ?? '').toString());
+        final bundleName = (appName.isEmpty ? pkg : appName) + '_' +
+            (versionName.isEmpty ? 'unknown' : versionName) + '.plazmaapp';
+        final bundle = File(bundleDirectory.path + Platform.pathSeparator + pkg + '_' + bundleName);
+        await AppBundle.create(
+          output: bundle,
+          packageName: pkg,
+          appName: app.appName ?? pkg,
+          versionName: (details['versionName'] ?? '').toString(),
+          versionCode: (details['versionCode'] as num?)?.toInt() ?? 0,
+          apks: savedFiles,
+        );
+        files.add(bundle);
+        paths.add('Apps/' + pkg + '/' + bundleName);
       }
 
       final invite = await (_service.isSharing
@@ -561,28 +625,46 @@ class _AppsScreenState extends State<AppsScreen> {
     });
   }
 
+  bool _isAppTransfer(SharedLocalFile item) {
+    final path = item.relativePath.toLowerCase();
+    return path.endsWith('.plazmaapp') || path.endsWith('.apk');
+  }
+
+  String? _incomingPackageName(SharedLocalFile item) {
+    final segments = item.relativePath.split('/');
+    if (segments.isEmpty) return null;
+    final filename = segments.last;
+    final isBundle = filename.toLowerCase().endsWith('.plazmaapp');
+    final packageName = isBundle && segments.length >= 2 ? segments[1] : segments.first;
+    if (!RegExp(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$').hasMatch(packageName)) {
+      return null;
+    }
+    return packageName;
+  }
+
+  Map<String, List<SharedLocalFile>> _groupIncomingApps(
+      Iterable<SharedLocalFile> manifest) {
+    final groups = <String, List<SharedLocalFile>>{};
+    for (final item in manifest) {
+      if (!_isAppTransfer(item)) continue;
+      final packageName = _incomingPackageName(item);
+      if (packageName != null) groups.putIfAbsent(packageName, () => []).add(item);
+    }
+    return groups;
+  }
+
   void _syncRoomFiles() {
     final invite = _service.joinedInvite;
-    final groups = <String, List<SharedLocalFile>>{};
-    if (invite != null) {
-      for (final item in _service.roomFiles.value) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
-        final package = item.relativePath.split('/').first;
-        if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
-      }
-    }
+    final groups = invite == null
+        ? <String, List<SharedLocalFile>>{}
+        : _groupIncomingApps(_service.roomFiles.value);
     if (!mounted) return;
     setState(() { _receiver = invite; _incoming..clear()..addAll(groups); });
   }
   void _watchIncomingApps(PlazmaConnectionInvite invite) {
     _manifestSubscription?.cancel();
     _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
-      final groups = <String, List<SharedLocalFile>>{};
-      for (final item in manifest) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
-        final package = item.relativePath.split('/').first;
-        if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
-      }
+      final groups = _groupIncomingApps(manifest);
       if (!mounted) return;
       setState(() { _incoming..clear()..addAll(groups); _status = '${groups.length} app(s) available in this room.'; });
     }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
@@ -606,19 +688,16 @@ class _AppsScreenState extends State<AppsScreen> {
         _watchIncomingApps(invite);
         return;
       }
-      final groups = <String,List<SharedLocalFile>>{};
-      for (final item in manifest) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
-        final pkg = item.relativePath.split('/').first;
-        if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
-      }
-      if (groups.isEmpty) throw StateError('This QR code does not contain Android apps.');
+      final groups = _groupIncomingApps(manifest);
+      
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(groups); _status = 'Apps ready to receive.'; });
       _watchIncomingApps(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
-        direction: TransferOverlayDirection.receiving, fileCount: groups.length,
-        label: 'Ready to receive apps', isAppTransfer: true));
+        direction: TransferOverlayDirection.receiving, fileCount: manifest.length,
+        label: 'Receiving files', isAppTransfer: groups.isNotEmpty));
+      if (mounted) setState(() => _busy = false);
+      await _download(automatic: true);
     } catch (e) { await _service.disconnect(); _message('Could not connect: ' + e.toString()); }
     finally { if (mounted) setState(() => _busy = false); }
   }
@@ -627,12 +706,7 @@ class _AppsScreenState extends State<AppsScreen> {
     if (_receiver == null || _busy) return;
     try {
       final manifest = await _service.refreshManifest(_receiver!);
-      final groups = <String,List<SharedLocalFile>>{};
-      for (final item in manifest) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
-        final pkg = item.relativePath.split('/').first;
-        if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
-      }
+      final groups = _groupIncomingApps(manifest);
       setState(() {
         _incoming..clear()..addAll(groups);
         _status = '${groups.length} app(s) available in this room.';
@@ -640,35 +714,169 @@ class _AppsScreenState extends State<AppsScreen> {
     } catch (e) { _message('Could not refresh shared apps: $e'); }
   }
 
-  Future<void> _download() async {
-    if (_receiver == null || _library == null || _busy) return;
+  Future<void> _inspectIncomingApps() async {
+    if (!Platform.isAndroid || _library == null) return;
+    final root = await getApplicationDocumentsDirectory();
+    final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
+        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+    for (final entry in _incoming.entries) {
+      try {
+        final bundleItems = entry.value.where((item) =>
+            item.relativePath.toLowerCase().endsWith('.plazmaapp')).toList();
+        if (bundleItems.length > 1) {
+          throw StateError('More than one app bundle was received for the same package.');
+        }
+        if (bundleItems.isNotEmpty) {
+          final bundlePath = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
+              Platform.pathSeparator + entry.key + Platform.pathSeparator +
+              bundleItems.single.relativePath.split('/').last);
+          if (!await bundlePath.exists()) continue;
+          final metadata = await AppBundle.extract(
+            bundle: bundlePath,
+            outputDirectory: Directory(receiveRoot.path + Platform.pathSeparator + entry.key),
+          );
+          if (metadata.packageName != entry.key) {
+            throw StateError('The app bundle package does not match its transfer name.');
+          }
+          _bundleMetadata[entry.key] = metadata;
+        }
+        final baseApk = File(receiveRoot.path + Platform.pathSeparator + entry.key +
+            Platform.pathSeparator + 'base.apk');
+        if (!await baseApk.exists()) continue;
+        final details = await const MethodChannel('com.plazma.s/apps')
+          .invokeMapMethod<String, dynamic>('inspectApk', {'path': baseApk.path});
+        if (details == null || details['packageName'] != entry.key) {
+          throw StateError('Received APK package metadata does not match the package folder.');
+        }
+        if (mounted) {
+          setState(() => _incomingDetails[entry.key] = {
+            ...details,
+            if (_bundleMetadata[entry.key] != null)
+              'bundleVersionName': _bundleMetadata[entry.key]!.versionName,
+          });
+        }
+      } catch (error) {
+        if (mounted) _message('Could not read received app details: ' + error.toString());
+      }
+    }
+  }
+
+  Future<void> _installReceivedApp(String packageName) async {
+    if (!Platform.isAndroid) return;
+    final root = await getApplicationDocumentsDirectory();
+    final folder = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
+        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S' +
+        Platform.pathSeparator + packageName);
+    if (!await folder.exists()) {
+      _message('This app has not been saved on this device yet.');
+      return;
+    }
+    final apks = <File>[];
+    await for (final entry in folder.list(followLinks: false)) {
+      if (entry is File && entry.path.toLowerCase().endsWith('.apk')) apks.add(entry);
+    }
+    apks.sort((a, b) => a.uri.pathSegments.last == 'base.apk' ? -1 :
+        b.uri.pathSegments.last == 'base.apk' ? 1 : a.path.compareTo(b.path));
+    try {
+      final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
+      final bundles = manifestParts.where((part) =>
+          part.relativePath.toLowerCase().endsWith('.plazmaapp')).toList();
+      if (bundles.length == 1) {
+        final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
+            Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+        final bundleItem = bundles.single;
+        final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
+            Platform.pathSeparator + packageName + Platform.pathSeparator +
+            bundleItem.relativePath.split('/').last);
+        if (!await bundle.exists()) throw StateError('The received app bundle is missing.');
+        final actual = await sha256.bind(bundle.openRead()).first;
+        if (actual.toString() != bundles.single.sha256) {
+          throw StateError('The received app bundle failed its transfer checksum. Receive it again.');
+        }
+        final metadata = await AppBundle.extract(bundle: bundle, outputDirectory: folder);
+        if (metadata.packageName != packageName) {
+          throw StateError('The received app bundle contains a different package.');
+        }
+        apks..clear()..addAll(metadata.apkPaths.map((path) => File(path)));
+      } else {
+        if (manifestParts.length != apks.length) {
+          throw StateError('The received app is missing one or more APK split files. Receive the complete app again.');
+        }
+        for (final apk in apks) {
+          final filename = apk.uri.pathSegments.last;
+          final matches = manifestParts.where((part) => part.relativePath.split('/').last == filename);
+          if (matches.length != 1) throw StateError('No trusted transfer checksum was found for ' + filename + '.');
+          final actual = await sha256.bind(apk.openRead()).first;
+          if (actual.toString() != matches.first.sha256) {
+            throw StateError('Integrity check failed for ' + filename + '. Receive the app again before installing.');
+          }
+        }
+      }
+      if (apks.isEmpty || apks.first.uri.pathSegments.last != 'base.apk') {
+        throw StateError('The received app package is incomplete and cannot be installed.');
+      }
+      final inspected = await const MethodChannel('com.plazma.s/apps')
+        .invokeMapMethod<String, dynamic>('inspectApk', {'path': apks.first.path});
+      if (inspected == null || inspected['packageName'] != packageName) {
+        throw StateError('The base APK is invalid or belongs to a different app.');
+      }
+      if (mounted) setState(() => _incomingDetails[packageName] = inspected);
+      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+        'installApkSet',
+        {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
+      );
+      _message('Android installer opened. Review and approve the installation.');
+    } on PlatformException catch (error) {
+      final detail = (error.message ?? error.toString()).toLowerCase();
+      if (detail.contains('allow installs') || detail.contains('unknown app')) {
+        _message('Allow Plazma S to install unknown apps in Android settings, return here, then tap Install again.');
+      } else if (detail.contains('signature') || detail.contains('conflict')) {
+        _message('Installation blocked by a package/signature conflict. Android may require uninstalling the existing app first; its data could be lost.');
+      } else if (detail.contains('downgrade') || detail.contains('older version')) {
+        _message('Android blocked this older app version. Install a newer or matching version instead.');
+      } else if (detail.contains('storage') || detail.contains('space')) {
+        _message('Not enough storage to install this app. Free space and try again.');
+      } else if (detail.contains('incompatible') || detail.contains('abi')) {
+        _message('This app is not compatible with this device or CPU architecture.');
+      } else {
+        _message('Android could not start installation: ${error.message ?? error.code}');
+      }
+    } catch (error) {
+      _message('Could not start installation: $error');
+    }
+  }
+
+  Future<void> _download({bool automatic = false}) async {
+    if (_receiver == null || _library == null || (_busy && !automatic)) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving apps…'; });
     try {
-      final all = _incoming.values.expand((v) => v).toList();
-      await _service.downloadAll(invite: _receiver!, files: all, destination: _library!,
-        onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); });
-      if (!Platform.isAndroid) {
-        for (final item in all) {
-          await TransferHistoryStore.add(name: item.name, type: 'app-installer', direction: 'received',
-            path: _library!.path + Platform.pathSeparator + item.relativePath,
-            bytes: item.size, peer: 'Nearby Plazma S device');
-        }
-        if (!mounted) return;
-        setState(() => _status = 'Received ' + all.length.toString() + ' application package(s). Saved in ' + _library!.path);
+      final all = _service.roomFiles.value;
+      final Directory receiveRoot;
+      if (Platform.isAndroid) {
+        final root = await getApplicationDocumentsDirectory();
+        receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received');
       } else {
-        for (final entry in _incoming.entries) {
-          final bytes = entry.value.fold<int>(0, (sum,item) => sum + item.size);
-          _saved[entry.key] = entry.key;
-          await TransferHistoryStore.add(name: entry.key, type: 'app', direction: 'received',
-            path: _library!.path + Platform.pathSeparator + entry.key,
-            bytes: bytes, peer: 'Nearby Plazma S device');
-        }
-        if (!mounted) return;
-        setState(() => _status = 'Received and saved ' + _incoming.length.toString() + ' app(s).');
+        receiveRoot = _library!;
       }
+      await _service.downloadAll(invite: _receiver!, files: all, destination: receiveRoot,
+        onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); },
+        onSaved: (item, path, uri) => _savedMessage(path, uri));
+      if (Platform.isAndroid) {
+        for (final entry in _incoming.entries) {
+          _saved[entry.key] = entry.key;
+        }
+        await _inspectIncomingApps();
+      }
+      if (!mounted) return;
+      setState(() {
+        _receivedRoom = true;
+        _status = Platform.isAndroid
+            ? 'Received and saved ' + _incoming.length.toString() + ' app(s).'
+            : 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path;
+      });
       TransferOverlayController.clear();
       await _service.stopForegroundService();
-    } catch (e) { _message('App transfer failed: ' + e.toString()); }
+    } catch (e) { _message('App transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.'); }
     finally { if (mounted) setState(() => _busy = false); }
   }
 
@@ -689,13 +897,31 @@ class _AppsScreenState extends State<AppsScreen> {
     if (_busy) return;
     await _service.disconnect();
     TransferOverlayController.clear();
-    if (mounted) setState(() { _receiver = null; _incoming.clear(); _status = 'Disconnected.'; });
+    if (mounted) setState(() { _receiver = null; _incoming.clear(); _receivedRoom = false; _status = 'Disconnected.'; });
+  }
+
+  void _savedMessage(String path, String? uri) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $path'),
+      action: uri == null ? null : SnackBarAction(
+        label: 'Open',
+        onPressed: () {
+          unawaited(const MethodChannel('com.plazma.s/storage').invokeMethod<void>(
+            'openSavedFile', {'uri': uri},
+          ));
+        },
+      ),
+    ));
   }
 
   void _message(String s) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s))); }
 
   @override
   void dispose() {
+    if (Platform.isAndroid) {
+      const MethodChannel('com.plazma.s/apps').setMethodCallHandler(null);
+    }
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
     _service.roomFiles.removeListener(_syncRoomFiles);
@@ -746,11 +972,34 @@ class _AppsScreenState extends State<AppsScreen> {
         Row(children: [Expanded(child: Text(_incoming.length.toString() + ' app(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
           TextButton(onPressed: _busy ? null : _refreshIncomingApps, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
-        ..._incoming.entries.map((e) => ListTile(leading: const Icon(Icons.android),
-          title: Text(e.key), subtitle: Text(e.value.length.toString() + ' APK part(s)'))),
+        ..._incoming.entries.map((e) {
+          final details = _incomingDetails[e.key];
+          final iconData = details?['iconBase64'];
+          final appName = (details?['appName'] ?? e.key).toString();
+          final version = (details?['versionName'] ?? '').toString();
+          final isGroupedBundle = e.value.any((item) => item.relativePath.toLowerCase().endsWith('.plazmaapp'));
+          final partCount = _bundleMetadata[e.key]?.apkPaths.length ?? e.value.length;
+          return ListTile(
+          leading: iconData is String
+              ? Image.memory(base64Decode(iconData), width: 40, height: 40, fit: BoxFit.contain)
+              : const Icon(Icons.android),
+          title: Text(appName),
+          subtitle: Text([e.key, if (version.isNotEmpty) 'Version ' + version, isGroupedBundle ? '1 grouped transfer · $partCount APK part(s)' : e.value.length.toString() + ' APK part(s)'].join(' · ')),
+          trailing: _saved.containsKey(e.key)
+              ? TextButton.icon(onPressed: _busy ? null : () => _installReceivedApp(e.key),
+                  icon: const Icon(Icons.install_mobile_rounded), label: const Text('Install'))
+              : null);
+        }),
+        if (Platform.isAndroid)
+          const Padding(padding: EdgeInsets.only(top: 6), child: Text(
+            'Apps are transferred as APK files only; app data and account data are not included. Some Play Store apps may not run because of licensing or device restrictions.',
+            textAlign: TextAlign.center, style: TextStyle(fontSize: 11))),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy ? null : _download,
-          icon: const Icon(Icons.download), label: const Text('Receive and save apps')),
+        if (!_receivedRoom)
+          FilledButton.icon(onPressed: _busy ? null : _download,
+            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : 'Receive and save apps'))
+        else
+          const Text('Room files received and saved.'),
       ]))),
       if (_receiver == null) ...[
         Row(children: [
@@ -878,6 +1127,9 @@ class _AppsScreenState extends State<AppsScreen> {
                               Text(app.appName ?? pkg ?? 'App', textAlign: TextAlign.center,
                                 maxLines: 2, overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+                              if (pkg != null && _appSizes.containsKey(pkg))
+                                Text(_formatAppSize(_appSizes[pkg]!), textAlign: TextAlign.center,
+                                  maxLines: 1, style: TextStyle(fontSize: 8, color: theme.colorScheme.onSurfaceVariant)),
                             ],
                           ),
                         ),

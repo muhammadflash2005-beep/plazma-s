@@ -6,10 +6,12 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/android_wifi_session_service.dart';
 import '../rooms/room_id.dart';
 import '../rooms/room_registry.dart';
+import 'transfer_history.dart';
 import 'transfer_overlay_controller.dart';
 import 'transfer_queue.dart';
 
@@ -122,6 +124,11 @@ class XenderLocalTransferService {
   Directory? _lastDownloadDestination;
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
+  final Set<String> _recordedSentHistory = <String>{};
+  final Set<String> _recordedReceivedHistory = <String>{};
+  final Map<int, String> _finalSavedPaths = <int, String>{};
+  final Map<int, String> _finalSavedUris = <int, String>{};
+  void Function(SharedLocalFile item, String path, String? uri)? _lastDownloadSaved;
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -130,6 +137,7 @@ class XenderLocalTransferService {
   PlazmaConnectionInvite? get invite => _invite;
   PlazmaConnectionInvite? get joinedInvite => _joinedInvite;
   bool get isSharing => _server != null;
+  bool get isReceiving => _joinedInvite != null && _server == null;
 
   void _bumpManifestRevision() {
     _manifestRevision++;
@@ -244,6 +252,8 @@ class XenderLocalTransferService {
       _manifestChanged = Completer<void>();
       _invite = invite;
       _room = RoomRegistry(roomId: roomId);
+      _recordedSentHistory.clear();
+      _recordedReceivedHistory.clear();
       _onTransferCompleted = onTransferCompleted;
       _server = server;
       _publishRoomFiles();
@@ -324,6 +334,17 @@ class XenderLocalTransferService {
       return;
     }
     try {
+      if (request.method == 'POST' && request.uri.path == '/heartbeat') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        final touched = deviceId is String && (_room?.heartbeat(deviceId) ?? false);
+        request.response.statusCode = touched ? HttpStatus.ok : HttpStatus.forbidden;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'alive': touched}));
+        await request.response.close();
+        return;
+      }
       if (request.method == 'POST' && request.uri.path == '/queue-status') {
         final body = await utf8.decoder.bind(request).join();
         final decoded = jsonDecode(body);
@@ -352,30 +373,68 @@ class XenderLocalTransferService {
         // every connected receiver. A single fast receiver cannot mark the
         // shared item done while another device is still downloading it.
         _refreshAggregateQueueStatus(id);
+        if (status == 'done') {
+          final itemType = _manifest[id]['type'] as String? ?? 'file';
+          final relative = _manifest[id]['relativePath'] as String? ?? '';
+          final isApp = itemType == 'app';
+          final package = isApp ? _appPackageKey(relative) : '';
+          final packageIds = isApp
+              ? List<int>.generate(_manifest.length, (index) => index).where((index) =>
+                  (_manifest[index]['type'] as String? ?? '') == 'app' &&
+                  _appPackageKey(_manifest[index]['relativePath'] as String) == package).toList()
+              : <int>[id];
+          final packageDone = packageIds.every((index) =>
+              _receiverQueueStatuses.statusFor(deviceId, index)?.status == 'done');
+          final historyKey = isApp ? '$deviceId:app:$package' : '$deviceId:item:$id';
+          if (packageDone && _recordedSentHistory.add(historyKey)) {
+            try {
+              final member = _room!.members.firstWhere((value) => value.deviceId == deviceId);
+              final firstIndex = packageIds.first;
+              await TransferHistoryStore.add(
+                name: isApp ? package : (_manifest[id]['name'] as String),
+                type: itemType,
+                direction: 'sent',
+                path: isApp ? _files[firstIndex].path : _files[id].path,
+                bytes: packageIds.fold<int>(0, (sum, index) => sum + (_manifest[index]['size'] as int)),
+                peer: member.deviceName,
+              );
+            } catch (error) {
+              debugPrint('Plazma history: sent item could not be recorded: $error');
+            }
+          }
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode({'status': status}));
         await request.response.close();
         return;
       }
       if (request.method == 'POST' && request.uri.path == '/complete') {
-        // Do not acknowledge a receiver while new room items are still waiting.
-        // The receiver will refresh the manifest and drain those additions.
-        final waitingCount = _manifest.where(
-          (item) => item['status'] == 'waiting',
-        ).length;
-        if (waitingCount > 0) {
+        // Completion is acknowledged independently for each receiver. A
+        // slower second phone must not hold the first phone at 100%.
+        final deviceId = request.uri.queryParameters['deviceId'];
+        if (deviceId == null ||
+            !(_room?.members.any((member) => member.deviceId == deviceId) ?? false)) {
+          request.response.statusCode = HttpStatus.forbidden;
+          await request.response.close();
+          return;
+        }
+        final pendingCount = List<int>.generate(_manifest.length, (index) => index)
+            .where((id) {
+              final status = _receiverQueueStatuses.statusFor(deviceId, id)?.status ?? 'waiting';
+              return status != 'done' && status != 'cancelled';
+            }).length;
+        if (pendingCount > 0) {
           request.response.statusCode = HttpStatus.conflict;
           request.response.headers.contentType = ContentType.json;
           request.response.write(jsonEncode({
-            'pendingCount': waitingCount,
+            'pendingCount': pendingCount,
             'revision': _manifestRevision,
           }));
           await request.response.close();
           return;
         }
-        final deviceId = request.uri.queryParameters['deviceId'];
         final wasFirst = (_room?.completedCount ?? 0) == 0;
-        final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
+        final marked = _room?.markCompleted(deviceId) ?? false;
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         final onCompleted = marked && wasFirst ? _onTransferCompleted : null;
@@ -456,24 +515,33 @@ class XenderLocalTransferService {
         // Receivers can long-poll the room revision. A sender adding items
         // wakes every waiting receiver without requiring a room rejoin.
         final since = int.tryParse(request.uri.queryParameters['since'] ?? '');
+        final response = request.response;
+        response.bufferOutput = false;
+        response.persistentConnection = true;
+        response.headers.contentType = ContentType.json;
+        response.headers.set('Cache-Control', 'no-store');
+        response.headers.set('Connection', 'keep-alive');
+        await response.flush();
         if (since != null && since == _manifestRevision) {
           final changed = _manifestChanged;
           if (changed != null && !changed.isCompleted) {
             try {
               await changed.future.timeout(const Duration(seconds: 20));
             } on TimeoutException {
-              // A timeout is a heartbeat; the client simply rechecks.
+              // A quiet room is a normal heartbeat.
             }
           }
         }
-        request.response.headers.contentType = ContentType.json;
-        request.response.headers.set('Cache-Control', 'no-store');
-        request.response.write(jsonEncode({
-          'version': 1,
-          'revision': _manifestRevision,
-          'files': _manifest,
-        }));
-        await request.response.close();
+        try {
+          response.write(jsonEncode({
+            'version': 1,
+            'revision': _manifestRevision,
+            'files': _manifest,
+          }));
+          await response.close();
+        } on HttpException catch (error) {
+          debugPrint('Plazma manifest client disconnected: $error');
+        }
         return;
       }
       if (request.uri.path == '/download') {
@@ -651,8 +719,11 @@ class XenderLocalTransferService {
     final destination = _lastDownloadDestination;
     final onProgress = _lastDownloadProgress;
     if (invite == null || _retryingFailedQueue) return;
+    final failedIds = _joinedManifest.where((item) => item.status == 'failed')
+        .map((item) => item.id).toSet();
+    if (failedIds.isEmpty) return;
 
-    for (final item in _joinedManifest) {
+    for (final item in _joinedManifest.where((item) => failedIds.contains(item.id))) {
       if (item.status == 'failed') {
         final status = await _postQueueStatus(invite, item.id, 'waiting', 0);
         if (status == 'waiting') _updateJoinedQueueStatus(item.id, 'waiting', 0);
@@ -667,15 +738,16 @@ class XenderLocalTransferService {
     _retryingFailedQueue = true;
     try {
       final snapshot = await _fetchManifest(invite);
-      _joinedManifest = snapshot.files;
+      _joinedManifest = _mergeReceiverManifest(snapshot.files);
       _publishRoomFiles();
-      final retryItems = snapshot.files.where((item) => item.status == 'waiting').toList();
+      final retryItems = _joinedManifest.where((item) => failedIds.contains(item.id)).toList();
       if (retryItems.isNotEmpty) {
         await downloadAll(
           invite: invite,
           files: retryItems,
           destination: destination,
           onProgress: onProgress,
+          onSaved: _lastDownloadSaved,
         );
       }
     } catch (error) {
@@ -683,6 +755,64 @@ class XenderLocalTransferService {
     } finally {
       _retryingFailedQueue = false;
     }
+  }
+
+  Future<String?> _postQueueStatusReliable(
+    PlazmaConnectionInvite invite, int id, String status, int bytes, {HttpClient? client}
+  ) async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final result = await _postQueueStatus(invite, id, status, bytes, client: client);
+      if (result == status) {
+        if (status == 'done') {
+          final matches = _joinedManifest.where((item) => item.id == id);
+          if (matches.isNotEmpty && _lastDownloadDestination != null) {
+            final item = matches.first;
+            final relative = _safeRelativePath(item.relativePath);
+            final categoryFolder = switch (item.type) {
+              'image' => 'Pictures/Plazma S',
+              'video' => 'Movies/Plazma S',
+              'music' => 'Music/Plazma S',
+              'app' => 'Download/Plazma S',
+              _ => 'Documents/Plazma S',
+            };
+            final target = File(_lastDownloadDestination!.path + Platform.pathSeparator +
+                categoryFolder.replaceAll('/', Platform.pathSeparator) + Platform.pathSeparator +
+                relative.replaceAll('/', Platform.pathSeparator));
+            final finalPath = _finalSavedPaths[id] ?? target.path;
+            _updateJoinedQueueStatus(id, 'saved', item.size);
+            if (item.type == 'app') {
+              final package = _appPackageKey(relative);
+              final packageItems = _joinedManifest.where((value) =>
+                  value.type == 'app' && _appPackageKey(value.relativePath) == package).toList();
+              if (packageItems.isNotEmpty && packageItems.every((value) => value.status == 'saved') &&
+                  _recordedReceivedHistory.add('app:$package')) {
+                final isBundle = relative.toLowerCase().endsWith('.plazmaapp');
+                final publicFolder = finalPath.substring(0, finalPath.lastIndexOf(Platform.pathSeparator));
+                final installPath = isBundle
+                    ? target.parent.parent.parent.path + Platform.pathSeparator + package
+                    : target.parent.path;
+                await TransferHistoryStore.add(
+                  name: package, type: 'app', direction: 'received',
+                  path: isBundle ? finalPath : publicFolder, installPath: installPath,
+                  bytes: packageItems.fold<int>(0, (sum, value) => sum + value.size),
+                  peer: 'Nearby Plazma S device',
+                );
+              }
+            } else if (_recordedReceivedHistory.add('item:$id')) {
+              await TransferHistoryStore.add(
+                name: item.name, type: item.type, direction: 'received',
+                path: finalPath, bytes: item.size, peer: 'Nearby Plazma S device',
+              );
+            }
+            debugPrint('Plazma receiver completion confirmed for item $id');
+          }
+        }
+        return result;
+      }
+      debugPrint('Plazma completion acknowledgement retry: ${attempt + 1}');
+      await Future<void>.delayed(Duration(milliseconds: 300 * (1 << attempt)));
+    }
+    throw TimeoutException('The sender did not acknowledge the saved file.', const Duration(seconds: 9));
   }
 
   Future<String?> _postQueueStatus(PlazmaConnectionInvite invite, int id, String status, int bytes, {String? error, HttpClient? client}) async {
@@ -702,6 +832,10 @@ class XenderLocalTransferService {
     // A new room must never inherit a retry destination from an older room.
     _lastDownloadDestination = null;
     _lastDownloadProgress = null;
+    _recordedReceivedHistory.clear();
+    _finalSavedPaths.clear();
+    _finalSavedUris.clear();
+    _lastDownloadSaved = null;
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final deviceId = List.generate(
@@ -716,7 +850,7 @@ class XenderLocalTransferService {
       joinRequest.headers.contentType = ContentType.json;
       joinRequest.write(jsonEncode({
         'deviceId': deviceId,
-        'deviceName': Platform.localHostname,
+        'deviceName': await _deviceDisplayName(),
         'platform': Platform.operatingSystem,
       }));
       final joinResponse = await joinRequest.close().timeout(const Duration(seconds: 15));
@@ -740,7 +874,12 @@ class XenderLocalTransferService {
       }
       _joinedManifest = (decoded['files'] as List)
           .whereType<Map>()
-          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .map((item) {
+            final local = Map<String, dynamic>.from(item);
+            local['status'] = 'waiting';
+            local['bytesTransferred'] = 0;
+            return SharedLocalFile.fromJson(local);
+          })
           .toList();
       _publishRoomFiles();
       return _joinedManifest;
@@ -749,11 +888,30 @@ class XenderLocalTransferService {
     }
   }
 
+  List<SharedLocalFile> _mergeReceiverManifest(List<SharedLocalFile> remote) {
+    final previous = {for (final item in _joinedManifest) item.id: item};
+    return remote.map((item) {
+      final local = previous[item.id];
+      var status = local?.status ?? 'waiting';
+      var bytes = local?.bytesTransferred ?? 0;
+      if (local?.status == 'failed' && item.status == 'waiting') {
+        status = 'waiting';
+        bytes = 0;
+      }
+      if (local == null) bytes = 0;
+      return SharedLocalFile(
+        id: item.id, name: item.name, relativePath: item.relativePath,
+        size: item.size, sha256: item.sha256, status: status,
+        bytesTransferred: bytes, type: item.type,
+      );
+    }).toList();
+  }
+
   Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
     final snapshot = await _fetchManifest(invite);
-    _joinedManifest = snapshot.files;
+    _joinedManifest = _mergeReceiverManifest(snapshot.files);
     _publishRoomFiles();
-    return snapshot.files;
+    return _joinedManifest;
   }
 
   /// Emits the current room manifest and then waits for live additions.
@@ -761,13 +919,36 @@ class XenderLocalTransferService {
   /// receivers stay current without repeatedly downloading the whole list.
   Stream<List<SharedLocalFile>> watchManifest(PlazmaConnectionInvite invite) async* {
     var revision = -1;
+    var failures = 0;
     while (_joinedInvite == invite && _joinedDeviceId != null) {
-      final snapshot = await _fetchManifest(invite, since: revision);
-      if (snapshot.revision != revision) {
-        revision = snapshot.revision;
-        _joinedManifest = snapshot.files;
-        _publishRoomFiles();
-        yield snapshot.files;
+      try {
+        await _sendHeartbeat(invite);
+        final snapshot = await _fetchManifest(invite, since: revision);
+        failures = 0;
+        if (snapshot.revision != revision) {
+          final previous = {for (final item in _joinedManifest) item.id: item};
+          revision = snapshot.revision;
+          _joinedManifest = _mergeReceiverManifest(snapshot.files);
+          _publishRoomFiles();
+          final restarted = snapshot.files.where((remote) =>
+              previous[remote.id]?.status == 'failed' && remote.status == 'waiting').toList();
+          if (restarted.isNotEmpty && _lastDownloadDestination != null &&
+              _lastDownloadProgress != null && !_retryingFailedQueue) {
+            _retryingFailedQueue = true;
+            unawaited(downloadAll(
+              invite: invite,
+              files: restarted,
+              destination: _lastDownloadDestination!,
+              onProgress: _lastDownloadProgress!,
+              onSaved: _lastDownloadSaved,
+            ).whenComplete(() => _retryingFailedQueue = false));
+          }
+          yield _joinedManifest;
+        }
+      } catch (error) {
+        failures++;
+        debugPrint('Plazma manifest poll failed; retrying: $error');
+        await Future<void>.delayed(Duration(seconds: min(15, 1 << min(failures - 1, 4))));
       }
     }
   }
@@ -792,11 +973,61 @@ class XenderLocalTransferService {
       final revision = decoded['revision'] as int? ?? 0;
       final files = (decoded['files'] as List)
           .whereType<Map>()
-          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .map((item) {
+            final local = Map<String, dynamic>.from(item);
+            local['status'] = 'waiting';
+            return SharedLocalFile.fromJson(local);
+          })
           .toList();
       return (revision: revision, files: files);
     } finally {
       client.close(force: true);
+    }
+  }
+
+  Future<void> _sendHeartbeat(PlazmaConnectionInvite invite) async {
+    final deviceId = _joinedDeviceId;
+    if (deviceId == null) return;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final request = await client.postUrl(_endpoint(invite, '/heartbeat'));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode({'deviceId': deviceId}));
+      final response = await request.close().timeout(const Duration(seconds: 6));
+      await response.drain<void>();
+    } catch (error) {
+      debugPrint('Plazma heartbeat missed; grace period remains active: $error');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<String> _persistReceivedFile(File file, SharedLocalFile item) async {
+    if (!Platform.isAndroid) return file.path;
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool('plazma_auto_save_received') ?? true)) return file.path;
+    try {
+      final customFolderUri = prefs.getString('plazma_save_folder_${item.type}');
+      final saved = await const MethodChannel('com.plazma.s/storage')
+          .invokeMapMethod<String, dynamic>('saveReceivedFile', {
+        'sourcePath': file.path,
+        'name': item.name,
+        'type': item.type,
+        'transferKey': '${_joinedInvite?.roomId ?? 'room'}:${item.id}',
+        if (customFolderUri != null && customFolderUri.isNotEmpty)
+          'customFolderUri': customFolderUri,
+      }).timeout(const Duration(seconds: 30));
+      final path = saved?['path'];
+      final uri = saved?['uri'];
+      if (uri is String && uri.isNotEmpty) _finalSavedUris[item.id] = uri;
+      if (path is! String || path.isEmpty) {
+        throw StateError('Android did not return the saved file location.');
+      }
+      debugPrint('Plazma MediaStore save complete: $path');
+      return path;
+    } catch (error) {
+      debugPrint('Plazma MediaStore save failed: $error');
+      rethrow;
     }
   }
 
@@ -805,9 +1036,11 @@ class XenderLocalTransferService {
     required List<SharedLocalFile> files,
     required Directory destination,
     required void Function(LocalTransferProgress progress) onProgress,
+    void Function(SharedLocalFile item, String path, String? uri)? onSaved,
   }) async {
     _lastDownloadDestination = destination;
     _lastDownloadProgress = onProgress;
+    _lastDownloadSaved = onSaved;
     await destination.create(recursive: true);
     var totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
@@ -827,6 +1060,7 @@ class XenderLocalTransferService {
           continue;
         }
         var fileBytes = item.bytesTransferred;
+        _updateJoinedQueueStatus(item.id, 'receiving', fileBytes);
         try {
           final initialStatus = await _postQueueStatus(
             invite, item.id, 'sending', fileBytes, client: client,
@@ -836,22 +1070,32 @@ class XenderLocalTransferService {
             continue;
           }
           final relative = _safeRelativePath(item.relativePath);
+          final categoryFolder = switch (item.type) {
+            'image' => 'Pictures/Plazma S',
+            'video' => 'Movies/Plazma S',
+            'music' => 'Music/Plazma S',
+            'app' => 'Download/Plazma S',
+            _ => 'Documents/Plazma S',
+          };
           final target = File(
-            '${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
+            '${destination.path}${Platform.pathSeparator}${categoryFolder.replaceAll('/', Platform.pathSeparator)}'
+            '${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
           );
           await target.parent.create(recursive: true);
           if (await target.exists()) {
             final existingSize = await target.length();
             final existingDigest = await sha256.bind(target.openRead()).first;
             if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+              _finalSavedPaths[item.id] = await _persistReceivedFile(target, item);
               totalBytes += item.size;
-              final finalStatus = await _postQueueStatus(
+              final finalStatus = await _postQueueStatusReliable(
                 invite, item.id, 'done', item.size, client: client,
               );
               if (finalStatus == 'cancelled') {
                 wasCancelled = true;
                 continue;
               }
+              onSaved?.call(item, _finalSavedPaths[item.id] ?? target.path, _finalSavedUris[item.id]);
               onProgress(LocalTransferProgress(
                 fileName: item.name, fileBytes: item.size, fileSize: item.size,
                 totalBytes: totalBytes, totalSize: totalSize,
@@ -872,14 +1116,16 @@ class XenderLocalTransferService {
             final digest = await sha256.bind(partial.openRead()).first;
             if (digest.toString() == item.sha256) {
               await partial.rename(target.path);
+              _finalSavedPaths[item.id] = await _persistReceivedFile(target, item);
               totalBytes += item.size;
-              final finalStatus = await _postQueueStatus(
+              final finalStatus = await _postQueueStatusReliable(
                 invite, item.id, 'done', item.size, client: client,
               );
               if (finalStatus == 'cancelled') {
                 wasCancelled = true;
                 continue;
               }
+              onSaved?.call(item, _finalSavedPaths[item.id] ?? target.path, _finalSavedUris[item.id]);
               onProgress(LocalTransferProgress(
                 fileName: item.name, fileBytes: item.size, fileSize: item.size,
                 totalBytes: totalBytes, totalSize: totalSize,
@@ -947,9 +1193,14 @@ class XenderLocalTransferService {
             );
           }
           await partial.rename(target.path);
-          final finalStatus = await _postQueueStatus(
+          _finalSavedPaths[item.id] = await _persistReceivedFile(target, item);
+          final finalStatus = await _postQueueStatusReliable(
             invite, item.id, 'done', item.size, client: client,
           );
+          if (finalStatus == 'done') {
+            _updateJoinedQueueStatus(item.id, 'saved', item.size);
+            onSaved?.call(item, _finalSavedPaths[item.id] ?? target.path, _finalSavedUris[item.id]);
+          }
           if (finalStatus == 'cancelled') {
             wasCancelled = true;
             continue;
@@ -976,20 +1227,33 @@ class XenderLocalTransferService {
       if (hadFailure || wasCancelled) {
         throw StateError(
           hadFailure
-            ? 'Some items failed. Retry failed items from the room queue.'
+            ? 'Some files could not be received. Check Wi-Fi, then tap Retry failed in the room queue.'
             : 'One or more items were cancelled.',
         );
       }
-      final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
-        if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
-      }));
-      final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      HttpClientResponse? completeResponse;
+      for (var attempt = 0; attempt < 4; attempt++) {
+        try {
+          final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
+            if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
+          }));
+          completeResponse = await completeRequest.close().timeout(const Duration(seconds: 8));
+          break;
+        } catch (error) {
+          debugPrint('Plazma room completion acknowledgement retry: $error');
+          await Future<void>.delayed(Duration(milliseconds: 400 * (1 << attempt)));
+        }
+      }
+      if (completeResponse == null) {
+        throw TimeoutException('Files were saved, but the sender did not confirm completion. Reconnect and retry.', const Duration(seconds: 12));
+      }
       if (completeResponse.statusCode == HttpStatus.conflict) {
         await completeResponse.drain<void>();
         final snapshot = await _fetchManifest(invite);
-        _joinedManifest = snapshot.files;
+        _joinedManifest = _mergeReceiverManifest(snapshot.files);
         _publishRoomFiles();
-        pendingFiles = snapshot.files.where((item) => item.status == 'waiting').toList();
+        pendingFiles = _joinedManifest.where((item) =>
+            item.status != 'saved' && item.status != 'cancelled').toList();
         if (pendingFiles.isEmpty || ++queueRefreshAttempts > 20) {
           throw StateError('The room queue changed but could not be acknowledged. Refresh and retry.');
         }
@@ -1009,6 +1273,22 @@ class XenderLocalTransferService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<String> _deviceDisplayName() async {
+    if (Platform.isAndroid) {
+      try {
+        final name = await const MethodChannel('com.plazma.s/device')
+            .invokeMethod<String>('getDeviceName')
+            .timeout(const Duration(seconds: 2));
+        if (name != null && name.trim().isNotEmpty) return name.trim();
+      } catch (error) {
+        debugPrint('Plazma device name lookup unavailable: $error');
+      }
+    }
+    final hostname = Platform.localHostname.trim();
+    return hostname.isEmpty || hostname.toLowerCase() == 'localhost'
+        ? 'Android device' : hostname;
   }
 
   Future<String> _localIpv4Address() async {
@@ -1081,9 +1361,21 @@ class XenderLocalTransferService {
     return normalized;
   }
 
+  String _appPackageKey(String relativePath) {
+    final segments = relativePath.split('/');
+    final filename = segments.last;
+    if (filename.toLowerCase().endsWith('.plazmaapp')) {
+      return segments.length >= 3 && segments.first == 'Apps'
+          ? segments[1]
+          : filename.substring(0, filename.length - '.plazmaapp'.length);
+    }
+    if (filename.toLowerCase().endsWith('.apk')) return segments.first;
+    return relativePath;
+  }
+
   String _itemTypeForPath(String path) {
     final lower = path.toLowerCase();
-    if (['.apk', '.aab', '.exe', '.msi', '.msix', '.appimage', '.deb', '.rpm', '.dmg', '.pkg'].any(lower.endsWith)) return 'app';
+    if (['.apk', '.aab', '.plazmaapp', '.exe', '.msi', '.msix', '.appimage', '.deb', '.rpm', '.dmg', '.pkg'].any(lower.endsWith)) return 'app';
     if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif'].any(lower.endsWith)) return 'image';
     if (['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.3gp'].any(lower.endsWith)) return 'video';
     if (['.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus', '.wma'].any(lower.endsWith)) return 'music';
@@ -1121,6 +1413,7 @@ class XenderLocalTransferService {
     _joinedManifest = const [];
     _lastDownloadDestination = null;
     _lastDownloadProgress = null;
+    _lastDownloadSaved = null;
     _retryingFailedQueue = false;
     _publishRoomFiles();
     if (invite != null && deviceId != null) {

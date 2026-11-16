@@ -13,7 +13,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../media/device_media_browser.dart';
 
 import '../../network/android_wifi_session_service.dart';
-import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
@@ -118,19 +117,7 @@ class _MusicScreenState extends State<MusicScreen> {
               .then((_) => _service.invite!)
           : _service.startSharing(
               files: List<File>.from(_selected),
-              relativePaths: names,
-              onTransferCompleted: () async {
-                for (final file in _selected) {
-                  await TransferHistoryStore.add(
-                    name: file.uri.pathSegments.last,
-                    type: 'music',
-                    direction: 'sent',
-                    path: file.path,
-                    bytes: await file.length(),
-                    peer: 'Nearby Plazma S device',
-                  );
-                }
-              },
+              relativePaths: names
             ));
       if (!mounted) return;
       setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
@@ -227,6 +214,9 @@ class _MusicScreenState extends State<MusicScreen> {
         fileCount: musicFiles.length,
         label: 'Ready to receive music',
       ));
+      // Joining starts the full room queue automatically.
+      if (mounted) setState(() => _busy = false);
+      await _downloadMusic();
     } catch (e) {
       await _service.disconnect();
       _message('Could not connect: $e');
@@ -252,35 +242,26 @@ class _MusicScreenState extends State<MusicScreen> {
     setState(() { _busy = true; _progress = 0; _status = 'Receiving music…'; });
     try {
       final root = await getApplicationDocumentsDirectory();
-      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Music');
+      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Received');
       await destination.create(recursive: true);
       await _service.downloadAll(
         invite: _receiver!,
-        files: _incoming,
+        files: _service.roomFiles.value,
         destination: destination,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
         },
+        onSaved: (item, path, uri) => _savedMessage(path, uri),
       );
-      for (final item in _incoming) {
-        await TransferHistoryStore.add(
-          name: item.name,
-          type: 'music',
-          direction: 'received',
-          path: '${destination.path}${Platform.pathSeparator}${item.relativePath}',
-          bytes: item.size,
-          peer: 'Nearby Plazma S device',
-        );
-      }
       if (!mounted) return;
       setState(() {
         _receivedDirectory = destination;
-        _status = 'Received ${_incoming.length} song(s). Saved in Plazma S Music.';
+        _status = 'Received all ${_service.roomFiles.value.length} item(s) in this room.';
       });
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) {
-      _message('Music transfer failed: $e');
+      _message('Transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -299,6 +280,21 @@ class _MusicScreenState extends State<MusicScreen> {
     await _service.disconnect();
     TransferOverlayController.clear();
     if (mounted) setState(() { _receiver = null; _incoming.clear(); _status = 'Disconnected.'; });
+  }
+
+  void _savedMessage(String path, String? uri) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $path'),
+      action: uri == null ? null : SnackBarAction(
+        label: 'Open',
+        onPressed: () {
+          unawaited(const MethodChannel('com.plazma.s/storage').invokeMethod<void>(
+            'openSavedFile', {'uri': uri},
+          ));
+        },
+      ),
+    ));
   }
 
   void _message(String value) {
@@ -347,8 +343,9 @@ class _MusicScreenState extends State<MusicScreen> {
           TextButton(onPressed: _busy ? null : _refreshMusic, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy ? null : _downloadMusic,
-          icon: const Icon(Icons.download), label: const Text('Receive music')),
+        if (!_service.isReceiving)
+          FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadMusic,
+            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive music')),
       ]))),
       if (_receiver == null) ...[
         DeviceMediaBrowser(

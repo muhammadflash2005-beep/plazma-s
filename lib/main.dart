@@ -1,3 +1,4 @@
+import 'dart:io';
 // Flutter stable 3.50 marks Material's umbrella library and legacy RadioListTile
 // selection parameters deprecated while transitioning to the new Material API.
 // Keep the UI compatible with the current stable SDK during that migration.
@@ -228,7 +229,76 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _category = 0;
+  bool _autoSaveReceivedFiles = true;
+  final Map<String, String> _saveFolderLabels = {};
+  static const _saveFolderTypes = <String, String>{
+    'image': 'Images', 'video': 'Videos', 'music': 'Music', 'file': 'Files', 'app': 'Apps',
+  };
   final ScrollController _contentScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (!mounted) return;
+      setState(() {
+        _autoSaveReceivedFiles = prefs.getBool('plazma_auto_save_received') ?? true;
+        for (final type in _saveFolderTypes.keys) {
+          final label = prefs.getString('plazma_save_folder_label_$type');
+          if (label != null && label.isNotEmpty) _saveFolderLabels[type] = label;
+        }
+      });
+    });
+  }
+
+  Future<void> _setAutoSaveReceivedFiles(bool value) async {
+    setState(() => _autoSaveReceivedFiles = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('plazma_auto_save_received', value);
+  }
+
+  Future<void> _chooseSaveFolder(String type) async {
+    if (!Platform.isAndroid) return;
+    try {
+      final selected = await const MethodChannel('com.plazma.s/storage')
+          .invokeMapMethod<String, dynamic>('selectSaveFolder', {'type': type});
+      final uri = selected?['uri'];
+      final label = selected?['name'];
+      if (uri is! String || uri.isEmpty || label is! String || label.isEmpty) return;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('plazma_save_folder_$type', uri);
+      await prefs.setString('plazma_save_folder_label_$type', label);
+      if (mounted) setState(() => _saveFolderLabels[type] = label);
+    } on PlatformException catch (error) {
+      if (error.code != 'FOLDER_PICKER_CANCELLED' && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not select that folder. Try again.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Folder selection is unavailable on this device.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _resetSaveFolder(String type) async {
+    final prefs = await SharedPreferences.getInstance();
+    final uri = prefs.getString('plazma_save_folder_$type');
+    if (Platform.isAndroid && uri != null && uri.isNotEmpty) {
+      try {
+        await const MethodChannel('com.plazma.s/storage')
+            .invokeMethod<void>('releaseSaveFolder', {'uri': uri});
+      } catch (_) {
+        // Clearing the saved override should still work if Android already revoked it.
+      }
+    }
+    await prefs.remove('plazma_save_folder_$type');
+    await prefs.remove('plazma_save_folder_label_$type');
+    if (mounted) setState(() => _saveFolderLabels.remove(type));
+  }
 
   @override
   void dispose() {
@@ -246,6 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
           valueListenable: service.roomFiles,
           builder: (context, items, _) {
             final roomId = service.invite?.roomId ?? service.joinedInvite?.roomId;
+            final isReceiver = service.isReceiving;
             final totalBytes = items.fold<int>(0, (sum, item) => sum + item.size);
             final transferredBytes = items.fold<int>(0, (sum, item) => sum + item.bytesTransferred);
             return SizedBox(
@@ -258,15 +329,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
                     IconButton(onPressed: () => Navigator.of(sheetContext).pop(), icon: const Icon(Icons.close)),
                   ]),
-                  Text('${items.length} item(s) in this room',
+                  Text(isReceiver ? 'Receiving ${items.length} file(s)' : 'Sending ${items.length} file(s)',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   if (items.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Wrap(spacing: 8, children: [
                       OutlinedButton.icon(onPressed: () => service.cancelAllQueuedItems(),
-                        icon: const Icon(Icons.cancel_outlined, size: 16), label: const Text('Cancel all')),
+                        icon: const Icon(Icons.cancel_outlined, size: 16), label: Text(isReceiver ? 'Cancel receiving' : 'Cancel all')),
                       OutlinedButton.icon(onPressed: () => service.retryFailedQueueItems(),
-                        icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry failed')),
+                        icon: const Icon(Icons.refresh_rounded, size: 16), label: Text(isReceiver ? 'Retry failed receives' : 'Retry failed sends')),
                     ]),
                   ],
                   if (totalBytes > 0) ...[
@@ -287,11 +358,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(item.relativePath),
                             trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Text(item.status, style: const TextStyle(fontSize: 10)),
+                              Text(isReceiver ? (item.status == 'sending' ? 'receiving' : item.status == 'done' ? 'saved' : item.status) : (item.status == 'done' ? 'sent' : item.status), style: const TextStyle(fontSize: 10)),
                               const SizedBox(height: 4),
                               LinearProgressIndicator(value: item.size <= 0 ? 0 : (item.bytesTransferred / item.size).clamp(0.0, 1.0)),
                               if (item.status == 'waiting' || item.status == 'sending')
-                                IconButton(visualDensity: VisualDensity.compact, tooltip: 'Cancel item',
+                                IconButton(visualDensity: VisualDensity.compact, tooltip: isReceiver ? 'Cancel receiving item' : 'Cancel sending item',
                                   onPressed: () => service.cancelQueuedItem(item.id),
                                   icon: const Icon(Icons.close_rounded, size: 17)),
                             ])),
@@ -618,6 +689,47 @@ class _HomeScreenState extends State<HomeScreen> {
       const SizedBox(height: 20),
       const AppUpdateCard(),
       const SizedBox(height: 12),
+      Card(child: SwitchListTile(
+        secondary: const Icon(Icons.save_alt_rounded),
+        title: const Text('Auto-save received files'),
+        subtitle: const Text('Save incoming media and documents automatically to the device folders.'),
+        value: _autoSaveReceivedFiles,
+        onChanged: _setAutoSaveReceivedFiles,
+      )),
+      if (Platform.isAndroid) ...[
+        const SizedBox(height: 14),
+        Text('Save locations', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        Text('Choose a separate destination folder for each type. Unselected types use the default Plazma S folders.',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 8),
+        Card(child: Column(children: _saveFolderTypes.entries.map((entry) {
+          final label = _saveFolderLabels[entry.key];
+          return ListTile(
+            leading: Icon(switch (entry.key) {
+              'image' => Icons.image_outlined,
+              'video' => Icons.movie_outlined,
+              'music' => Icons.music_note_rounded,
+              'app' => Icons.apps_rounded,
+              _ => Icons.folder_outlined,
+            }),
+            title: Text(entry.value),
+            subtitle: Text(label ?? 'Default Plazma S folder', maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (label != null) IconButton(
+                tooltip: 'Use default folder',
+                onPressed: () => _resetSaveFolder(entry.key),
+                icon: const Icon(Icons.restart_alt_rounded),
+              ),
+              IconButton(
+                tooltip: 'Choose folder',
+                onPressed: () => _chooseSaveFolder(entry.key),
+                icon: const Icon(Icons.folder_open_rounded),
+              ),
+            ]),
+          );
+        }).toList())),
+      ],
       Card(child: ListTile(
         leading: const Icon(Icons.wifi_rounded),
         title: const Text('Connection mode'),

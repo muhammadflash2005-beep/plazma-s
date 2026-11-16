@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms]
+    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms, feature/send-apps, feature/android-app-bundle-transfer]
     tags: ['v*']
   pull_request:
     branches: [main]
@@ -59,6 +59,8 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
               <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -92,16 +94,33 @@ jobs:
                   android:foregroundServiceType="dataSync" />
           """
           s = s.replace("</application>", service + "\n" + provider + "\n    </application>", 1)
+          # flutter create already generates MainActivity with singleTop launch mode.
+          # Do not inject it again: duplicate XML attributes make AndroidManifest.xml invalid.
+          if 'android:name=".MainActivity"' not in s or 'android:launchMode="singleTop"' not in s:
+              raise SystemExit("Generated MainActivity manifest is missing its expected singleTop launch mode")
           manifest.write_text(s)
           gradle_kts = Path("android/app/build.gradle.kts")
-          if gradle_kts.exists():
-              gradle_text = gradle_kts.read_text()
-              gradle_text = gradle_text.replace(
-                  "dependencies {",
-                  'dependencies {\n    implementation("androidx.core:core:1.15.0")',
-                  1,
-              )
-              gradle_kts.write_text(gradle_text)
+          gradle_groovy = Path("android/app/build.gradle")
+          gradle_file = gradle_kts if gradle_kts.exists() else gradle_groovy
+          if gradle_file.exists():
+              gradle_text = gradle_file.read_text()
+              if "androidx.documentfile:documentfile" not in gradle_text:
+                  if "dependencies {" in gradle_text:
+                      gradle_text = gradle_text.replace(
+                          "dependencies {",
+                          'dependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")',
+                          1,
+                      ) if gradle_file == gradle_kts else gradle_text.replace(
+                          "dependencies {",
+                          "dependencies {\n    implementation 'androidx.core:core:1.15.0'\n    implementation 'androidx.documentfile:documentfile:1.0.1'",
+                          1,
+                      )
+                  else:
+                      block = ('\ndependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")\n}\n'
+                               if gradle_file == gradle_kts else
+                               "\ndependencies {\n    implementation 'androidx.core:core:1.15.0'\n    implementation 'androidx.documentfile:documentfile:1.0.1'\n}\n")
+                      gradle_text += block
+                  gradle_file.write_text(gradle_text)
           file_paths = Path("android/app/src/main/res/xml/plazma_file_paths.xml")
           file_paths.parent.mkdir(parents=True, exist_ok=True)
           file_paths.write_text("""<?xml version="1.0" encoding="utf-8"?>
@@ -133,6 +152,7 @@ jobs:
           import android.os.Build
           import android.provider.Settings
           import androidx.core.app.ActivityCompat
+          import androidx.documentfile.provider.DocumentFile
           import io.flutter.embedding.android.FlutterActivity
           import io.flutter.embedding.engine.FlutterEngine
           import io.flutter.plugin.common.MethodChannel
@@ -175,9 +195,320 @@ jobs:
               private var pendingJoinResult: MethodChannel.Result? = null
               private var pendingJoinSsid: String? = null
               private var pendingJoinPassword: String? = null
+              private var pendingFolderPickerResult: MethodChannel.Result? = null
+
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode != 7044) return
+                  val pending = pendingFolderPickerResult ?: return
+                  pendingFolderPickerResult = null
+                  if (resultCode != android.app.Activity.RESULT_OK) {
+                      pending.error("FOLDER_PICKER_CANCELLED", "Folder selection was cancelled.", null)
+                      return
+                  }
+                  val returnedIntent = data
+                  val uri = returnedIntent?.data
+                  if (returnedIntent == null || uri == null) {
+                      pending.error("FOLDER_SELECTION_FAILED", "Android did not return a folder.", null)
+                      return
+                  }
+                  try {
+                      val flags = returnedIntent.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                      contentResolver.takePersistableUriPermission(uri, flags)
+                      val folder = DocumentFile.fromTreeUri(this, uri)
+                          ?: throw IllegalStateException("Android could not open the selected folder.")
+                      pending.success(mapOf("uri" to uri.toString(), "name" to (folder.name ?: "Selected folder")))
+                  } catch (error: Exception) {
+                      pending.error("FOLDER_PERMISSION_FAILED", error.message, null)
+                  }
+              }
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/device")
+                      .setMethodCallHandler { call, result ->
+                          if (call.method != "getDeviceName") {
+                              result.notImplemented()
+                              return@setMethodCallHandler
+                          }
+                          val manufacturer = Build.MANUFACTURER.orEmpty().trim()
+                          val model = Build.MODEL.orEmpty().trim()
+                          val displayName = listOf(manufacturer, model)
+                              .filter { it.isNotBlank() }
+                              .distinct()
+                              .joinToString(" ")
+                              .ifBlank { "Android device" }
+                          result.success(displayName)
+                      }
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
+                      .setMethodCallHandler { call, result ->
+                          if (call.method == "releaseSaveFolder") {
+                              val rawUri = call.argument<String>("uri")
+                              if (!rawUri.isNullOrBlank()) {
+                                  try {
+                                      contentResolver.releasePersistableUriPermission(
+                                          Uri.parse(rawUri),
+                                          Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                      )
+                                  } catch (_: SecurityException) {
+                                      // The provider may already have revoked this grant.
+                                  }
+                              }
+                              result.success(null)
+                              return@setMethodCallHandler
+                          }
+                          if (call.method == "selectSaveFolder") {
+                              if (pendingFolderPickerResult != null) {
+                                  result.error("FOLDER_PICKER_BUSY", "A folder picker is already open.", null)
+                                  return@setMethodCallHandler
+                              }
+                              pendingFolderPickerResult = result
+                              try {
+                                  val picker = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                                  }
+                                  startActivityForResult(picker, 7044)
+                              } catch (error: Exception) {
+                                  pendingFolderPickerResult = null
+                                  result.error("FOLDER_PICKER_FAILED", error.message, null)
+                              }
+                              return@setMethodCallHandler
+                          }
+                          if (call.method == "openSavedFile") {
+                              val rawUri = call.argument<String>("uri")
+                              if (rawUri.isNullOrBlank()) {
+                                  result.error("INVALID_URI", "No saved file URI was supplied.", null)
+                                  return@setMethodCallHandler
+                              }
+                              try {
+                                  val uri = android.net.Uri.parse(rawUri)
+                                  val mime = contentResolver.getType(uri) ?: "*/*"
+                                  val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                      setDataAndType(uri, mime)
+                                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                  }
+                                  startActivity(openIntent)
+                                  result.success(null)
+                              } catch (error: Exception) {
+                                  result.error("OPEN_FAILED", error.message, null)
+                              }
+                              return@setMethodCallHandler
+                          }
+                          if (call.method != "saveReceivedFile") {
+                              result.notImplemented()
+                              return@setMethodCallHandler
+                          }
+                          val sourcePath = call.argument<String>("sourcePath")
+                          val requestedName = call.argument<String>("name")
+                          val type = call.argument<String>("type") ?: "file"
+                          val transferKey = call.argument<String>("transferKey").orEmpty()
+                          val customFolderUri = call.argument<String>("customFolderUri")
+                          if (sourcePath.isNullOrBlank() || requestedName.isNullOrBlank()) {
+                              result.error("INVALID_SAVE", "A source file and name are required.", null)
+                              return@setMethodCallHandler
+                          }
+                          val safeRequestedName = requestedName ?: "received_file"
+                          val source = File(sourcePath)
+                          if (!source.isFile) {
+                              result.error("SOURCE_MISSING", "The completed temporary file is missing.", null)
+                              return@setMethodCallHandler
+                          }
+                          val baseFolder = when (type) {
+                              "image" -> android.os.Environment.DIRECTORY_PICTURES
+                              "video" -> android.os.Environment.DIRECTORY_MOVIES
+                              "music" -> android.os.Environment.DIRECTORY_MUSIC
+                              "app" -> android.os.Environment.DIRECTORY_DOWNLOADS
+                              else -> android.os.Environment.DIRECTORY_DOCUMENTS
+                          }
+                          val relativeFolder = "$baseFolder/Plazma S" + if (type == "app") "/${source.parentFile?.name ?: "Apps"}" else ""
+                          val extension = safeRequestedName.substringAfterLast('.', "").lowercase()
+                          val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                              ?: "application/octet-stream"
+                          try {
+                              if (!customFolderUri.isNullOrBlank()) {
+                                  val root = DocumentFile.fromTreeUri(this, Uri.parse(customFolderUri))
+                                      ?: throw IllegalStateException("The selected save folder is no longer available. Choose it again in Settings.")
+                                  val destinationFolder = if (type == "app") {
+                                      val packageFolderName = source.parentFile?.name ?: "Apps"
+                                      root.findFile(packageFolderName) ?: root.createDirectory(packageFolderName)
+                                          ?: throw IllegalStateException("Could not create the app folder in the selected destination.")
+                                  } else root
+                                  val savedKey = "plazma_saved_uri_" + transferKey
+                                  val existingUri = getSharedPreferences("plazma_save_locations", MODE_PRIVATE).getString(savedKey, null)
+                                  if (!existingUri.isNullOrBlank()) {
+                                      val existing = DocumentFile.fromSingleUri(this, Uri.parse(existingUri))
+                                      if (existing?.exists() == true) {
+                                          result.success(mapOf("uri" to existingUri, "path" to ((destinationFolder.name ?: "Selected folder") + "/" + (existing.name ?: safeRequestedName))))
+                                          return@setMethodCallHandler
+                                      }
+                                  }
+                                  var finalName = safeRequestedName
+                                  var suffix = 1
+                                  val dot = safeRequestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else safeRequestedName
+                                  val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
+                                  while (destinationFolder.findFile(finalName)?.exists() == true) {
+                                      finalName = "$stem ($suffix)$ext"
+                                      suffix++
+                                  }
+                                  val document = destinationFolder.createFile(mime, finalName)
+                                      ?: throw IllegalStateException("Android could not create the file in the selected folder.")
+                                  try {
+                                      contentResolver.openOutputStream(document.uri, "w")?.use { output ->
+                                          source.inputStream().use { input -> input.copyTo(output) }
+                                      } ?: throw IllegalStateException("Android could not write to the selected folder.")
+                                      getSharedPreferences("plazma_save_locations", MODE_PRIVATE).edit().putString(savedKey, document.uri.toString()).apply()
+                                      if (type != "app") source.delete()
+                                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                          val channel = android.app.NotificationChannel("plazma_saved", "Saved files", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                                          getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
+                                          val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                              setDataAndType(document.uri, mime)
+                                              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                          }
+                                          val pending = android.app.PendingIntent.getActivity(this, System.currentTimeMillis().toInt(), openIntent,
+                                              android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                                          val notification = androidx.core.app.NotificationCompat.Builder(this, "plazma_saved")
+                                              .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                                              .setContentTitle("Saved to Plazma S")
+                                              .setContentText((destinationFolder.name ?: "Selected folder") + "/" + finalName)
+                                              .setContentIntent(pending)
+                                              .setAutoCancel(true)
+                                              .build()
+                                          try {
+                                              androidx.core.app.NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), notification)
+                                          } catch (_: SecurityException) {
+                                              // File saving must still work when notifications are disabled.
+                                          }
+                                      }
+                                      result.success(mapOf("uri" to document.uri.toString(), "path" to ((destinationFolder.name ?: "Selected folder") + "/" + finalName)))
+                                  } catch (error: Exception) {
+                                      document.delete()
+                                      throw error
+                                  }
+                                  return@setMethodCallHandler
+                              }
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                  val collection = when (type) {
+                                      "image" -> android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                                      "video" -> android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                                      "music" -> android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                                      "app" -> android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                                      else -> android.provider.MediaStore.Files.getContentUri("external")
+                                  }
+                                  if (transferKey.isNotBlank()) {
+                                      val selection = "description=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
+                                      contentResolver.query(collection,
+                                          arrayOf(android.provider.MediaStore.MediaColumns._ID,
+                                              android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
+                                              android.provider.MediaStore.MediaColumns.IS_PENDING),
+                                          selection, arrayOf("plazma:$transferKey", "$relativeFolder/"), null)?.use { cursor ->
+                                          if (cursor.moveToFirst()) {
+                                              val existingId = cursor.getLong(0)
+                                              val existingName = cursor.getString(1)
+                                              val pending = cursor.getInt(2)
+                                              val existingUri = android.content.ContentUris.withAppendedId(collection, existingId)
+                                              if (pending == 0) {
+                                                  result.success(mapOf("uri" to existingUri.toString(), "path" to "$relativeFolder/$existingName"))
+                                                  return@setMethodCallHandler
+                                              } else {
+                                                  contentResolver.delete(existingUri, null, null)
+                                              }
+                                          }
+                                      }
+                                  }
+                                  var finalName = safeRequestedName
+                                  var suffix = 1
+                                  fun exists(name: String): Boolean {
+                                      val selection = "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
+                                      return contentResolver.query(collection, arrayOf(android.provider.MediaStore.MediaColumns._ID),
+                                          selection, arrayOf(name, "$relativeFolder/"), null)?.use { it.moveToFirst() } == true
+                                  }
+                                  val dot = safeRequestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else safeRequestedName
+                                  val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
+                                  while (exists(finalName)) {
+                                      finalName = "$stem ($suffix)$ext"
+                                      suffix++
+                                  }
+                                  val values = android.content.ContentValues().apply {
+                                      put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
+                                      put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
+                                      put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "$relativeFolder/")
+                                      if (transferKey.isNotBlank()) put("description", "plazma:$transferKey")
+                                      put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                                  }
+                                  val uri = contentResolver.insert(collection, values)
+                                      ?: throw IllegalStateException("Android could not create the media item.")
+                                  try {
+                                      contentResolver.openOutputStream(uri, "w")?.use { output ->
+                                          source.inputStream().use { input -> input.copyTo(output) }
+                                      } ?: throw IllegalStateException("Android could not open the media destination.")
+                                      contentResolver.update(uri, android.content.ContentValues().apply {
+                                          put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                                      }, null, null)
+                                      if (type != "app") source.delete()
+                                      if (Build.VERSION.SDK_INT >= 33 &&
+                                          androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                                          !getSharedPreferences("plazma_permissions", MODE_PRIVATE).getBoolean("notification_prompted", false)) {
+                                          getSharedPreferences("plazma_permissions", MODE_PRIVATE).edit().putBoolean("notification_prompted", true).apply()
+                                          androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7043)
+                                      }
+                                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                          val channel = android.app.NotificationChannel("plazma_saved", "Saved files", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                                          getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
+                                          val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                              setDataAndType(uri, mime)
+                                              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                          }
+                                          val pending = android.app.PendingIntent.getActivity(this, System.currentTimeMillis().toInt(), openIntent,
+                                              android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                                          val notification = androidx.core.app.NotificationCompat.Builder(this, "plazma_saved")
+                                              .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                                              .setContentTitle("Saved to Plazma S")
+                                              .setContentText("$relativeFolder/$finalName")
+                                              .setContentIntent(pending)
+                                              .setAutoCancel(true)
+                                              .build()
+                                          try {
+                                              androidx.core.app.NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), notification)
+                                          } catch (_: SecurityException) {
+                                              // Saving must still succeed when notification permission is denied.
+                                          }
+                                      }
+                                      result.success(mapOf("uri" to uri.toString(), "path" to "$relativeFolder/$finalName"))
+                                  } catch (error: Exception) {
+                                      contentResolver.delete(uri, null, null)
+                                      throw error
+                                  }
+                              } else {
+                                  if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                      androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 7042)
+                                      result.error("LEGACY_STORAGE_PERMISSION_REQUIRED", "Allow storage access, then retry saving this file.", null)
+                                      return@setMethodCallHandler
+                                  }
+                                  val publicRoot = android.os.Environment.getExternalStoragePublicDirectory(baseFolder)
+                                  val directory = File(publicRoot, "Plazma S" + if (type == "app") "/${source.parentFile?.name ?: "Apps"}" else "")
+                                  if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("Could not create the public save folder.")
+                                  var finalName = safeRequestedName
+                                  var suffix = 1
+                                  val dot = safeRequestedName.lastIndexOf('.')
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else safeRequestedName
+                                  val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
+                                  while (File(directory, finalName).exists()) {
+                                      finalName = "$stem ($suffix)$ext"
+                                      suffix++
+                                  }
+                                  val output = File(directory, finalName)
+                                  source.copyTo(output)
+                                  if (type != "app") source.delete()
+                                  android.media.MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf(mime), null)
+                                  result.success(mapOf("uri" to android.net.Uri.fromFile(output).toString(), "path" to output.absolutePath))
+                              }
+                          } catch (error: Exception) {
+                              result.error("SAVE_FAILED", error.message, null)
+                          }
+                      }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/transfer_service")
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
@@ -232,6 +563,21 @@ jobs:
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
+                              "listInstalledApps" -> {
+                                  try {
+                                      result.success(installedAppDetails())
+                                  } catch (error: Exception) {
+                                      result.error("APP_LIST_FAILED", error.message, null)
+                                  }
+                              }
+                              "inspectApk" -> {
+                                  val path = call.argument<String>("path").orEmpty()
+                                  try {
+                                      result.success(inspectApk(path))
+                                  } catch (error: Exception) {
+                                      result.error("APK_INSPECT_FAILED", error.message, null)
+                                  }
+                              }
                               "exportApks" -> {
                                   val packageNames = call.argument<List<String>>("packageNames") ?: emptyList()
                                   try {
@@ -277,11 +623,99 @@ jobs:
                       }
               }
 
+              override fun onNewIntent(intent: Intent) {
+                  super.onNewIntent(intent)
+                  setIntent(intent)
+                  if (intent.action != "com.plazma.s.INSTALL_STATUS") return
+                  val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, android.content.pm.PackageInstaller.STATUS_FAILURE)
+                  val message = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
+                  if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                      @Suppress("DEPRECATION")
+                      val confirmation = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                      if (confirmation != null) {
+                          confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                          startActivity(confirmation)
+                      }
+                      return
+                  }
+                  val detail = when {
+                      message.contains("VERSION_DOWNGRADE", ignoreCase = true) ->
+                          "Android blocked this older app version. Install a newer or matching version instead."
+                      status == android.content.pm.PackageInstaller.STATUS_SUCCESS -> "Installation completed."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_INVALID -> "The APK is invalid or corrupted."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_BLOCKED -> "Android or the device administrator blocked this installation."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED -> "The installation was cancelled."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_TIMEOUT -> "Android timed out while installing this app. Try again."
+                      else -> message.ifBlank { "Android could not install this app (status $status)." }
+                  }
+                  flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                      MethodChannel(messenger, "com.plazma.s/apps").invokeMethod(
+                          "installStatus", mapOf("status" to status, "message" to detail)
+                      )
+                  }
+              }
+
+              private fun installedAppDetails(): List<Map<String, Any>> {
+                  val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                  return packages.filter { (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 }
+                      .filter { !it.packageName.startsWith("org.chromium.webapk.") }
+                      .mapNotNull { appInfo ->
+                          try {
+                              val info = packageManager.getPackageInfo(appInfo.packageName, 0)
+                              val label = packageManager.getApplicationLabel(appInfo).toString()
+                              val apkPaths = mutableListOf(appInfo.sourceDir).apply {
+                                  appInfo.splitSourceDirs?.let { addAll(it) }
+                              }
+                              val bytes = apkPaths.sumOf { path -> File(path).takeIf { it.isFile }?.length() ?: 0L }
+                              mapOf(
+                                  "packageName" to appInfo.packageName,
+                                  "appName" to label,
+                                  "versionName" to (info.versionName ?: ""),
+                                  "versionCode" to if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
+                                  "sizeBytes" to bytes
+                              )
+                          } catch (_: Exception) { null }
+                      }.sortedBy { it["appName"].toString().lowercase() }
+              }
+
+              private fun inspectApk(path: String): Map<String, Any?> {
+                  if (path.isBlank()) throw IllegalArgumentException("An APK path is required.")
+                  val apk = File(path)
+                  if (!apk.isFile) throw IllegalStateException("The received base APK is missing.")
+                  val info = packageManager.getPackageArchiveInfo(path, PackageManager.GET_ACTIVITIES)
+                      ?: throw IllegalStateException("The APK is corrupted or is not a valid Android package.")
+                  val application = info.applicationInfo ?: throw IllegalStateException("The APK has no application metadata.")
+                  application.sourceDir = path
+                  application.publicSourceDir = path
+                  val drawable = application.loadIcon(packageManager)
+                  val width = drawable.intrinsicWidth.coerceAtLeast(1)
+                  val height = drawable.intrinsicHeight.coerceAtLeast(1)
+                  val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                  val canvas = android.graphics.Canvas(bitmap)
+                  drawable.setBounds(0, 0, canvas.width, canvas.height)
+                  drawable.draw(canvas)
+                  val stream = java.io.ByteArrayOutputStream()
+                  bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+                  return mapOf(
+                      "packageName" to info.packageName,
+                      "appName" to packageManager.getApplicationLabel(application).toString(),
+                      "versionName" to (info.versionName ?: ""),
+                      "versionCode" to if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
+                      "iconBase64" to android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+                  )
+              }
+
               private fun exportApks(packageNames: List<String>): List<Map<String, Any>> {
                   val exported = mutableListOf<Map<String, Any>>()
                   packageNames.distinct().forEach { packageName ->
                       val appInfo = packageManager.getApplicationInfo(packageName, 0)
                       val appName = packageManager.getApplicationLabel(appInfo).toString()
+                      val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                      val versionName = packageInfo.versionName ?: ""
+                      val versionCode = if (Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode else packageInfo.versionCode.toLong()
                       val sourcePaths = mutableListOf(appInfo.sourceDir)
                       appInfo.splitSourceDirs?.let { sourcePaths.addAll(it) }
                       val outputDirectory = File(cacheDir, "plazma_shared_apps/$packageName")
@@ -291,12 +725,21 @@ jobs:
                       sourcePaths.forEachIndexed { index, sourcePath ->
                           val source = File(sourcePath)
                           if (!source.isFile) throw IllegalStateException("APK source is missing for $packageName")
-                          val fileName = if (index == 0) "base.apk" else "split_$index.apk"
+                          val fileName = if (index == 0) "base.apk" else {
+                              val sourceName = source.name
+                              if (sourceName.startsWith("split_") && sourceName.endsWith(".apk", ignoreCase = true)) {
+                                  sourceName
+                              } else {
+                                  "split_$index.apk"
+                              }
+                          }
                           val destination = File(outputDirectory, fileName)
                           source.copyTo(destination, overwrite = true)
                           exported.add(mapOf(
                               "packageName" to packageName,
                               "appName" to appName,
+                              "versionName" to versionName,
+                              "versionCode" to versionCode,
                               "relativePath" to "$packageName/$fileName",
                               "path" to destination.absolutePath,
                               "size" to destination.length()
@@ -307,8 +750,35 @@ jobs:
               }
 
               private fun installApkSet(packageName: String, paths: List<String>) {
-                  if (packageName.isBlank() || paths.isEmpty()) {
-                      throw IllegalArgumentException("An app package and its APK files are required.")
+                  if (packageName.isBlank() || paths.isEmpty() || paths.size > 100) {
+                      throw IllegalArgumentException("A package and between one and 100 APK files are required.")
+                  }
+                  val splitNames = mutableSetOf<String>()
+                  var expectedVersion: Long? = null
+                  paths.forEachIndexed { index, path ->
+                      val apk = File(path)
+                      if (!apk.isFile || apk.length() == 0L) {
+                          throw IllegalStateException("APK file is missing or empty: $path")
+                      }
+                      if (!splitNames.add(apk.name)) {
+                          throw IllegalStateException("The installation set contains a duplicate APK part: ${apk.name}")
+                      }
+                      val info = packageManager.getPackageArchiveInfo(path, 0)
+                          ?: throw IllegalStateException("APK is corrupted or unreadable: $path")
+                      if (info.packageName != packageName) {
+                          throw IllegalStateException("APK package mismatch. Expected $packageName but found ${info.packageName}.")
+                      }
+                      val version = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                      if (expectedVersion == null) expectedVersion = version
+                      if (version != expectedVersion) {
+                          throw IllegalStateException("The base APK and split APKs have different versions.")
+                      }
+                      if (index == 0 && !apk.name.equals("base.apk", ignoreCase = true)) {
+                          throw IllegalStateException("The base APK must be first in the installation set.")
+                      }
+                      if (index > 0 && (!apk.name.startsWith("split_") || !apk.name.endsWith(".apk", ignoreCase = true))) {
+                          throw IllegalStateException("An APK split has an invalid file name: ${apk.name}")
+                      }
                   }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                       startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${this.packageName}")))
@@ -325,7 +795,7 @@ jobs:
                       paths.forEachIndexed { index, path ->
                           val apk = File(path)
                           if (!apk.isFile) throw IllegalStateException("APK file is missing: $path")
-                          val entryName = if (index == 0) "base.apk" else "split_$index.apk"
+                          val entryName = apk.name
                           session.openWrite(entryName, 0, apk.length()).use { output ->
                               apk.inputStream().use { input -> input.copyTo(output) }
                               session.fsync(output)
@@ -342,6 +812,7 @@ jobs:
                           android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
                       )
                       session.commit(callback.intentSender)
+                      session.close()
                   } catch (error: Exception) {
                       session.abandon()
                       throw error
@@ -578,6 +1049,41 @@ jobs:
               }
           }
           ''')
+          PY
+      - name: Verify Android app export and PackageInstaller wiring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml").read_text()
+          source = Path("android/app/src/main/kotlin/com/plazma/plazma_s/MainActivity.kt").read_text()
+          required_manifest = [
+              "android.permission.QUERY_ALL_PACKAGES",
+              "android.permission.REQUEST_INSTALL_PACKAGES",
+          ]
+          required_source = [
+              "appInfo.sourceDir",
+              "appInfo.splitSourceDirs",
+              "private fun inspectApk",
+              "private fun exportApks",
+              "source.name",
+              "private fun installApkSet",
+              "PackageInstaller.SessionParams.MODE_FULL_INSTALL",
+              "packageManager.canRequestPackageInstalls()",
+              "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES",
+              "val entryName = apk.name",
+              "session.commit(callback.intentSender)",
+              "setIntent(intent)",
+              "STATUS_PENDING_USER_ACTION",
+              "STATUS_FAILURE_CONFLICT",
+              "STATUS_FAILURE_STORAGE",
+              "FLAG_MUTABLE",
+          ]
+          missing = [item for item in required_manifest if item not in manifest]
+          missing += [item for item in required_source if item not in source]
+          if missing:
+              raise SystemExit("Android app/install wiring is incomplete: " + ", ".join(missing))
+          print("Verified: app visibility, base/split export, APK inspection, unknown-source permission, split session commit, and installer result callbacks.")
           PY
       - name: Configure permanent Android release signing
         if: github.event_name != 'pull_request'

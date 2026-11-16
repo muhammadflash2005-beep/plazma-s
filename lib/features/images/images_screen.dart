@@ -13,7 +13,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../media/device_media_browser.dart';
 
 import '../../network/android_wifi_session_service.dart';
-import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
@@ -214,6 +213,9 @@ class _ImagesScreenState extends State<ImagesScreen> {
         fileCount: images.length,
         label: 'Ready to receive images',
       ));
+      // Joining starts the full room queue automatically.
+      if (mounted) setState(() => _busy = false);
+      await _downloadImages();
     } catch (e) {
       await _service.disconnect();
       _message('Could not connect: $e');
@@ -239,35 +241,26 @@ class _ImagesScreenState extends State<ImagesScreen> {
     setState(() { _busy = true; _progress = 0; _status = 'Receiving images…'; });
     try {
       final root = await getApplicationDocumentsDirectory();
-      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Images');
+      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Received');
       await destination.create(recursive: true);
       await _service.downloadAll(
         invite: _receiver!,
-        files: _incoming,
+        files: _service.roomFiles.value,
         destination: destination,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
         },
+        onSaved: (item, path, uri) => _savedMessage(path, uri),
       );
-      for (final item in _incoming) {
-        await TransferHistoryStore.add(
-          name: item.name,
-          type: 'image',
-          direction: 'received',
-          path: '${destination.path}${Platform.pathSeparator}${item.relativePath}',
-          bytes: item.size,
-          peer: 'Nearby Plazma S device',
-        );
-      }
       if (!mounted) return;
       setState(() {
         _receivedDirectory = destination;
-        _status = 'Received ${_incoming.length} image(s). Saved in Plazma S Images.';
+        _status = 'Received all ${_service.roomFiles.value.length} item(s) in this room.';
       });
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) {
-      _message('Image transfer failed: $e');
+      _message('Transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -286,6 +279,21 @@ class _ImagesScreenState extends State<ImagesScreen> {
     await _service.disconnect();
     TransferOverlayController.clear();
     if (mounted) setState(() { _receiver = null; _incoming.clear(); _status = 'Disconnected.'; });
+  }
+
+  void _savedMessage(String path, String? uri) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $path'),
+      action: uri == null ? null : SnackBarAction(
+        label: 'Open',
+        onPressed: () {
+          unawaited(const MethodChannel('com.plazma.s/storage').invokeMethod<void>(
+            'openSavedFile', {'uri': uri},
+          ));
+        },
+      ),
+    ));
   }
 
   void _message(String value) {
@@ -334,8 +342,9 @@ class _ImagesScreenState extends State<ImagesScreen> {
           TextButton(onPressed: _busy ? null : _refreshImages, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy ? null : _downloadImages,
-          icon: const Icon(Icons.download), label: const Text('Receive images')),
+        if (!_service.isReceiving)
+          FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadImages,
+            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive images')),
       ]))),
       if (_receiver == null) ...[
         DeviceMediaBrowser(

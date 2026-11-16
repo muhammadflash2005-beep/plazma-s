@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../media/permanent_delete_confirmation.dart';
 import 'package:flutter/services.dart';
@@ -12,7 +14,6 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../network/android_wifi_session_service.dart';
-import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_mode.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
@@ -56,6 +57,7 @@ class _FilesScreenState extends State<FilesScreen> {
     _receiverInvite = _service.joinedInvite;
     if (_receiverInvite != null) _watchIncomingFiles(_receiverInvite!);
     _addInitialPaths(widget.initialPaths);
+    unawaited(_loadSavedDestination());
   }
 
   @override
@@ -275,20 +277,7 @@ class _FilesScreenState extends State<FilesScreen> {
             ).then((_) => _service.invite!)
           : await _service.startSharing(
         files: List<File>.from(_files),
-        relativePaths: List<String>.from(_relativePaths),
-        onTransferCompleted: () async {
-          for (var index = 0; index < _files.length; index++) {
-            final file = _files[index];
-            await TransferHistoryStore.add(
-              name: _relativePaths[index].split('/').last,
-              type: 'file',
-              direction: 'sent',
-              path: file.path,
-              bytes: await file.length(),
-              peer: 'Nearby Plazma S device',
-            );
-          }
-        },
+        relativePaths: List<String>.from(_relativePaths)
       );
       if (!mounted) return;
       setState(() {
@@ -443,6 +432,9 @@ class _FilesScreenState extends State<FilesScreen> {
       }
       if (files.isEmpty) {
         _message('Connected, but the sender has not shared any files.');
+      } else {
+        // Joining is the receive action: start the room queue immediately.
+        unawaited(_downloadFiles());
       }
     } catch (error) {
       await _service.disconnect();
@@ -453,9 +445,19 @@ class _FilesScreenState extends State<FilesScreen> {
     }
   }
 
+  Future<void> _loadSavedDestination() async {
+    final prefs = await SharedPreferences.getInstance();
+    final path = prefs.getString('plazma_receive_folder_v1');
+    if (path != null && path.isNotEmpty && mounted) setState(() => _destination = path);
+  }
+
   Future<void> _chooseDestination() async {
     final path = await FilePicker.getDirectoryPath();
-    if (path != null && mounted) setState(() => _destination = path);
+    if (path != null && mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('plazma_receive_folder_v1', path);
+      setState(() => _destination = path);
+    }
   }
 
   Future<void> _downloadFiles() async {
@@ -463,10 +465,13 @@ class _FilesScreenState extends State<FilesScreen> {
     if (invite == null || _availableFiles.isEmpty || _downloading) return;
     var destination = _destination;
     if (destination == null) {
-      await _chooseDestination();
-      destination = _destination;
+      final root = await getApplicationDocumentsDirectory();
+      destination = '${root.path}${Platform.pathSeparator}Plazma S Received';
+      _destination = destination;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('plazma_receive_folder_v1', destination);
     }
-    if (destination == null || !mounted) return;
+    if (!mounted) return;
     setState(() {
       _downloading = true;
       _progress = 0;
@@ -493,17 +498,8 @@ class _FilesScreenState extends State<FilesScreen> {
             progress: progress.fraction.clamp(0, 1),
           ));
         },
+        onSaved: (item, path, uri) => _savedMessage(path, uri),
       );
-      for (final item in _availableFiles) {
-        await TransferHistoryStore.add(
-          name: item.name,
-          type: 'file',
-          direction: 'received',
-          path: '$destination/${item.relativePath}',
-          bytes: item.size,
-          peer: 'Nearby Plazma S device',
-        );
-      }
       if (!mounted) return;
       setState(() {
         _progress = 1;
@@ -519,7 +515,7 @@ class _FilesScreenState extends State<FilesScreen> {
         fileCount: _availableFiles.length,
         label: 'Transfer interrupted',
       ));
-      _message('Transfer failed: $error');
+      _message('Transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.');
       if (mounted) setState(() => _status = 'Transfer failed');
     } finally {
       if (mounted) setState(() => _downloading = false);
@@ -541,13 +537,22 @@ class _FilesScreenState extends State<FilesScreen> {
     if (parts.isEmpty || _destination == null) return;
     final paths = parts.map((item) {
       final relative = item.relativePath.replaceAll('/', Platform.pathSeparator);
-      return '$_destination${Platform.pathSeparator}$relative';
+      return '$_destination${Platform.pathSeparator}Download${Platform.pathSeparator}Plazma S${Platform.pathSeparator}$relative';
     }).toList();
     try {
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
-        'installApkSet',
-        {'packageName': packageName, 'paths': paths},
-      );
+      if (paths.length == 1) {
+        final cache = await getTemporaryDirectory();
+        final staged = File('${cache.path}${Platform.pathSeparator}$packageName.apk');
+        await File(paths.single).copy(staged.path);
+        await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
+          'installApk', {'path': staged.path},
+        );
+      } else {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'installApkSet',
+          {'packageName': packageName, 'paths': paths},
+        );
+      }
       _message('Android package installer opened for $packageName. Review and approve the installation there.');
     } catch (error) {
       _message('Could not start installation: $error');
@@ -612,6 +617,21 @@ class _FilesScreenState extends State<FilesScreen> {
       _destination = null;
       _status = 'Disconnected';
     });
+  }
+
+  void _savedMessage(String path, String? uri) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $path'),
+      action: uri == null ? null : SnackBarAction(
+        label: 'Open',
+        onPressed: () {
+          unawaited(const MethodChannel('com.plazma.s/storage').invokeMethod<void>(
+            'openSavedFile', {'uri': uri},
+          ));
+        },
+      ),
+    ));
   }
 
   void _message(String message) {
@@ -898,7 +918,7 @@ class _FilesScreenState extends State<FilesScreen> {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.folder_open_rounded),
-              title: Text(_destination ?? 'Choose save location'),
+              title: Text(_destination == null ? 'Save folder · Automatic default' : 'Save folder · ${_destination!}'),
               subtitle: const Text('Files are saved on this phone'),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: _downloading ? null : _chooseDestination,
@@ -914,9 +934,9 @@ class _FilesScreenState extends State<FilesScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: _downloading || _availableFiles.isEmpty ? null : _downloadFiles,
+                onPressed: _downloading || _downloaded || _availableFiles.isEmpty ? null : _downloadFiles,
                 icon: const Icon(Icons.download_rounded),
-                label: Text(_downloading ? 'Receiving files…' : 'Receive all files'),
+                label: Text(_downloading ? 'Receiving files…' : _downloaded ? 'Received' : 'Receive all files'),
               ),
             ),
           ]),

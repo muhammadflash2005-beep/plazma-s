@@ -4,6 +4,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 
 import '../../transfers/transfer_history.dart';
@@ -22,6 +23,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   static const _audioExtensions = {
     'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff',
   };
+  static const _videoExtensions = {'mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', '3gp', 'wmv', 'flv'};
   static const _imageExtensions = {
     'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
   };
@@ -45,11 +47,13 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     if (entry.type == 'app') return 'app';
     if (entry.type == 'music') return 'music';
     if (entry.type == 'image') return 'image';
+    if (entry.type == 'video') return 'video';
     final extension = entry.name.contains('.')
         ? entry.name.split('.').last.toLowerCase()
         : '';
     if (_audioExtensions.contains(extension)) return 'music';
     if (_imageExtensions.contains(extension)) return 'image';
+    if (_videoExtensions.contains(extension)) return 'video';
     return 'file';
   }
 
@@ -76,7 +80,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
       _message('Installing Android apps is available on Android devices.');
       return;
     }
-    final folder = Directory(entry.path);
+    final folder = Directory(entry.installPath ?? entry.path);
     if (!await folder.exists()) {
       _message('This saved app is no longer available on this device.');
       return;
@@ -102,10 +106,19 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
       return;
     }
     try {
-      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
-        'installApkSet',
-        {'packageName': entry.name, 'paths': apks.map((file) => file.path).toList()},
-      );
+      if (apks.length == 1) {
+        final cache = await getTemporaryDirectory();
+        final staged = File('${cache.path}${Platform.pathSeparator}${entry.name}.apk');
+        await apks.single.copy(staged.path);
+        await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
+          'installApk', {'path': staged.path},
+        );
+      } else {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'installApkSet',
+          {'packageName': entry.name, 'paths': apks.map((file) => file.path).toList()},
+        );
+      }
       _message('Android installer opened. Review and approve the installation.');
     } catch (error) {
       _message('Could not open the installer: $error');
@@ -171,10 +184,10 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 trailing: category == 'app' && direction == 'received'
-                    ? IconButton(
-                        tooltip: 'Install app',
+                    ? TextButton.icon(
                         onPressed: () => _installApp(entry),
-                        icon: const Icon(Icons.install_mobile_rounded),
+                        icon: const Icon(Icons.install_mobile_rounded, size: 18),
+                        label: const Text('Install'),
                       )
                     : null,
               )),
@@ -222,6 +235,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
             _categorySection(direction, 'app', 'Apps', Icons.android_rounded),
             _categorySection(direction, 'music', 'Music', Icons.music_note_rounded),
             _categorySection(direction, 'image', 'Images', Icons.image_outlined),
+            _categorySection(direction, 'video', 'Videos', Icons.video_library_rounded),
           ],
         ),
       ),
