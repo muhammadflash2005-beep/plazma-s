@@ -246,6 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
           valueListenable: service.roomFiles,
           builder: (context, items, _) {
             final roomId = service.invite?.roomId ?? service.joinedInvite?.roomId;
+            final isReceiver = service.isReceiving;
             final totalBytes = items.fold<int>(0, (sum, item) => sum + item.size);
             final transferredBytes = items.fold<int>(0, (sum, item) => sum + item.bytesTransferred);
             return SizedBox(
@@ -264,9 +265,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 8),
                     Wrap(spacing: 8, children: [
                       OutlinedButton.icon(onPressed: () => service.cancelAllQueuedItems(),
-                        icon: const Icon(Icons.cancel_outlined, size: 16), label: const Text('Cancel all')),
+                        icon: const Icon(Icons.cancel_outlined, size: 16), label: Text(isReceiver ? 'Cancel receiving' : 'Cancel all')),
                       OutlinedButton.icon(onPressed: () => service.retryFailedQueueItems(),
-                        icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry failed')),
+                        icon: const Icon(Icons.refresh_rounded, size: 16), label: Text(isReceiver ? 'Retry failed receives' : 'Retry failed sends')),
                     ]),
                   ],
                   if (totalBytes > 0) ...[
@@ -287,11 +288,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(item.relativePath),
                             trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Text(item.status, style: const TextStyle(fontSize: 10)),
+                              Text(isReceiver ? (item.status == 'sending' ? 'receiving' : item.status == 'done' ? 'saved' : item.status) : (item.status == 'done' ? 'sent' : item.status), style: const TextStyle(fontSize: 10)),
                               const SizedBox(height: 4),
                               LinearProgressIndicator(value: item.size <= 0 ? 0 : (item.bytesTransferred / item.size).clamp(0.0, 1.0)),
                               if (item.status == 'waiting' || item.status == 'sending')
-                                IconButton(visualDensity: VisualDensity.compact, tooltip: 'Cancel item',
+                                IconButton(visualDensity: VisualDensity.compact, tooltip: isReceiver ? 'Cancel receiving item' : 'Cancel sending item',
                                   onPressed: () => service.cancelQueuedItem(item.id),
                                   icon: const Icon(Icons.close_rounded, size: 17)),
                             ])),
@@ -463,6 +464,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (!hasRoom && transfer == null) return const SizedBox.shrink();
                       final colors = Theme.of(context).colorScheme;
                       final sending = transfer?.direction == TransferOverlayDirection.sending || (transfer == null && service.isSharing);
+                      final directionLabel = sending ? 'Sending ${items.length} file(s)' : 'Receiving ${items.length} file(s)';
                       return Positioned(
                         right: 16,
                         bottom: wide ? 24 : 92,
