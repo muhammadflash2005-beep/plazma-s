@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:io' as io;
 
 import 'package:crypto/crypto.dart';
 
@@ -24,11 +25,12 @@ import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
 class DesktopInstalledApp {
-  const DesktopInstalledApp({required this.name, required this.version, required this.publisher, required this.installLocation});
+  const DesktopInstalledApp({required this.name, required this.version, required this.publisher, required this.installLocation, this.iconPath});
   final String name;
   final String version;
   final String publisher;
   final String? installLocation;
+  final String? iconPath;
   bool get canBundle => installLocation != null;
 
   factory DesktopInstalledApp.fromRegistry(Map<String, dynamic> value) {
@@ -55,7 +57,8 @@ class DesktopInstalledApp {
       }
     }
     return DesktopInstalledApp(name: read('DisplayName'), version: read('DisplayVersion'),
-      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location);
+      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location,
+      iconPath: read('IconPath').isEmpty ? null : read('IconPath'));
   }
 }
 
@@ -104,7 +107,7 @@ class _AppsScreenState extends State<AppsScreen> {
   @override
   void initState() {
     super.initState();
-    if (Platform.isAndroid) {
+    if (io.Platform.isAndroid) {
       const MethodChannel('com.plazma.s/apps').setMethodCallHandler(_handleInstallerCallback);
     }
     AppsScreen.sendSelected = _send;
@@ -158,16 +161,18 @@ class _AppsScreenState extends State<AppsScreen> {
       setState(() => _error = 'App package transfer is available in the installed Plazma S app.');
       return;
     }
-    if (!Platform.isAndroid) {
+    if (!io.Platform.isAndroid) {
       setState(() => _loading = true);
       try {
         final root = await getApplicationSupportDirectory();
-        final library = Directory(root.path + Platform.pathSeparator + 'received_installers');
+        final library = Directory(root.path + io.Platform.pathSeparator + 'received_installers');
         await library.create(recursive: true);
         if (!mounted) return;
         setState(() => _library = library);
-        if (Platform.isWindows) {
+        if (io.Platform.isWindows) {
           await _loadWindowsApps();
+        } else if (io.Platform.isLinux) {
+          await _loadLinuxApps();
         } else if (mounted) {
           setState(() => _error = 'Send complete installers or portable bundles (.exe, .msi, .dmg, .pkg, .AppImage, .deb, .rpm or .zip).');
         }
@@ -181,7 +186,7 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() => _loading = true);
     try {
       final root = await getApplicationSupportDirectory();
-      final library = Directory(root.path + Platform.pathSeparator + 'saved_apps');
+      final library = Directory(root.path + io.Platform.pathSeparator + 'saved_apps');
       await library.create(recursive: true);
       final apps = await FlutterDeviceApps.listApps(
         includeSystem: false, onlyLaunchable: true, includeIcons: false);
@@ -203,8 +208,8 @@ class _AppsScreenState extends State<AppsScreen> {
       final saved = <String,String>{};
       await for (final entity in library.list(followLinks: false)) {
         if (entity is Directory) {
-          final pkg = entity.path.split(Platform.pathSeparator).last;
-          if (await File(entity.path + Platform.pathSeparator + 'base.apk').exists()) {
+          final pkg = entity.path.split(io.Platform.pathSeparator).last;
+          if (await File(entity.path + io.Platform.pathSeparator + 'base.apk').exists()) {
             final match = apps.where((a) => a.packageName == pkg);
             saved[pkg] = match.isEmpty ? pkg : (match.first.appName ?? pkg);
           }
@@ -268,7 +273,7 @@ class _AppsScreenState extends State<AppsScreen> {
 
   Future<void> _performSaveApp(String pkg, String name) async {
     if (_library == null) throw StateError('The Saved Apps folder is not ready.');
-    final folder = Directory(_library!.path + Platform.pathSeparator + pkg);
+    final folder = Directory(_library!.path + io.Platform.pathSeparator + pkg);
     await folder.create(recursive: true);
     final items = await _export([pkg]);
     for (final item in items) {
@@ -279,10 +284,10 @@ class _AppsScreenState extends State<AppsScreen> {
       }
       final filename = (item['relativePath'] as String).split('/').last;
       await File(item['path'] as String).copy(
-        folder.path + Platform.pathSeparator + filename,
+        folder.path + io.Platform.pathSeparator + filename,
       );
     }
-    if (!await File(folder.path + Platform.pathSeparator + 'base.apk').exists()) {
+    if (!await File(folder.path + io.Platform.pathSeparator + 'base.apk').exists()) {
       throw StateError('The base APK could not be saved.');
     }
     if (!mounted) return;
@@ -310,7 +315,7 @@ class _AppsScreenState extends State<AppsScreen> {
     var deleted = 0;
     for (final pkg in packages) {
       try {
-        final directory = Directory(_library!.path + Platform.pathSeparator + pkg);
+        final directory = Directory(_library!.path + io.Platform.pathSeparator + pkg);
         if (await directory.exists()) await directory.delete(recursive: true);
         _saved.remove(pkg);
         deleted++;
@@ -325,7 +330,7 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _showAppActions(String packageName, String appName) async {
-    if (!Platform.isAndroid) return;
+    if (!io.Platform.isAndroid) return;
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -351,7 +356,7 @@ class _AppsScreenState extends State<AppsScreen> {
 
   Future<void> _manageInstalledApp(String packageName, String appName, String action) async {
     if (action == 'deleteSaved') {
-      final directory = Directory(_library!.path + Platform.pathSeparator + packageName);
+      final directory = Directory(_library!.path + io.Platform.pathSeparator + packageName);
       if (!await directory.exists()) {
         if (mounted) setState(() => _saved.remove(packageName));
         return;
@@ -403,8 +408,8 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _send() async {
-    if (!Platform.isAndroid) {
-      if (Platform.isWindows && _desktopSelected.isNotEmpty) {
+    if (!io.Platform.isAndroid) {
+      if (io.Platform.isWindows && _desktopSelected.isNotEmpty) {
         await _sendSelectedDesktopApps();
       } else {
         await _sendDesktopInstallers();
@@ -471,10 +476,91 @@ class _AppsScreenState extends State<AppsScreen> {
   String _encodePowerShell(String script) => base64.encode(
     script.codeUnits.expand((unit) => [unit & 0xff, (unit >> 8) & 0xff]).toList());
 
+  Future<String?> _resolveLinuxIcon(String iconName) async {
+    if (iconName.isEmpty) return null;
+    final direct = File(iconName);
+    if (iconName.startsWith('/') && await direct.exists()) return direct.path;
+    final roots = <String>[
+      '/usr/share/pixmaps',
+      '/usr/share/icons/hicolor',
+      '/usr/local/share/icons/hicolor',
+      '${io.Platform.environment['HOME'] ?? ''}/.local/share/icons/hicolor',
+    ];
+    final names = iconName.contains('.') ? [iconName] : [
+      '$iconName.png', '$iconName.svg', '$iconName.xpm',
+    ];
+    for (final root in roots) {
+      final directory = Directory(root);
+      if (!await directory.exists()) continue;
+      try {
+        await for (final entity in directory.list(recursive: true, followLinks: false)) {
+          if (entity is File && names.contains(entity.uri.pathSegments.last)) {
+            final extension = entity.path.toLowerCase();
+            if (extension.endsWith('.png') || extension.endsWith('.jpg') ||
+                extension.endsWith('.jpeg') || extension.endsWith('.webp')) {
+              return entity.path;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<void> _loadLinuxApps() async {
+    final home = io.Platform.environment['HOME'] ?? '';
+    final roots = <Directory>[
+      Directory('/usr/share/applications'),
+      if (home.isNotEmpty) Directory('$home/.local/share/applications'),
+    ];
+    final apps = <DesktopInstalledApp>[];
+    final seen = <String>{};
+    for (final root in roots) {
+      if (!await root.exists()) continue;
+      try {
+        await for (final entity in root.list(recursive: false, followLinks: false)) {
+          if (entity is! File || !entity.path.endsWith('.desktop')) continue;
+          try {
+            final lines = await entity.readAsLines();
+            if (!lines.contains('[Desktop Entry]')) continue;
+            final values = <String, String>{};
+            var inEntry = false;
+            for (final line in lines) {
+              if (line.startsWith('[')) {
+                inEntry = line == '[Desktop Entry]';
+                continue;
+              }
+              if (!inEntry || line.startsWith('#') || !line.contains('=')) continue;
+              final split = line.indexOf('=');
+              values[line.substring(0, split)] = line.substring(split + 1);
+            }
+            final name = values['Name']?.trim() ?? '';
+            if (name.isEmpty || values['NoDisplay'] == 'true' || values['Hidden'] == 'true' ||
+                values['Type'] != 'Application' || !seen.add(name.toLowerCase())) {
+              continue;
+            }
+            final icon = await _resolveLinuxIcon(values['Icon']?.trim() ?? '');
+            apps.add(DesktopInstalledApp(name: name, version: '', publisher: '',
+              installLocation: null, iconPath: icon));
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    apps.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (!mounted) return;
+    setState(() {
+      _desktopApps..clear()..addAll(apps);
+      _desktopSelected.clear();
+      _error = apps.isEmpty ? 'No installed Linux desktop applications were found.' : null;
+    });
+  }
+
   Future<void> _loadWindowsApps() async {
-    if (!Platform.isWindows) return;
+    if (!io.Platform.isWindows) return;
     setState(() { _loading = true; _error = null; });
-    const script = r'''
+    final iconDirectory = Directory('${_library!.path}${io.Platform.pathSeparator}desktop_app_icons');
+    await iconDirectory.create(recursive: true);
+    final script = r'''
       $ErrorActionPreference = 'SilentlyContinue'
       $roots = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -485,8 +571,27 @@ class _AppsScreenState extends State<AppsScreen> {
         Where-Object { $_.DisplayName -and -not $_.SystemComponent -and $_.ReleaseType -notin @('Update','Hotfix','Security Update') } |
         Sort-Object DisplayName -Unique |
         Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon)
+      $iconRoot = '__ICON_ROOT__'
+      New-Item -ItemType Directory -Force -Path $iconRoot | Out-Null
+      Add-Type -AssemblyName System.Drawing
+      foreach ($app in $apps) {
+        $raw = [string]$app.DisplayIcon
+        if ($raw.StartsWith('"')) { $raw = $raw.Trim('"') } else { $raw = $raw -replace ',[-]?[0-9]+$','' }
+        if (Test-Path -LiteralPath $raw -PathType Leaf) {
+          try {
+            $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($raw)
+            if ($icon) {
+              $bitmap = $icon.ToBitmap()
+              $png = Join-Path $iconRoot (([guid]::NewGuid().ToString()) + '.png')
+              $bitmap.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+              $app | Add-Member -NotePropertyName IconPath -NotePropertyValue $png -Force
+              $bitmap.Dispose(); $icon.Dispose()
+            }
+          } catch {}
+        }
+      }
       ConvertTo-Json -InputObject $apps -Depth 3 -Compress
-    ''';
+    '''.replaceAll('__ICON_ROOT__', iconDirectory.path.replaceAll("'", "''"));
     try {
       final result = await Process.run('powershell.exe',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', _encodePowerShell(script)]);
@@ -528,7 +633,7 @@ class _AppsScreenState extends State<AppsScreen> {
     final source = app.installLocation;
     if (source == null) throw StateError('No accessible installation folder for ${app.name}.');
     final safeName = app.name.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_').trim();
-    final destination = '${output.path}${Platform.pathSeparator}${safeName.isEmpty ? 'Application' : safeName}.zip';
+    final destination = '${output.path}${io.Platform.pathSeparator}${safeName.isEmpty ? 'Application' : safeName}.zip';
     String quote(String value) => "'" + value.replaceAll("'", "''") + "'";
     final script = r'''
       $ErrorActionPreference = 'Stop'
@@ -557,7 +662,7 @@ class _AppsScreenState extends State<AppsScreen> {
     try {
       final selected = _desktopApps.where((app) => _desktopSelected.contains(app.name) && app.canBundle).toList();
       if (selected.isEmpty) throw StateError('None of the selected apps has an accessible install folder.');
-      final output = Directory('${_library!.path}${Platform.pathSeparator}desktop_app_bundles');
+      final output = Directory('${_library!.path}${io.Platform.pathSeparator}desktop_app_bundles');
       await output.create(recursive: true);
       final files = <File>[];
       final paths = <String>[];
@@ -620,7 +725,7 @@ class _AppsScreenState extends State<AppsScreen> {
     }
   }
   Future<PlazmaConnectionInvite?> _scan() async {
-    if (!Platform.isAndroid) {
+    if (!io.Platform.isAndroid) {
       final controller = TextEditingController();
       final raw = await showDialog<String>(
         context: context,
@@ -722,7 +827,7 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() { _busy = true; _status = 'Connecting to sender…'; });
     try {
       final manifest = await _service.joinAndList(invite);
-      if (!Platform.isAndroid) {
+      if (!io.Platform.isAndroid) {
         if (manifest.isEmpty) throw StateError('The sender has not shared any application packages yet.');
         if (!mounted) return;
         setState(() {
@@ -760,10 +865,10 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _inspectIncomingApps() async {
-    if (!Platform.isAndroid || _library == null) return;
+    if (!io.Platform.isAndroid || _library == null) return;
     final root = await getApplicationDocumentsDirectory();
-    final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
-        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+    final receiveRoot = Directory(root.path + io.Platform.pathSeparator + 'Plazma S Received' +
+        io.Platform.pathSeparator + 'Download' + io.Platform.pathSeparator + 'Plazma S');
     for (final entry in _incoming.entries) {
       try {
         final bundleItems = entry.value.where((item) =>
@@ -772,21 +877,21 @@ class _AppsScreenState extends State<AppsScreen> {
           throw StateError('More than one app bundle was received for the same package.');
         }
         if (bundleItems.isNotEmpty) {
-          final bundlePath = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-              Platform.pathSeparator + entry.key + Platform.pathSeparator +
+          final bundlePath = File(receiveRoot.path + io.Platform.pathSeparator + 'Apps' +
+              io.Platform.pathSeparator + entry.key + io.Platform.pathSeparator +
               bundleItems.single.relativePath.split('/').last);
           if (!await bundlePath.exists()) continue;
           final metadata = await AppBundle.extract(
             bundle: bundlePath,
-            outputDirectory: Directory(receiveRoot.path + Platform.pathSeparator + entry.key),
+            outputDirectory: Directory(receiveRoot.path + io.Platform.pathSeparator + entry.key),
           );
           if (metadata.packageName != entry.key) {
             throw StateError('The app bundle package does not match its transfer name.');
           }
           _bundleMetadata[entry.key] = metadata;
         }
-        final baseApk = File(receiveRoot.path + Platform.pathSeparator + entry.key +
-            Platform.pathSeparator + 'base.apk');
+        final baseApk = File(receiveRoot.path + io.Platform.pathSeparator + entry.key +
+            io.Platform.pathSeparator + 'base.apk');
         if (!await baseApk.exists()) continue;
         final details = await const MethodChannel('com.plazma.s/apps')
           .invokeMapMethod<String, dynamic>('inspectApk', {'path': baseApk.path});
@@ -807,10 +912,10 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _installReceivedApp(String packageName) async {
-    if (!Platform.isAndroid) return;
+    if (!io.Platform.isAndroid) return;
     final root = await getApplicationDocumentsDirectory();
-    final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
-        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+    final receiveRoot = Directory(root.path + io.Platform.pathSeparator + 'Plazma S Received' +
+        io.Platform.pathSeparator + 'Download' + io.Platform.pathSeparator + 'Plazma S');
     final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
     final bundles = manifestParts.where((part) {
       final lower = part.relativePath.toLowerCase();
@@ -818,8 +923,8 @@ class _AppsScreenState extends State<AppsScreen> {
     }).toList();
     if (bundles.length == 1 && !bundles.single.relativePath.toLowerCase().endsWith('.plazmaapp')) {
       final bundleItem = bundles.single;
-      final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-          Platform.pathSeparator + packageName + Platform.pathSeparator +
+      final bundle = File(receiveRoot.path + io.Platform.pathSeparator + 'Apps' +
+          io.Platform.pathSeparator + packageName + io.Platform.pathSeparator +
           bundleItem.relativePath.split('/').last);
       if (!await bundle.exists()) {
         _message('The received app bundle is missing. Receive it again.');
@@ -837,10 +942,10 @@ class _AppsScreenState extends State<AppsScreen> {
       }
       return;
     }
-    var folder = Directory(receiveRoot.path + Platform.pathSeparator + packageName);
+    var folder = Directory(receiveRoot.path + io.Platform.pathSeparator + packageName);
     if (!await folder.exists()) {
-      folder = Directory(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-          Platform.pathSeparator + packageName);
+      folder = Directory(receiveRoot.path + io.Platform.pathSeparator + 'Apps' +
+          io.Platform.pathSeparator + packageName);
     }
     if (!await folder.exists()) {
       _message('This app has not been saved on this device yet.');
@@ -855,11 +960,11 @@ class _AppsScreenState extends State<AppsScreen> {
     try {
       final bundles = manifestParts.where((part) => part.relativePath.toLowerCase().endsWith('.plazmaapp')).toList();
       if (bundles.length == 1) {
-        final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
-            Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+        final receiveRoot = Directory(root.path + io.Platform.pathSeparator + 'Plazma S Received' +
+            io.Platform.pathSeparator + 'Download' + io.Platform.pathSeparator + 'Plazma S');
         final bundleItem = bundles.single;
-        final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-            Platform.pathSeparator + packageName + Platform.pathSeparator +
+        final bundle = File(receiveRoot.path + io.Platform.pathSeparator + 'Apps' +
+            io.Platform.pathSeparator + packageName + io.Platform.pathSeparator +
             bundleItem.relativePath.split('/').last);
         if (!await bundle.exists()) throw StateError('The received app bundle is missing.');
         final actual = await sha256.bind(bundle.openRead()).first;
@@ -929,16 +1034,16 @@ class _AppsScreenState extends State<AppsScreen> {
     try {
       final all = _service.roomFiles.value;
       final Directory receiveRoot;
-      if (Platform.isAndroid) {
+      if (io.Platform.isAndroid) {
         final root = await getApplicationDocumentsDirectory();
-        receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received');
+        receiveRoot = Directory(root.path + io.Platform.pathSeparator + 'Plazma S Received');
       } else {
         receiveRoot = _library!;
       }
       await _service.downloadAll(invite: _receiver!, files: all, destination: receiveRoot,
         onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); },
         onSaved: (item, path, uri) => _savedMessage(path, uri));
-      if (Platform.isAndroid) {
+      if (io.Platform.isAndroid) {
         for (final entry in _incoming.entries) {
           _saved[entry.key] = entry.key;
         }
@@ -947,7 +1052,7 @@ class _AppsScreenState extends State<AppsScreen> {
       if (!mounted) return;
       setState(() {
         _receivedRoom = true;
-        _status = Platform.isAndroid
+        _status = io.Platform.isAndroid
             ? 'Received and saved ' + _incoming.length.toString() + ' app(s).'
             : 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path;
       });
@@ -996,7 +1101,7 @@ class _AppsScreenState extends State<AppsScreen> {
 
   @override
   void dispose() {
-    if (Platform.isAndroid) {
+    if (io.Platform.isAndroid) {
       const MethodChannel('com.plazma.s/apps').setMethodCallHandler(null);
     }
     _roomRefreshTimer?.cancel();
@@ -1068,7 +1173,7 @@ class _AppsScreenState extends State<AppsScreen> {
                   icon: const Icon(Icons.install_mobile_rounded), label: const Text('Install'))
               : null);
         }),
-        if (Platform.isAndroid)
+        if (io.Platform.isAndroid)
           const Padding(padding: EdgeInsets.only(top: 6), child: Text(
             'Apps are transferred as APK files only; app data and account data are not included. Some Play Store apps may not run because of licensing or device restrictions.',
             textAlign: TextAlign.center, style: TextStyle(fontSize: 11))),
@@ -1084,19 +1189,19 @@ class _AppsScreenState extends State<AppsScreen> {
           Expanded(child: FilledButton.icon(onPressed: _busy || _preparing ? null : _receive,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
           const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy || _preparing || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
-            icon: const Icon(Icons.send), label: Text(_service.isSharing ? 'Add to room' : (Platform.isAndroid ? 'Send selected' : (Platform.isWindows && _desktopSelected.isNotEmpty ? 'Send selected' : 'Choose installer'))))),
+          Expanded(child: OutlinedButton.icon(onPressed: _busy || _preparing || (io.Platform.isAndroid && _selected.isEmpty) ? null : _send,
+            icon: const Icon(Icons.send), label: Text(_service.isSharing ? 'Add to room' : (io.Platform.isAndroid ? 'Send selected' : (io.Platform.isWindows && _desktopSelected.isNotEmpty ? 'Send selected' : 'Choose installer'))))),
         ]),
         const SizedBox(height: 18),
-        if (!Platform.isAndroid) ...[
-          if (Platform.isWindows) ...[
+        if (!io.Platform.isAndroid) ...[
+          if (io.Platform.isWindows || io.Platform.isLinux) ...[
             Row(children: [
-              Expanded(child: Text('Installed Windows apps (${_filteredDesktopApps.length})',
+              Expanded(child: Text('Installed ${io.Platform.isWindows ? 'Windows' : 'Linux'} apps (${_filteredDesktopApps.length})',
                 style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
-              IconButton(onPressed: _loading ? null : _loadWindowsApps, icon: const Icon(Icons.refresh)),
+              IconButton(onPressed: _loading ? null : (io.Platform.isWindows ? _loadWindowsApps : _loadLinuxApps), icon: const Icon(Icons.refresh)),
             ]),
             TextField(
-              decoration: const InputDecoration(hintText: 'Search installed Windows apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(hintText: 'Search installed desktop apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
               onChanged: (value) => setState(() => _desktopSearchQuery = value),
             ),
             Row(children: [
@@ -1114,7 +1219,7 @@ class _AppsScreenState extends State<AppsScreen> {
               Text('${_desktopSelected.length} selected', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
             ]),
             if (_desktopApps.isEmpty && !_loading)
-              const Padding(padding: EdgeInsets.all(12), child: Text('No installed apps found. You can still choose an EXE or MSI installer below.')),
+              const Padding(padding: EdgeInsets.all(12), child: Text('No installed apps found. You can still choose an application installer below.')),
             ..._filteredDesktopApps.map((app) {
               final selected = _desktopSelected.contains(app.name);
               return Card(
@@ -1122,7 +1227,9 @@ class _AppsScreenState extends State<AppsScreen> {
                 child: CheckboxListTile(
                   value: selected,
                   onChanged: app.canBundle && !_busy ? (_) => _toggleDesktopApp(app) : null,
-                  secondary: Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
+                  secondary: app.iconPath != null && File(app.iconPath!).existsSync()
+                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(app.iconPath!), width: 38, height: 38, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined)))
+                      : Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
                   title: Text(app.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text([
                     if (app.version.isNotEmpty) 'Version ${app.version}',
@@ -1144,7 +1251,7 @@ class _AppsScreenState extends State<AppsScreen> {
             const Text('Received ZIP bundles may need extracting. Some apps also require dependencies, services, registry settings or a separate installer and may not run by copying files alone.'),
           ]))),
         ],
-        if (Platform.isAndroid) ...[
+        if (io.Platform.isAndroid) ...[
         Row(children: [Expanded(child: Text('Installed apps (' + _filteredApps.length.toString() + ')',
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))]),

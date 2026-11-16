@@ -56,12 +56,15 @@ The browser preview is being prepared for interface testing. It demonstrates the
 - [x] Single-file native LAN transfer with SHA-256 verification and receiver acknowledgement
 - [x] Native file and folder picker UI with multi-file selection
 - [x] Android installed-app browser with names, icons, versions, selection, and base APK path inspection
+- [x] Windows installed-app browser with extracted executable icons
+- [x] Linux installed-app browser with icons resolved from desktop entries and icon themes
+- [x] Windows and Linux local Images, Videos, and Music libraries with selection and deletion
 - [x] Local mDNS discovery and nearby Plazma S device list
 - [ ] Authenticated device connections and room pairing
 - [ ] Android split-APK extraction and complete app/package sharing
 - [ ] Complete theme system and settings UI
 
-The native transfer screen now supports the same HTTP transfer protocol on Android and desktop: Android can host its private hotspot, while desktop hosts bind to the active private LAN address and accept connections from other PCs or Android devices. Desktop receivers can paste a Plazma S connection code; Android receivers can scan the sender QR code. For cross-platform transfers, connect both devices to the same Wi-Fi or connect the PC manually to the Android sender's hotspot before pairing. Desktop firewall rules may need to allow Plazma S on private networks. The service supports multi-file transfers, resumable HTTP range downloads, and SHA-256 verification. Android app installation remains Android-only. This cross-platform path still needs CI desktop builds and physical PC/Android transfer testing before it can be considered verified. The TCP/HTTP payload is not yet encrypted, and room membership is not yet used as authorization.
+The native transfer screen now supports the same HTTP transfer protocol on Android and desktop: Android can host its private hotspot, while desktop hosts bind to the active private LAN address and accept connections from other PCs or Android devices. Desktop receivers can paste a Plazma S connection code; Android receivers can scan the sender QR code. For cross-platform transfers, connect both devices to the same Wi-Fi or connect the PC manually to the Android sender's hotspot before pairing. Desktop firewall rules may need to allow Plazma S on private networks. The service supports multi-file transfers, resumable HTTP range downloads, and SHA-256 verification. Android app installation remains Android-only. Desktop builds include local media browsing for the standard Pictures, Videos, Music, Downloads and Desktop folders; installed-app entries display their platform icon where the operating system provides one. Desktop app bundling is still limited by each app's packaging and installation method. This cross-platform path still needs CI desktop builds and physical PC/Android transfer testing before it can be considered verified. The TCP/HTTP payload is not yet encrypted, and room membership is not yet used as authorization.
 
 ## Development
 

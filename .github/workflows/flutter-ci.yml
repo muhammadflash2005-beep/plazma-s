@@ -59,6 +59,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
               <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+              <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -667,8 +668,13 @@ jobs:
                                       result.error("INVALID_PACKAGE", "An app package name is required.", null)
                                   } else {
                                       try {
-                                          val intent = Intent(Intent.ACTION_DELETE,
-                                              Uri.parse("package:$targetPackage"))
+                                          // Launch the system package uninstall confirmation.
+                                          packageManager.getApplicationInfo(targetPackage, 0)
+                                          val intent = Intent(Intent.ACTION_DELETE).apply {
+                                              data = Uri.parse("package:$targetPackage")
+                                              putExtra(Intent.EXTRA_RETURN_RESULT, true)
+                                              addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                          }
                                           startActivity(intent)
                                           result.success(null)
                                       } catch (error: Exception) {
@@ -1478,10 +1484,11 @@ jobs:
 
             Cross-platform local file and app sharing update.
 
-            Download the Android APK and SHA256 checksum below.
+            Download the Android APK or Windows x64 ZIP package. Both include SHA256 checksums.
 
   desktop-build:
     name: Build ${{ matrix.target }} desktop app
+    needs: analyze-test-build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -1525,6 +1532,36 @@ jobs:
             if (-not (Test-Path (Join-Path $destination $dll))) { throw "Required runtime file missing: $dll" }
           }
           @('Extract this entire folder, then run plazma_s.exe.','The Microsoft Visual C++ runtime files are bundled beside the application.','Keep all files in this folder together.') | Set-Content -Path (Join-Path $destination 'README-Windows.txt')
+      - name: Read Plazma S version for Windows release
+        if: matrix.target == 'windows'
+        id: windows_version
+        shell: pwsh
+        run: |
+          $line = Select-String -Path pubspec.yaml -Pattern '^version:'
+          $version = $line.Line.Split(':', 2)[1].Trim().Split('+')[0]
+          if (-not $version) { throw 'Could not read the Plazma S version.' }
+          "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Create Windows update archive and checksum
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $output = '${{ matrix.output }}'
+          $archive = 'plazma-s-windows-x64.zip'
+          if (Test-Path $archive) { Remove-Item $archive -Force }
+          Compress-Archive -Path (Join-Path $output '*') -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -Path SHA256SUMS-windows.txt -Encoding ascii
+          if ((Get-Item $archive).Length -lt 1000000) { throw 'Windows update archive is unexpectedly small.' }
+      - name: Publish Windows auto-update package
+        if: matrix.target == 'windows' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || steps.windows_version.outputs.tag }}
+          target_commitish: main
+          files: |
+            plazma-s-windows-x64.zip
+            SHA256SUMS-windows.txt
+          fail_on_unmatched_files: true
       - uses: actions/upload-artifact@v4
         with:
           name: plazma-s-${{ matrix.target }}
