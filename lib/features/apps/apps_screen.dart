@@ -227,12 +227,14 @@ class _AppsScreenState extends State<AppsScreen> {
           .toList();
 
       // Finish any automatic saves started when the apps were selected.
-      await Future.wait(packages.map((pkg) async {
+      // Prepare sequentially so the displayed app name and completed count
+      // always describe the same operation, and avoid competing APK exports.
+      for (final pkg in packages) {
         final app = _apps.firstWhere((a) => a.packageName == pkg);
         if (mounted) setState(() => _preparingAppName = app.appName ?? pkg);
         await _saveApp(pkg, app.appName ?? pkg);
         if (mounted) setState(() => _preparedApps++);
-      }));
+      }
       if (mounted) setState(() { _preparing = false; _busy = true; _preparingAppName = null; });
 
       final files = <File>[], paths = <String>[];
