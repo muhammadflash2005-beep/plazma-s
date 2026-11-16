@@ -246,6 +246,11 @@ class _ElectricTransferProgressState extends State<_ElectricTransferProgress>
   @override
   Widget build(BuildContext context) {
     final progress = widget.value.clamp(0.0, 1.0).toDouble();
+    final colors = Theme.of(context).colorScheme;
+    final primary = colors.primary;
+    final secondary = colors.secondary;
+    final track = colors.primary.withValues(alpha: 0.13);
+    final boltGlow = Color.lerp(primary, colors.onPrimary, 0.62)!;
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.height),
       child: SizedBox(
@@ -253,13 +258,18 @@ class _ElectricTransferProgressState extends State<_ElectricTransferProgress>
         child: LayoutBuilder(builder: (context, constraints) {
           final fillWidth = constraints.maxWidth * progress;
           return Stack(children: [
-            Positioned.fill(child: ColoredBox(color: const Color(0xFF12382F))),
+            Positioned.fill(child: ColoredBox(color: track)),
             if (fillWidth > 0)
               AnimatedBuilder(
                 animation: _pulse,
                 builder: (context, _) => CustomPaint(
                   size: Size(fillWidth, widget.height),
-                  painter: _ElectricBoltPainter(phase: _pulse.value),
+                  painter: _ElectricBoltPainter(
+                    phase: _pulse.value,
+                    primary: primary,
+                    secondary: secondary,
+                    boltGlow: boltGlow,
+                  ),
                 ),
               ),
           ]);
@@ -270,22 +280,28 @@ class _ElectricTransferProgressState extends State<_ElectricTransferProgress>
 }
 
 class _ElectricBoltPainter extends CustomPainter {
-  const _ElectricBoltPainter({required this.phase});
+  const _ElectricBoltPainter({
+    required this.phase,
+    required this.primary,
+    required this.secondary,
+    required this.boltGlow,
+  });
   final double phase;
+  final Color primary;
+  final Color secondary;
+  final Color boltGlow;
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final glow = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xFF00F5A0), Color(0xFF10B981), Color(0xFF00D9A0)],
-      ).createShader(rect)
+      ..color = primary.withValues(alpha: 0.82)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
     canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(size.height)), glow);
     final fill = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.centerLeft, end: Alignment.centerRight,
-        colors: [Color(0xFF00F5A0), Color(0xFF10B981), Color(0xFF047857)],
+        colors: [Color.lerp(primary, Colors.white, 0.18)!, primary, secondary],
       ).createShader(rect);
     canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(size.height)), fill);
 
@@ -300,7 +316,7 @@ class _ElectricBoltPainter extends CustomPainter {
       path.lineTo(x, (mid + wave + spark).clamp(1.0, size.height - 1.0).toDouble());
     }
     final boltGlow = Paint()
-      ..color = const Color(0xFFB9FFE8)
+      ..color = boltGlow
       ..style = PaintingStyle.stroke
       ..strokeWidth = (size.height * .36).clamp(1.0, 3.0).toDouble()
       ..strokeCap = StrokeCap.round
@@ -321,7 +337,9 @@ class _ElectricBoltPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _ElectricBoltPainter oldDelegate) => oldDelegate.phase != phase;
+  bool shouldRepaint(covariant _ElectricBoltPainter oldDelegate) =>
+      oldDelegate.phase != phase || oldDelegate.primary != primary ||
+      oldDelegate.secondary != secondary || oldDelegate.boltGlow != boltGlow;
 }
 
 class _TransferSpeedLabel extends StatefulWidget {
