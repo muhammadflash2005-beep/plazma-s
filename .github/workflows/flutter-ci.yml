@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms, feature/send-apps]
+    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms, feature/send-apps, feature/android-app-bundle-transfer]
     tags: ['v*']
   pull_request:
     branches: [main]
