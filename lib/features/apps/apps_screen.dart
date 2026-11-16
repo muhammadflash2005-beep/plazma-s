@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -70,6 +72,7 @@ class _AppsScreenState extends State<AppsScreen> {
   final Map<String, List<SharedLocalFile>> _incoming = {};
   final Map<String, String> _saved = {};
   final Map<String, int> _appSizes = {};
+  final Map<String, Map<String, dynamic>> _incomingDetails = {};
   final Map<String, Future<void>> _saveTasks = {};
   final Map<String, Future<Uint8List?>> _iconFutures = {};
   final List<DesktopInstalledApp> _desktopApps = [];
@@ -677,6 +680,27 @@ class _AppsScreenState extends State<AppsScreen> {
     } catch (e) { _message('Could not refresh shared apps: $e'); }
   }
 
+  Future<void> _inspectIncomingApps() async {
+    if (!Platform.isAndroid || _library == null) return;
+    final root = await getApplicationDocumentsDirectory();
+    for (final entry in _incoming.entries) {
+      final baseApk = File(root.path + Platform.pathSeparator + 'Plazma S Received' +
+        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S' +
+        Platform.pathSeparator + entry.key + Platform.pathSeparator + 'base.apk');
+      if (!await baseApk.exists()) continue;
+      try {
+        final details = await const MethodChannel('com.plazma.s/apps')
+          .invokeMapMethod<String, dynamic>('inspectApk', {'path': baseApk.path});
+        if (details == null || details['packageName'] != entry.key) {
+          throw StateError('Received APK package metadata does not match the package folder.');
+        }
+        if (mounted) setState(() => _incomingDetails[entry.key] = details);
+      } catch (error) {
+        if (mounted) _message('Could not read received app details: ' + error.toString());
+      }
+    }
+  }
+
   Future<void> _installReceivedApp(String packageName) async {
     if (!Platform.isAndroid) return;
     final root = await getApplicationDocumentsDirectory();
@@ -697,6 +721,25 @@ class _AppsScreenState extends State<AppsScreen> {
       return;
     }
     try {
+      final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
+      if (manifestParts.length != apks.length) {
+        throw StateError('The received app is missing one or more APK split files. Receive the complete app again.');
+      }
+      for (final apk in apks) {
+        final filename = apk.uri.pathSegments.last;
+        final matches = manifestParts.where((part) => part.relativePath.split('/').last == filename);
+        if (matches.length != 1) throw StateError('No trusted transfer checksum was found for ' + filename + '.');
+        final actual = await sha256.bind(apk.openRead()).first;
+        if (actual.toString() != matches.first.sha256) {
+          throw StateError('Integrity check failed for ' + filename + '. Receive the app again before installing.');
+        }
+      }
+      final inspected = await const MethodChannel('com.plazma.s/apps')
+        .invokeMapMethod<String, dynamic>('inspectApk', {'path': apks.first.path});
+      if (inspected == null || inspected['packageName'] != packageName) {
+        throw StateError('The base APK is invalid or belongs to a different app.');
+      }
+      if (mounted) setState(() => _incomingDetails[packageName] = inspected);
       await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
         'installApkSet',
         {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
@@ -741,6 +784,7 @@ class _AppsScreenState extends State<AppsScreen> {
         for (final entry in _incoming.entries) {
           _saved[entry.key] = entry.key;
         }
+        await _inspectIncomingApps();
       }
       if (!mounted) return;
       setState(() {
@@ -847,12 +891,26 @@ class _AppsScreenState extends State<AppsScreen> {
         Row(children: [Expanded(child: Text(_incoming.length.toString() + ' app(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
           TextButton(onPressed: _busy ? null : _refreshIncomingApps, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
-        ..._incoming.entries.map((e) => ListTile(leading: const Icon(Icons.android),
-          title: Text(e.key), subtitle: Text(e.value.length.toString() + ' APK part(s)'),
+        ..._incoming.entries.map((e) {
+          final details = _incomingDetails[e.key];
+          final iconData = details?['iconBase64'];
+          final appName = (details?['appName'] ?? e.key).toString();
+          final version = (details?['versionName'] ?? '').toString();
+          return ListTile(
+          leading: iconData is String
+              ? Image.memory(base64Decode(iconData), width: 40, height: 40, fit: BoxFit.contain)
+              : const Icon(Icons.android),
+          title: Text(appName),
+          subtitle: Text([e.key, if (version.isNotEmpty) 'Version ' + version, e.value.length.toString() + ' APK part(s)'].join(' · ')),
           trailing: _saved.containsKey(e.key)
               ? TextButton.icon(onPressed: _busy ? null : () => _installReceivedApp(e.key),
                   icon: const Icon(Icons.install_mobile_rounded), label: const Text('Install'))
-              : null)),
+              : null);
+        }),
+        if (Platform.isAndroid)
+          const Padding(padding: EdgeInsets.only(top: 6), child: Text(
+            'Apps are transferred as APK files only; app data and account data are not included. Some Play Store apps may not run because of licensing or device restrictions.',
+            textAlign: TextAlign.center, style: TextStyle(fontSize: 11))),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
         if (!_receivedRoom)
           FilledButton.icon(onPressed: _busy ? null : _download,
