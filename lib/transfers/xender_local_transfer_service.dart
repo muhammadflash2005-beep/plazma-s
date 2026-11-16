@@ -966,7 +966,7 @@ class XenderLocalTransferService {
             if (digest.toString() == item.sha256) {
               await partial.rename(target.path);
               totalBytes += item.size;
-              final finalStatus = await _postQueueStatus(
+              final finalStatus = await _postQueueStatusReliable(
                 invite, item.id, 'done', item.size, client: client,
               );
               if (finalStatus == 'cancelled') {
@@ -1070,14 +1070,26 @@ class XenderLocalTransferService {
       if (hadFailure || wasCancelled) {
         throw StateError(
           hadFailure
-            ? 'Some items failed. Retry failed items from the room queue.'
+            ? 'Some files could not be received. Check Wi-Fi, then tap Retry failed in the room queue.'
             : 'One or more items were cancelled.',
         );
       }
-      final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
-        if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
-      }));
-      final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      HttpClientResponse? completeResponse;
+      for (var attempt = 0; attempt < 4; attempt++) {
+        try {
+          final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
+            if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
+          }));
+          completeResponse = await completeRequest.close().timeout(const Duration(seconds: 8));
+          break;
+        } catch (error) {
+          debugPrint('Plazma room completion acknowledgement retry: $error');
+          await Future<void>.delayed(Duration(milliseconds: 400 * (1 << attempt)));
+        }
+      }
+      if (completeResponse == null) {
+        throw TimeoutException('Files were saved, but the sender did not confirm completion. Reconnect and retry.', const Duration(seconds: 12));
+      }
       if (completeResponse.statusCode == HttpStatus.conflict) {
         await completeResponse.drain<void>();
         final snapshot = await _fetchManifest(invite);
