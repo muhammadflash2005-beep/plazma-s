@@ -607,8 +607,13 @@ class _AppsScreenState extends State<AppsScreen> {
     final segments = item.relativePath.split('/');
     if (segments.isEmpty) return null;
     final filename = segments.last;
-    final isBundle = filename.toLowerCase().endsWith('.plazmaapp') || filename.toLowerCase().endsWith('.apks') || filename.toLowerCase().endsWith('.xapk') || filename.toLowerCase().endsWith('.zip');
-    final packageName = isBundle && segments.length >= 2 ? segments[1] : segments.first;
+    final isBundle = filename.toLowerCase().endsWith('.plazmaapp') ||
+        filename.toLowerCase().endsWith('.apks') ||
+        filename.toLowerCase().endsWith('.xapk') ||
+        filename.toLowerCase().endsWith('.zip');
+    final packageName = segments.length >= 2 && segments.first.toLowerCase() == 'apps'
+        ? segments[1]
+        : (isBundle && segments.length >= 2 ? segments[1] : segments.first);
     if (!RegExp(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$').hasMatch(packageName)) {
       return null;
     }
@@ -765,7 +770,11 @@ class _AppsScreenState extends State<AppsScreen> {
       }
       return;
     }
-    final folder = Directory(receiveRoot.path + Platform.pathSeparator + packageName);
+    var folder = Directory(receiveRoot.path + Platform.pathSeparator + packageName);
+    if (!await folder.exists()) {
+      folder = Directory(receiveRoot.path + Platform.pathSeparator + 'Apps' +
+          Platform.pathSeparator + packageName);
+    }
     if (!await folder.exists()) {
       _message('This app has not been saved on this device yet.');
       return;
