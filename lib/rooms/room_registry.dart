@@ -1,10 +1,11 @@
 class RoomDevice {
-  const RoomDevice({
+  RoomDevice({
     required this.deviceId,
     required this.deviceName,
     required this.platform,
     this.completed = false,
-  });
+    DateTime? lastSeenAt,
+  }) : lastSeenAt = lastSeenAt ?? DateTime.now();
 
   final String deviceId;
   final String deviceName;
