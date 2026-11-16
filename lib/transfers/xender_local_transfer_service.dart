@@ -675,8 +675,11 @@ class XenderLocalTransferService {
     final destination = _lastDownloadDestination;
     final onProgress = _lastDownloadProgress;
     if (invite == null || _retryingFailedQueue) return;
+    final failedIds = _joinedManifest.where((item) => item.status == 'failed')
+        .map((item) => item.id).toSet();
+    if (failedIds.isEmpty) return;
 
-    for (final item in _joinedManifest) {
+    for (final item in _joinedManifest.where((item) => failedIds.contains(item.id))) {
       if (item.status == 'failed') {
         final status = await _postQueueStatus(invite, item.id, 'waiting', 0);
         if (status == 'waiting') _updateJoinedQueueStatus(item.id, 'waiting', 0);
@@ -693,8 +696,6 @@ class XenderLocalTransferService {
       final snapshot = await _fetchManifest(invite);
       _joinedManifest = _mergeReceiverManifest(snapshot.files);
       _publishRoomFiles();
-      final failedIds = _joinedManifest.where((item) => item.status == 'waiting' &&
-          _lastDownloadDestination != null).map((item) => item.id).toSet();
       final retryItems = _joinedManifest.where((item) => failedIds.contains(item.id)).toList();
       if (retryItems.isNotEmpty) {
         await downloadAll(
@@ -852,9 +853,22 @@ class XenderLocalTransferService {
         final snapshot = await _fetchManifest(invite, since: revision);
         failures = 0;
         if (snapshot.revision != revision) {
+          final previous = {for (final item in _joinedManifest) item.id: item};
           revision = snapshot.revision;
           _joinedManifest = _mergeReceiverManifest(snapshot.files);
           _publishRoomFiles();
+          final restarted = snapshot.files.where((remote) =>
+              previous[remote.id]?.status == 'failed' && remote.status == 'waiting').toList();
+          if (restarted.isNotEmpty && _lastDownloadDestination != null &&
+              _lastDownloadProgress != null && !_retryingFailedQueue) {
+            _retryingFailedQueue = true;
+            unawaited(downloadAll(
+              invite: invite,
+              files: restarted,
+              destination: _lastDownloadDestination!,
+              onProgress: _lastDownloadProgress!,
+            ).whenComplete(() => _retryingFailedQueue = false));
+          }
           yield _joinedManifest;
         }
       } catch (error) {
