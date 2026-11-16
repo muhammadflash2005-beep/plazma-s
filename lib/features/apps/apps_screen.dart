@@ -1225,7 +1225,8 @@ class _AppsScreenState extends State<AppsScreen> {
                   value: selected,
                   onChanged: app.canBundle && !_busy ? (_) => _toggleDesktopApp(app) : null,
                   secondary: app.iconPath != null && File(app.iconPath!).existsSync()
-                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(app.iconPath!), width: 38, height: 38, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined)))\n                      : Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
+                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(app.iconPath!), width: 38, height: 38, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined)))
+                      : Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
                   title: Text(app.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text([
                     if (app.version.isNotEmpty) 'Version ${app.version}',
@@ -1998,7 +1999,9 @@ class _AppsScreenState extends State<AppsScreen> {
                 child: CheckboxListTile(
                   value: selected,
                   onChanged: app.canBundle && !_busy ? (_) => _toggleDesktopApp(app) : null,
-                  secondary: app.iconPath != null && File(app.iconPath!).existsSync()\n                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(app.iconPath!), width: 38, height: 38, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined)))\n                      : Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
+                  secondary: app.iconPath != null && File(app.iconPath!).existsSync()
+                      ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(File(app.iconPath!), width: 38, height: 38, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined)))
+                      : Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
                   title: Text(app.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text([
                     if (app.version.isNotEmpty) 'Version ${app.version}',
