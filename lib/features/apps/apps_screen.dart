@@ -35,6 +35,11 @@ class _AppsScreenState extends State<AppsScreen> {
   final Map<String, Future<Uint8List?>> _iconFutures = {};
   static const int _appPageSize = 60;
   int _visibleAppCount = _appPageSize;
+  String _appSearchQuery = '';
+  bool _preparing = false;
+  int _preparedApps = 0;
+  int _preparingTotal = 0;
+  String? _preparingAppName;
   Directory? _library;
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
@@ -55,6 +60,32 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
+
+  List<AppInfo> get _filteredApps {
+    final query = _appSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _apps;
+    return _apps.where((app) =>
+      (app.appName ?? '').toLowerCase().contains(query) ||
+      (app.packageName ?? '').toLowerCase().contains(query)).toList();
+  }
+
+  void _selectAllVisibleApps() {
+    final targets = _filteredApps.take(_visibleAppCount).where((app) =>
+      app.packageName != null && !_selected.contains(app.packageName)).toList();
+    setState(() => _selected.addAll(targets.map((app) => app.packageName!)));
+    _updateSelectionCount();
+    for (final app in targets) {
+      final package = app.packageName!;
+      unawaited(_saveApp(package, app.appName ?? package).catchError((Object error) {
+        if (mounted) _message('Could not save ${app.appName ?? package}: $error');
+      }));
+    }
+  }
+
+  void _clearSelectedApps() {
+    setState(() => _selected.clear());
+    _updateSelectionCount();
+  }
 
   Future<void> _load() async {
     if (kIsWeb) {
@@ -185,8 +216,8 @@ class _AppsScreenState extends State<AppsScreen> {
       await _sendDesktopInstallers();
       return;
     }
-    if (_selected.isEmpty || _busy) return;
-    setState(() { _busy = true; _status = 'Saving and preparing selected apps…'; });
+    if (_selected.isEmpty || _busy || _preparing) return;
+    setState(() { _preparing = true; _preparedApps = 0; _preparingTotal = _selected.length; _status = 'Saving and preparing selected apps…'; });
     try {
       final packages = _apps
           .where((a) => a.packageName != null && _selected.contains(a.packageName))
@@ -194,10 +225,13 @@ class _AppsScreenState extends State<AppsScreen> {
           .toList();
 
       // Finish any automatic saves started when the apps were selected.
-      await Future.wait(packages.map((pkg) {
+      await Future.wait(packages.map((pkg) async {
         final app = _apps.firstWhere((a) => a.packageName == pkg);
-        return _saveApp(pkg, app.appName ?? pkg);
+        if (mounted) setState(() => _preparingAppName = app.appName ?? pkg);
+        await _saveApp(pkg, app.appName ?? pkg);
+        if (mounted) setState(() => _preparedApps++);
       }));
+      if (mounted) setState(() { _preparing = false; _busy = true; _preparingAppName = null; });
 
       final files = <File>[], paths = <String>[];
       for (final pkg in packages) {
@@ -237,7 +271,7 @@ class _AppsScreenState extends State<AppsScreen> {
         direction: TransferOverlayDirection.sending, fileCount: packages.length,
         label: 'Sharing apps', isAppTransfer: true));
     } catch (e) { _message('Could not start app sharing: ' + e.toString()); }
-    finally { if (mounted) setState(() => _busy = false); }
+    finally { if (mounted) setState(() { _busy = false; _preparing = false; _preparingAppName = null; }); }
   }
 
   Future<void> _sendDesktopInstallers() async {
@@ -450,6 +484,15 @@ class _AppsScreenState extends State<AppsScreen> {
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_error != null) Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
       if (_loading) const LinearProgressIndicator(),
+      if (_preparing) Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          LinearProgressIndicator(value: _preparingTotal == 0 ? null : _preparedApps / _preparingTotal),
+          const SizedBox(height: 5),
+          Text('Preparing ${_preparingAppName ?? 'selected apps'} · $_preparedApps/$_preparingTotal',
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
+        ]),
+      ),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
         Text('Room ' + _invite!.roomId + ' · Scan to receive these apps', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
@@ -474,10 +517,10 @@ class _AppsScreenState extends State<AppsScreen> {
       ]))),
       if (_receiver == null) ...[
         Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: _busy ? null : _receive,
+          Expanded(child: FilledButton.icon(onPressed: _busy || _preparing ? null : _receive,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
           const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
+          Expanded(child: OutlinedButton.icon(onPressed: _busy || _preparing || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
             icon: const Icon(Icons.send), label: Text(Platform.isAndroid ? 'Send selected' : 'Send installers'))),
         ]),
         const SizedBox(height: 18),
@@ -489,17 +532,27 @@ class _AppsScreenState extends State<AppsScreen> {
           const Text('Supported formats: EXE, MSI, MSIX, AppImage, DEB, RPM, DMG, PKG and ZIP.'),
         ]))),
         if (Platform.isAndroid) ...[
-        Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
+        Row(children: [Expanded(child: Text('Installed apps (' + _filteredApps.length.toString() + ')',
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))]),
+        TextField(
+          decoration: const InputDecoration(hintText: 'Search installed apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+          onChanged: (value) => setState(() { _appSearchQuery = value; _visibleAppCount = _appPageSize; }),
+        ),
+        Row(children: [
+          TextButton(onPressed: _selectAllVisibleApps, child: const Text('Select all')),
+          TextButton(onPressed: _clearSelectedApps, child: const Text('Clear selection')),
+          const Spacer(),
+          Text('${_selected.length} selected', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
+        ]),
         LayoutBuilder(builder: (context, c) {
           final columns = (c.maxWidth / 62).floor().clamp(2,5);
           return GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-            itemCount: _visibleAppCount.clamp(0, _apps.length).toInt(),
+            itemCount: _visibleAppCount.clamp(0, _filteredApps.length).toInt(),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns, crossAxisSpacing: 4, mainAxisSpacing: 5, childAspectRatio: .58),
             itemBuilder: (context,index) {
-              final app = _apps[index], pkg = app.packageName;
+              final app = _filteredApps[index], pkg = app.packageName;
               final selected = pkg != null && _selected.contains(pkg);
               final icon = pkg == null
                   ? const Icon(Icons.android, size: 30)
@@ -549,14 +602,14 @@ class _AppsScreenState extends State<AppsScreen> {
               );
             });
         }),
-        if (_visibleAppCount < _apps.length)
+        if (_visibleAppCount < _filteredApps.length)
           Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: OutlinedButton.icon(
                 onPressed: () => setState(() {
                   _visibleAppCount = (_visibleAppCount + _appPageSize)
-                      .clamp(0, _apps.length).toInt();
+                      .clamp(0, _filteredApps.length).toInt();
                 }),
                 icon: const Icon(Icons.expand_more_rounded),
                 label: Text('Load more apps (${_apps.length - _visibleAppCount} remaining)'),
