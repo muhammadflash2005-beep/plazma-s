@@ -49,8 +49,6 @@ class _VideosScreenState extends State<VideosScreen> {
     if (VideosScreen.sendSelected == _sendVideos) VideosScreen.sendSelected = null;
     VideosScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 

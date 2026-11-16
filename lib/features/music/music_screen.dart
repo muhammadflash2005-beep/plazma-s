@@ -50,8 +50,6 @@ class _MusicScreenState extends State<MusicScreen> {
     if (MusicScreen.sendSelected == _sendMusic) MusicScreen.sendSelected = null;
     MusicScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 
