@@ -493,7 +493,22 @@ class _AppsScreenState extends State<AppsScreen> {
       Add-Type -AssemblyName System.Drawing
       foreach ($app in $apps) {
         $raw = [string]$app.DisplayIcon
-        if ($raw.StartsWith('"')) { $raw = $raw.Trim('"') } else { $raw = $raw -replace ',-?\d+
+        if ($raw.StartsWith('"')) { $raw = $raw.Trim('"') } else { $raw = $raw -replace ',[-]?[0-9]+$','' }
+        if (Test-Path -LiteralPath $raw -PathType Leaf) {
+          try {
+            $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($raw)
+            if ($icon) {
+              $bitmap = $icon.ToBitmap()
+              $png = Join-Path $iconRoot (([guid]::NewGuid().ToString()) + '.png')
+              $bitmap.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
+              $app | Add-Member -NotePropertyName IconPath -NotePropertyValue $png -Force
+              $bitmap.Dispose(); $icon.Dispose()
+            }
+          } catch {}
+        }
+      }
+      ConvertTo-Json -InputObject $apps -Depth 3 -Compress
+    '''.replaceAll('__ICON_ROOT__', iconDirectory.path.replaceAll("'", "''"));
     try {
       final result = await Process.run('powershell.exe',
         ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', _encodePowerShell(script)]);
