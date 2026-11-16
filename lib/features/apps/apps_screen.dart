@@ -385,7 +385,12 @@ class _AppsScreenState extends State<AppsScreen> {
         }
         final details = _appDetails[pkg] ?? const <String, dynamic>{};
         final app = _apps.firstWhere((value) => value.packageName == pkg);
-        final bundle = File(bundleDirectory.path + Platform.pathSeparator + pkg + '.plazmaapp');
+        String safe(String value) => value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_').replaceAll(RegExp(r'_+'), '_').replaceAll(RegExp(r'^_+|_+$'), '');
+        final appName = safe(app.appName ?? pkg);
+        final versionName = safe((details['versionName'] ?? '').toString());
+        final bundleName = (appName.isEmpty ? pkg : appName) + '_' +
+            (versionName.isEmpty ? 'unknown' : versionName) + '.plazmaapp';
+        final bundle = File(bundleDirectory.path + Platform.pathSeparator + pkg + '_' + bundleName);
         await AppBundle.create(
           output: bundle,
           packageName: pkg,
@@ -395,7 +400,7 @@ class _AppsScreenState extends State<AppsScreen> {
           apks: savedFiles,
         );
         files.add(bundle);
-        paths.add('Apps/' + pkg + '.plazmaapp');
+        paths.add('Apps/' + pkg + '/' + bundleName);
       }
 
       final invite = await (_service.isSharing
@@ -629,9 +634,8 @@ class _AppsScreenState extends State<AppsScreen> {
     final segments = item.relativePath.split('/');
     if (segments.isEmpty) return null;
     final filename = segments.last;
-    final packageName = filename.toLowerCase().endsWith('.plazmaapp')
-        ? filename.substring(0, filename.length - '.plazmaapp'.length)
-        : segments.first;
+    final isBundle = filename.toLowerCase().endsWith('.plazmaapp');
+    final packageName = isBundle && segments.length >= 2 ? segments[1] : segments.first;
     if (!RegExp(r'^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$').hasMatch(packageName)) {
       return null;
     }
@@ -724,7 +728,8 @@ class _AppsScreenState extends State<AppsScreen> {
         }
         if (bundleItems.isNotEmpty) {
           final bundlePath = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-              Platform.pathSeparator + entry.key + '.plazmaapp');
+              Platform.pathSeparator + entry.key + Platform.pathSeparator +
+              bundleItems.single.relativePath.split('/').last);
           if (!await bundlePath.exists()) continue;
           final metadata = await AppBundle.extract(
             bundle: bundlePath,
@@ -779,8 +784,10 @@ class _AppsScreenState extends State<AppsScreen> {
       if (bundles.length == 1) {
         final receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
             Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S');
+        final bundleItem = bundles.single;
         final bundle = File(receiveRoot.path + Platform.pathSeparator + 'Apps' +
-            Platform.pathSeparator + packageName + '.plazmaapp');
+            Platform.pathSeparator + packageName + Platform.pathSeparator +
+            bundleItem.relativePath.split('/').last);
         if (!await bundle.exists()) throw StateError('The received app bundle is missing.');
         final actual = await sha256.bind(bundle.openRead()).first;
         if (actual.toString() != bundles.single.sha256) {
