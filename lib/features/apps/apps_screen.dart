@@ -115,9 +115,27 @@ class _AppsScreenState extends State<AppsScreen> {
     _service.roomFiles.addListener(_syncRoomFiles);
     _syncRoomFiles();
     _invite = _service.invite;
+    _service.sharingInvite.addListener(_syncSharingInvite);
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingApps(_receiver!);
     _load();
+  }
+
+  void _syncSharingInvite() {
+    final invite = _service.sharingInvite.value;
+    if (!mounted || _invite?.toQrValue() == invite?.toQrValue()) return;
+    setState(() {
+      _invite = invite;
+      if (invite == null) _status = 'Sharing stopped.';
+    });
+    if (invite == null) {
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = null;
+    } else {
+      _roomRefreshTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   Future<void> _handleInstallerCallback(MethodCall call) async {
@@ -1107,6 +1125,7 @@ class _AppsScreenState extends State<AppsScreen> {
     _roomRefreshTimer?.cancel();
     _manifestSubscription?.cancel();
     _service.roomFiles.removeListener(_syncRoomFiles);
+    _service.sharingInvite.removeListener(_syncSharingInvite);
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
     AppsScreen.deleteSelected = null;
     AppsScreen.selectedCount.value = 0;

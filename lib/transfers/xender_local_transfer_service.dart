@@ -117,6 +117,8 @@ class XenderLocalTransferService {
   int _manifestRevision = 0;
   Completer<void>? _manifestChanged;
   PlazmaConnectionInvite? _invite;
+  /// Shared sender-room state observed by every category tab.
+  final ValueNotifier<PlazmaConnectionInvite?> sharingInvite = ValueNotifier(null);
   Future<void> Function()? _onTransferCompleted;
   RoomRegistry? _room;
   String? _joinedDeviceId;
@@ -251,6 +253,7 @@ class XenderLocalTransferService {
       _manifestRevision = 1;
       _manifestChanged = Completer<void>();
       _invite = invite;
+      sharingInvite.value = invite;
       _room = RoomRegistry(roomId: roomId);
       _recordedSentHistory.clear();
       _recordedReceivedHistory.clear();
@@ -1389,6 +1392,7 @@ class XenderLocalTransferService {
     final server = _server;
     _server = null;
     _invite = null;
+    sharingInvite.value = null;
     _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
