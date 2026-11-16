@@ -637,101 +637,127 @@ class XenderLocalTransferService {
     await destination.create(recursive: true);
     final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
+    var hadFailure = false;
     var wasCancelled = false;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       for (final item in files) {
-        if (item.status == 'cancelled') { wasCancelled = true; continue; }
-        final initialStatus = await _postQueueStatus(invite, item.id, 'sending', 0, client: client);
-        if (initialStatus == 'cancelled') { wasCancelled = true; continue; }
-        final relative = _safeRelativePath(item.relativePath);
-        final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
-        await target.parent.create(recursive: true);
-        if (await target.exists()) {
-          final existingSize = await target.length();
-          final existingDigest = await sha256.bind(target.openRead()).first;
-          if (existingSize == item.size && existingDigest.toString() == item.sha256) {
-            totalBytes += item.size;
-            await _postQueueStatus(invite, item.id, 'done', item.size, client: client);
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: item.size,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
-            continue;
-          }
-          await _postQueueStatus(invite, item.id, 'failed', 0, error: 'A different file with this name already exists.', client: client);
-          throw FileSystemException('A different file with this name already exists.', target.path);
+        if (item.status == 'cancelled') {
+          wasCancelled = true;
+          continue;
         }
-        final partial = File('${target.path}.plazma-partial');
-        var offset = await partial.exists() ? await partial.length() : 0;
-        if (offset > item.size) {
-          await partial.delete();
-          offset = 0;
-        }
-        if (offset == item.size && offset > 0) {
-          final digest = await sha256.bind(partial.openRead()).first;
-          if (digest.toString() == item.sha256) {
-            await partial.rename(target.path);
-            await _postQueueStatus(invite, item.id, 'done', item.size, client: client);
-            totalBytes += item.size;
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: item.size,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
-            continue;
-          }
-          await partial.delete();
-          offset = 0;
-        }
-        final request = await client.getUrl(
-          _endpoint(invite, '/download', {'id': item.id.toString()}),
-        );
-        if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
-        final response = await request.close().timeout(const Duration(seconds: 30));
-        final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
-        if (response.statusCode != expectedStatus) {
-          await _postQueueStatus(invite, item.id, 'failed', offset, error: 'Download could not resume (HTTP ${response.statusCode}).', client: client);
-          throw HttpException(
-            'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
-          );
-        }
-        final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
-        var fileBytes = offset;
-        var lastQueueUpdate = offset;
-        totalBytes += offset;
-        onProgress(LocalTransferProgress(
-          fileName: item.name,
-          fileBytes: fileBytes,
-          fileSize: item.size,
-          totalBytes: totalBytes,
-          totalSize: totalSize,
-        ));
+        var fileBytes = item.bytesTransferred;
         try {
-          await for (final chunk in response) {
-            sink.add(chunk);
-            fileBytes += chunk.length;
-            totalBytes += chunk.length;
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: fileBytes,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
-            if (fileBytes - lastQueueUpdate >= 16 * 1024 * 1024) {
-              final status = await _postQueueStatus(invite, item.id, 'sending', fileBytes, client: client);
-              if (status == 'cancelled') throw StateError('Transfer cancelled by sender.');
-              lastQueueUpdate = fileBytes;
-            }
+          final initialStatus = await _postQueueStatus(
+            invite, item.id, 'sending', fileBytes, client: client,
+          );
+          if (initialStatus == 'cancelled') {
+            wasCancelled = true;
+            continue;
           }
-          await sink.flush();
-          await sink.close();
+          final relative = _safeRelativePath(item.relativePath);
+          final target = File(
+            '${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
+          );
+          await target.parent.create(recursive: true);
+          if (await target.exists()) {
+            final existingSize = await target.length();
+            final existingDigest = await sha256.bind(target.openRead()).first;
+            if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+              totalBytes += item.size;
+              final finalStatus = await _postQueueStatus(
+                invite, item.id, 'done', item.size, client: client,
+              );
+              if (finalStatus == 'cancelled') {
+                wasCancelled = true;
+                continue;
+              }
+              onProgress(LocalTransferProgress(
+                fileName: item.name, fileBytes: item.size, fileSize: item.size,
+                totalBytes: totalBytes, totalSize: totalSize,
+              ));
+              continue;
+            }
+            throw FileSystemException(
+              'A different file with this name already exists.', target.path,
+            );
+          }
+          final partial = File('${target.path}.plazma-partial');
+          var offset = await partial.exists() ? await partial.length() : 0;
+          if (offset > item.size) {
+            await partial.delete();
+            offset = 0;
+          }
+          if (offset == item.size && offset > 0) {
+            final digest = await sha256.bind(partial.openRead()).first;
+            if (digest.toString() == item.sha256) {
+              await partial.rename(target.path);
+              totalBytes += item.size;
+              final finalStatus = await _postQueueStatus(
+                invite, item.id, 'done', item.size, client: client,
+              );
+              if (finalStatus == 'cancelled') {
+                wasCancelled = true;
+                continue;
+              }
+              onProgress(LocalTransferProgress(
+                fileName: item.name, fileBytes: item.size, fileSize: item.size,
+                totalBytes: totalBytes, totalSize: totalSize,
+              ));
+              continue;
+            }
+            await partial.delete();
+            offset = 0;
+          }
+          final request = await client.getUrl(
+            _endpoint(invite, '/download', {'id': item.id.toString()}),
+          );
+          if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
+          final response = await request.close().timeout(const Duration(seconds: 30));
+          final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
+          if (response.statusCode != expectedStatus) {
+            await response.drain<void>();
+            throw HttpException(
+              offset > 0
+                ? 'Download could not resume for ${item.name} (HTTP ${response.statusCode}).'
+                : 'Download failed for ${item.name} (HTTP ${response.statusCode}).',
+            );
+          }
+          final sink = partial.openWrite(
+            mode: offset > 0 ? FileMode.append : FileMode.write,
+          );
+          fileBytes = offset;
+          var lastQueueUpdate = offset;
+          totalBytes += offset;
+          onProgress(LocalTransferProgress(
+            fileName: item.name, fileBytes: fileBytes, fileSize: item.size,
+            totalBytes: totalBytes, totalSize: totalSize,
+          ));
+          try {
+            await for (final chunk in response) {
+              sink.add(chunk);
+              fileBytes += chunk.length;
+              totalBytes += chunk.length;
+              onProgress(LocalTransferProgress(
+                fileName: item.name, fileBytes: fileBytes, fileSize: item.size,
+                totalBytes: totalBytes, totalSize: totalSize,
+              ));
+              if (fileBytes - lastQueueUpdate >= 16 * 1024 * 1024) {
+                final status = await _postQueueStatus(
+                  invite, item.id, 'sending', fileBytes, client: client,
+                );
+                if (status == 'cancelled') {
+                  throw StateError('Transfer cancelled by sender.');
+                }
+                lastQueueUpdate = fileBytes;
+              }
+            }
+            await sink.flush();
+            await sink.close();
+          } catch (_) {
+            await sink.close();
+            rethrow;
+          }
           final receivedDigest = await sha256.bind(partial.openRead()).first;
           if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
             await partial.delete();
@@ -741,15 +767,39 @@ class XenderLocalTransferService {
             );
           }
           await partial.rename(target.path);
-          await _postQueueStatus(invite, item.id, 'done', item.size, client: client);
+          final finalStatus = await _postQueueStatus(
+            invite, item.id, 'done', item.size, client: client,
+          );
+          if (finalStatus == 'cancelled') {
+            wasCancelled = true;
+            continue;
+          }
         } catch (error) {
-          await sink.close();
-          final cancelled = error.toString().contains('cancelled');
-          await _postQueueStatus(invite, item.id, cancelled ? 'cancelled' : 'failed', fileBytes, error: error.toString(), client: client);
-          rethrow;
+          final cancelled = error.toString().toLowerCase().contains('cancelled');
+          await _postQueueStatus(
+            invite,
+            item.id,
+            cancelled ? 'cancelled' : 'failed',
+            fileBytes,
+            error: error.toString(),
+            client: client,
+          );
+          if (cancelled) {
+            wasCancelled = true;
+          } else {
+            hadFailure = true;
+          }
+          // A failed item must not block the remaining room queue.
+          continue;
         }
       }
-      if (wasCancelled) throw StateError('One or more items were cancelled.');
+      if (hadFailure || wasCancelled) {
+        throw StateError(
+          hadFailure
+            ? 'Some items failed. Retry failed items from the room queue.'
+            : 'One or more items were cancelled.',
+        );
+      }
       final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
         if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
       }));
