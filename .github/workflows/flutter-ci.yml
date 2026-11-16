@@ -421,7 +421,7 @@ jobs:
                                           selection, arrayOf(name, "$relativeFolder/"), null)?.use { it.moveToFirst() } == true
                                   }
                                   val dot = safeRequestedName.lastIndexOf('.')
-                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else requestedName
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else safeRequestedName
                                   val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
                                   while (exists(finalName)) {
                                       finalName = "$stem ($suffix)$ext"
@@ -489,7 +489,7 @@ jobs:
                                   var finalName = safeRequestedName
                                   var suffix = 1
                                   val dot = safeRequestedName.lastIndexOf('.')
-                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else requestedName
+                                  val stem = if (dot > 0) safeRequestedName.substring(0, dot) else safeRequestedName
                                   val ext = if (dot > 0) safeRequestedName.substring(dot) else ""
                                   while (File(directory, finalName).exists()) {
                                       finalName = "$stem ($suffix)$ext"
@@ -619,6 +619,36 @@ jobs:
                       }
               }
 
+              override fun onNewIntent(intent: Intent) {
+                  super.onNewIntent(intent)
+                  if (intent.action != "com.plazma.s.INSTALL_STATUS") return
+                  val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, android.content.pm.PackageInstaller.STATUS_FAILURE)
+                  val message = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
+                  if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                      @Suppress("DEPRECATION")
+                      val confirmation = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                      if (confirmation != null) {
+                          confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                          startActivity(confirmation)
+                      }
+                      return
+                  }
+                  val detail = when (status) {
+                      android.content.pm.PackageInstaller.STATUS_SUCCESS -> "Installation completed."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_INVALID -> "The APK is invalid or corrupted."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_VERSION_DOWNGRADE -> "Android blocked installation of an older app version."
+                      else -> message.ifBlank { "Android could not install this app (status $status)." }
+                  }
+                  flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                      MethodChannel(messenger, "com.plazma.s/apps").invokeMethod(
+                          "installStatus", mapOf("status" to status, "message" to detail)
+                      )
+                  }
+              }
+
               private fun installedAppDetails(): List<Map<String, Any>> {
                   val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
                   return packages.filter { (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 }
@@ -706,6 +736,20 @@ jobs:
               private fun installApkSet(packageName: String, paths: List<String>) {
                   if (packageName.isBlank() || paths.isEmpty()) {
                       throw IllegalArgumentException("An app package and its APK files are required.")
+                  }
+                  paths.forEachIndexed { index, path ->
+                      val apk = File(path)
+                      if (!apk.isFile || apk.length() == 0L) {
+                          throw IllegalStateException("APK file is missing or empty: $path")
+                      }
+                      val info = packageManager.getPackageArchiveInfo(path, 0)
+                          ?: throw IllegalStateException("APK is corrupted or unreadable: $path")
+                      if (info.packageName != packageName) {
+                          throw IllegalStateException("APK package mismatch. Expected $packageName but found ${info.packageName}.")
+                      }
+                      if (index == 0 && !path.substringAfterLast('/').equals("base.apk", ignoreCase = true)) {
+                          throw IllegalStateException("The base APK must be first in the installation set.")
+                      }
                   }
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
                       startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${this.packageName}")))
