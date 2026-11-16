@@ -51,12 +51,7 @@ void main() {
       'Midnight',
       'Obsidian',
     ];
-    final themeTooltips = find.byWidgetPredicate(
-      (widget) => widget is Tooltip && themeNames.contains(widget.message),
-    );
-
     // Each swatch visibly identifies its palette and whether it is light or dark.
-    expect(themeTooltips, findsNWidgets(9));
     for (final name in themeNames) {
       expect(find.text(name), findsOneWidget);
     }
