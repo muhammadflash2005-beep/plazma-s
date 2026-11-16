@@ -5,6 +5,7 @@
 
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'updates/app_update_card.dart';
@@ -14,7 +15,6 @@ import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
 import 'features/music/music_screen.dart';
 import 'features/videos/videos_screen.dart';
-import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
 import 'features/history/transfer_history_screen.dart';
 
@@ -34,6 +34,8 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.midnight => 'Midnight',
         PlazmaTheme.obsidian => 'Obsidian',
       };
+
+  bool get isDark => this == PlazmaTheme.dark || this == PlazmaTheme.midnight || this == PlazmaTheme.obsidian;
 
   String get description => switch (this) {
         PlazmaTheme.light => 'Clean white surfaces and electric blue',
@@ -201,7 +203,15 @@ class _PlazmaAppState extends State<PlazmaApp> {
           title: 'Plazma S',
           debugShowCheckedModeBanner: false,
           theme: _themes.selected.toThemeData(),
-          home: HomeScreen(themes: _themes),
+          home: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle(
+              statusBarColor: _themes.selected.background,
+              statusBarIconBrightness: _themes.selected.isDark ? Brightness.light : Brightness.dark,
+              systemNavigationBarColor: _themes.selected.surface,
+              systemNavigationBarIconBrightness: _themes.selected.isDark ? Brightness.light : Brightness.dark,
+            ),
+            child: HomeScreen(themes: _themes),
+          ),
         ),
       );
 }
@@ -217,15 +227,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _category = 0;
-  TransferMode? _transferMode;
-  String? _transferAction;
 
   @override
   void dispose() {
     super.dispose();
   }
-
-  void _showJoinDialog() => setState(() { _transferAction = null; _transferMode = null; _tab = 1; });
 
   @override
   Widget build(BuildContext context) {
@@ -236,11 +242,11 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: Row(
           children: [
-            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() { _tab = value; if (value != 1) { _transferMode = null; _transferAction = null; } })),
+            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() => _tab = value)),
             Expanded(
               child: Column(
                 children: [
-                  _TopBar(onJoin: _showJoinDialog),
+                  const _TopBar(),
                   if (_tab == 0) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
@@ -253,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             index: _tab,
                             children: [
                               _categoryContent(),
-                              _transferAction == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode, initialAction: _transferAction),
+                              const FilesScreen(),
                               _meContent(),
                             ],
                           ),
@@ -266,7 +272,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       selectedIndex: _tab,
                       onDestinationSelected: (value) => setState(() {
                         _tab = value;
-                        if (value != 2) { _transferMode = null; _transferAction = null; }
                       }),
                       destinations: const [
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
@@ -430,27 +435,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openTransfer(TransferMode? mode, String action) => setState(() {
-        _transferMode = mode;
-        _transferAction = action;
-        _tab = 1;
-      });
-
-  Widget _notice() => Card(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 10),
-            const Expanded(child: Text(
-              'All devices must already be connected to the same Wi-Fi network. Plazma S does not create or switch hotspots. Rooms support up to one sender and seven recipients across Android and PC.',
-              style: TextStyle(height: 1.4, fontSize: 13),
-            )),
-          ]),
-        ),
-      );
-
   Widget _topCategoryNavigation() {
     const labels = ['Apps', 'Images', 'Music', 'Videos', 'Files'];
     const icons = [Icons.apps_rounded, Icons.photo_library_rounded, Icons.library_music_rounded, Icons.video_library_rounded, Icons.folder_rounded];
@@ -482,49 +466,18 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 
-  Widget _transferChooser(bool wide) {
-    final theme = Theme.of(context);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Transfer', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
-      const SizedBox(height: 8),
-      Text('All devices must be connected to the same Wi-Fi. Create a room or join someone else’s room.',
-        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, height: 1.4)),
-      const SizedBox(height: 22),
-      _notice(),
-      const SizedBox(height: 20),
-      _ActionCard(
-        icon: Icons.add_circle_outline_rounded,
-        title: 'Create room',
-        subtitle: 'Choose apps, files, images, music or videos to share. Invite up to seven devices using a QR code or room code.',
-        buttonText: 'Create room',
-        onPressed: () => _openTransfer(null, 'create'),
-      ),
-      const SizedBox(height: 14),
-      _ActionCard(
-        icon: Icons.meeting_room_outlined,
-        title: 'Join room',
-        subtitle: 'Scan the host QR code on Android or enter the connection code on a computer to receive shared content.',
-        buttonText: 'Join room',
-        outlined: true,
-        onPressed: () => _openTransfer(null, 'join'),
-      ),
-    ]);
-  }
-
   Widget _meContent() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Text('Me', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
     const SizedBox(height: 16),
     _settingsContent(),
     const SizedBox(height: 22),
-    Text('Transfer history', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-    const SizedBox(height: 10),
     _secondaryContent(),
   ]);
 
   Widget _settingsContent() {
     final selected = widget.themes.selected;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Settings', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+      Text('Settings', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
       Text('Make Plazma S look the way you want. Your choice is saved on this device.',
           style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
@@ -536,21 +489,30 @@ class _HomeScreenState extends State<HomeScreen> {
         runSpacing: 10,
         children: PlazmaTheme.values.map((theme) {
           final isSelected = selected == theme;
-          return Tooltip(
-            message: theme.label,
+          final brightness = {PlazmaTheme.dark, PlazmaTheme.midnight, PlazmaTheme.obsidian}.contains(theme) ? 'Dark' : 'Light';
+          return SizedBox(
+            width: 92,
             child: InkWell(
-              customBorder: const CircleBorder(),
+              borderRadius: BorderRadius.circular(12),
               onTap: () => widget.themes.setTheme(theme),
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                    width: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: _ThemeSwatch(theme: theme),
                   ),
-                ),
-                child: _ThemeSwatch(theme: theme),
+                  const SizedBox(height: 4),
+                  Text(theme.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                  Text(brightness, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                ]),
               ),
             ),
           );
@@ -590,8 +552,7 @@ class _ThemeSwatch extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onJoin});
-  final VoidCallback onJoin;
+  const _TopBar();
 
   @override
   Widget build(BuildContext context) {
@@ -613,7 +574,6 @@ class _TopBar extends StatelessWidget {
         Text('plazma', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface, letterSpacing: -0.8)),
         Text(' S', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.primary)),
         const Spacer(),
-        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Transfer')),
       ]),
     );
   }
@@ -649,29 +609,4 @@ class _Sidebar extends StatelessWidget {
     dense: true,
   );
 }
-
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({required this.icon, required this.title, required this.subtitle, required this.buttonText, required this.onPressed, this.outlined = false});
-  final IconData icon;
-  final String title, subtitle, buttonText;
-  final VoidCallback onPressed;
-  final bool outlined;
-
-  @override
-  Widget build(BuildContext context) => Card(child: Padding(
-    padding: const EdgeInsets.all(20),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Icon(icon, color: Theme.of(context).colorScheme.primary, size: 30),
-      const SizedBox(height: 15),
-      Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 6),
-      Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.45)),
-      const SizedBox(height: 18),
-      SizedBox(width: double.infinity, child: outlined
-        ? OutlinedButton(onPressed: onPressed, child: Text(buttonText))
-        : FilledButton.icon(onPressed: onPressed, icon: const Icon(Icons.arrow_forward_rounded, size: 17), label: Text(buttonText))),
-    ]),
-  ));
-}
-
 

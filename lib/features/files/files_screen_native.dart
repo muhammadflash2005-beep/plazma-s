@@ -76,8 +76,6 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 
@@ -611,11 +609,35 @@ class _FilesScreenState extends State<FilesScreen> {
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
-            TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())),
-              icon: const Icon(Icons.copy_rounded, size: 16),
-              label: const Text('Copy connection code'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)),
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text('Copy room code'),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'More connection options',
+                  onSelected: (value) {
+                    if (value == 'copy_link') {
+                      Clipboard.setData(ClipboardData(text: _invite!.toQrValue()));
+                      _message('Connection link copied');
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem<String>(
+                      value: 'copy_link',
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.link_rounded),
+                        title: Text('Copy connection link'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 10),
             Row(children: [
@@ -623,7 +645,7 @@ class _FilesScreenState extends State<FilesScreen> {
                 'Connected devices',
                 style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               )),
-              Text('${_service.joinedDeviceCount}/8',
+              Text('${_service.joinedDeviceCount}/7',
                   style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w900)),
             ]),
             const SizedBox(height: 6),

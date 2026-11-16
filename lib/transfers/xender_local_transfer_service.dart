@@ -105,7 +105,7 @@ class XenderLocalTransferService {
   PlazmaConnectionInvite? _joinedInvite;
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
-  int get joinedDeviceCount => _room?.joinedCount ?? 1;
+  int get joinedDeviceCount => _room?.receiverCount ?? 0;
   int get completedDeviceCount => _room?.completedCount ?? 0;
 
   PlazmaConnectionInvite? get invite => _invite;
