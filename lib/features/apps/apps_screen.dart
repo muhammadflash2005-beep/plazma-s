@@ -40,6 +40,7 @@ class _AppsScreenState extends State<AppsScreen> {
   PlazmaConnectionInvite? _receiver;
   bool _loading = false, _busy = false;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
   double _progress = 0;
   String? _status, _error;
 
@@ -306,6 +307,20 @@ class _AppsScreenState extends State<AppsScreen> {
     });
   }
 
+  void _watchIncomingApps(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final groups = <String, List<SharedLocalFile>>{};
+      for (final item in manifest) {
+        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        final package = item.relativePath.split('/').first;
+        if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
+      }
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(groups); _status = '${groups.length} app(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
+  }
+
   Future<void> _receive() async {
     if (_busy) return;
     final invite = await _scan();
@@ -321,6 +336,7 @@ class _AppsScreenState extends State<AppsScreen> {
           _incoming..clear()..['Application installers'] = manifest;
           _status = manifest.length.toString() + ' application package(s) ready to receive.';
         });
+        _watchIncomingApps(invite);
         return;
       }
       final groups = <String,List<SharedLocalFile>>{};
@@ -332,6 +348,7 @@ class _AppsScreenState extends State<AppsScreen> {
       if (groups.isEmpty) throw StateError('This QR code does not contain Android apps.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(groups); _status = 'Apps ready to receive.'; });
+      _watchIncomingApps(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving, fileCount: groups.length,
         label: 'Ready to receive apps', isAppTransfer: true));
@@ -408,10 +425,9 @@ class _AppsScreenState extends State<AppsScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
+    _manifestSubscription?.cancel();
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
     AppsScreen.selectedCount.value = 0;
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 

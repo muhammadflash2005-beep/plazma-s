@@ -38,6 +38,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
   double _progress = 0;
   String? _status;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
   void initState() { super.initState(); ImagesScreen.sendSelected = _sendImages; }
@@ -49,9 +50,23 @@ class _ImagesScreenState extends State<ImagesScreen> {
     if (ImagesScreen.sendSelected == _sendImages) ImagesScreen.sendSelected = null;
     ImagesScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _manifestSubscription?.cancel();
     super.dispose();
+  }
+
+  void _watchIncomingImages(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final items = manifest.where((item) {
+        final name = item.relativePath.toLowerCase();
+        return name.endsWith('.jpg') || name.endsWith('.jpeg') ||
+            name.endsWith('.png') || name.endsWith('.webp') ||
+            name.endsWith('.gif') || name.endsWith('.bmp') ||
+            name.endsWith('.heic') || name.endsWith('.heif');
+      }).toList();
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(items); _status = '${items.length} image(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
   }
 
   // ignore: unused_element
@@ -174,6 +189,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       if (images.isEmpty) throw StateError('No images were found in this share.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(images); _status = '${images.length} image(s) ready to receive.'; });
+      _watchIncomingImages(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving,
         fileCount: images.length,

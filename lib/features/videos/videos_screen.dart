@@ -38,6 +38,7 @@ class _VideosScreenState extends State<VideosScreen> {
   double _progress = 0;
   String? _status;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
   void initState() { super.initState(); VideosScreen.sendSelected = _sendVideos; }
@@ -49,9 +50,23 @@ class _VideosScreenState extends State<VideosScreen> {
     if (VideosScreen.sendSelected == _sendVideos) VideosScreen.sendSelected = null;
     VideosScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _manifestSubscription?.cancel();
     super.dispose();
+  }
+
+  void _watchIncomingVideos(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final items = manifest.where((item) {
+        final name = item.relativePath.toLowerCase();
+        return name.endsWith('.mp4') || name.endsWith('.m4v') ||
+            name.endsWith('.mov') || name.endsWith('.mkv') ||
+            name.endsWith('.webm') || name.endsWith('.avi') ||
+            name.endsWith('.3gp');
+      }).toList();
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(items); _status = '${items.length} video(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
   }
 
   // ignore: unused_element
@@ -174,6 +189,7 @@ class _VideosScreenState extends State<VideosScreen> {
       if (videos.isEmpty) throw StateError('No videos were found in this share.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(videos); _status = '${videos.length} video(s) ready to receive.'; });
+      _watchIncomingVideos(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving,
         fileCount: videos.length,

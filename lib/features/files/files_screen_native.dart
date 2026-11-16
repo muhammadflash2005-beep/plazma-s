@@ -41,6 +41,7 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _downloading = false;
   bool _downloaded = false;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
   void initState() {
@@ -76,8 +77,7 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _manifestSubscription?.cancel();
     super.dispose();
   }
 
@@ -147,7 +147,12 @@ class _FilesScreenState extends State<FilesScreen> {
           : 'Preparing a local network share…';
     });
     try {
-      final invite = await _service.startSharing(
+      final invite = _service.isSharing
+          ? await _service.addFiles(
+              files: List<File>.from(_files),
+              relativePaths: List<String>.from(_relativePaths),
+            ).then((_) => _service.invite!)
+          : await _service.startSharing(
         files: List<File>.from(_files),
         relativePaths: List<String>.from(_relativePaths),
         onTransferCompleted: () async {
@@ -282,6 +287,14 @@ class _FilesScreenState extends State<FilesScreen> {
     );
   }
 
+  void _watchIncomingFiles(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      if (!mounted) return;
+      setState(() { _availableFiles = manifest; _status = 'Connected — ${manifest.length} item(s) available'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
+  }
+
   Future<void> _joinSender() async {
     if (_busy) return;
     final invite = await _scanInvite();
@@ -299,6 +312,7 @@ class _FilesScreenState extends State<FilesScreen> {
         _availableFiles = files;
         _status = files.isEmpty ? 'Connected. The sender has no files available.' : 'Connected — ${files.length} file(s) available';
       });
+      _watchIncomingFiles(invite);
       if (files.isNotEmpty) {
         TransferOverlayController.show(TransferOverlaySnapshot(
           direction: TransferOverlayDirection.receiving,

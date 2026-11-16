@@ -38,6 +38,7 @@ class _MusicScreenState extends State<MusicScreen> {
   double _progress = 0;
   String? _status;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
   void initState() {
@@ -50,9 +51,23 @@ class _MusicScreenState extends State<MusicScreen> {
     if (MusicScreen.sendSelected == _sendMusic) MusicScreen.sendSelected = null;
     MusicScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _manifestSubscription?.cancel();
     super.dispose();
+  }
+
+  void _watchIncomingMusic(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final items = manifest.where((item) {
+        final name = item.relativePath.toLowerCase();
+        return name.endsWith('.mp3') || name.endsWith('.m4a') ||
+            name.endsWith('.aac') || name.endsWith('.wav') ||
+            name.endsWith('.flac') || name.endsWith('.ogg') ||
+            name.endsWith('.opus') || name.endsWith('.wma');
+      }).toList();
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(items); _status = '${items.length} song(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
   }
 
   // ignore: unused_element
@@ -190,6 +205,7 @@ class _MusicScreenState extends State<MusicScreen> {
       if (musicFiles.isEmpty) throw StateError('No music files were found in this share.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(musicFiles); _status = '${musicFiles.length} song(s) ready to receive.'; });
+      _watchIncomingMusic(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving,
         fileCount: musicFiles.length,
