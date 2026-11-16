@@ -13,6 +13,7 @@ void main() {
         ), isTrue);
       }
       expect(room.joinedCount, 8);
+      expect(room.receiverCount, 7);
       expect(room.isFull, isTrue);
       expect(room.join(
         deviceId: 'f'.padLeft(32, 'f'),
@@ -27,6 +28,7 @@ void main() {
       expect(room.join(deviceId: id, deviceName: 'Phone', platform: 'android'), isTrue);
       expect(room.join(deviceId: id, deviceName: 'Phone', platform: 'android'), isTrue);
       expect(room.joinedCount, 2);
+      expect(room.receiverCount, 1);
     });
 
     test('tracks completion independently and supports leaving', () {
@@ -40,6 +42,7 @@ void main() {
       expect(room.members.firstWhere((m) => m.deviceId == first).completed, isTrue);
       expect(room.leave(second), isTrue);
       expect(room.joinedCount, 2);
+      expect(room.receiverCount, 1);
     });
   });
 }
