@@ -189,13 +189,14 @@ jobs:
                       pending.error("FOLDER_PICKER_CANCELLED", "Folder selection was cancelled.", null)
                       return
                   }
-                  val uri = data?.data
-                  if (uri == null) {
+                  val returnedIntent = data
+                  val uri = returnedIntent?.data
+                  if (returnedIntent == null || uri == null) {
                       pending.error("FOLDER_SELECTION_FAILED", "Android did not return a folder.", null)
                       return
                   }
                   try {
-                      val flags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                      val flags = returnedIntent.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                       contentResolver.takePersistableUriPermission(uri, flags)
                       val folder = DocumentFile.fromTreeUri(this, uri)
                           ?: throw IllegalStateException("Android could not open the selected folder.")
