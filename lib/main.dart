@@ -434,76 +434,81 @@ class _HomeScreenState extends State<HomeScreen> {
                 (_category == 3 && VideosScreen.selectedCount.value > 0)
               );
               if (hasSelection) return const SizedBox.shrink();
-              return Positioned(
-            right: 16,
-            bottom: wide ? 24 : 92,
-            child: ValueListenableBuilder<TransferOverlaySnapshot?>(
-              valueListenable: TransferOverlayController.current,
-              builder: (context, transfer, _) {
-                if (transfer == null) return const SizedBox.shrink();
-                final colors = Theme.of(context).colorScheme;
-                return Material(
-                  color: colors.surface,
-                  elevation: 8,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: _showTransferQueue,
-                    child: SizedBox(
-                      width: 58,
-                      height: 58,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          SizedBox(
-                            width: 48,
-                            height: 48,
-                            child: CircularProgressIndicator(
-                              value: transfer.progress,
-                              strokeWidth: 3.5,
-                              color: colors.primary,
-                              backgroundColor: colors.primary.withValues(alpha: 0.16),
+              final service = XenderLocalTransferService();
+              return ValueListenableBuilder<List<SharedLocalFile>>(
+                valueListenable: service.roomFiles,
+                builder: (context, items, _) {
+                  return ValueListenableBuilder<TransferOverlaySnapshot?>(
+                    valueListenable: TransferOverlayController.current,
+                    builder: (context, transfer, _) {
+                      final hasRoom = service.isSharing || service.joinedInvite != null;
+                      if (!hasRoom && transfer == null) return const SizedBox.shrink();
+                      final colors = Theme.of(context).colorScheme;
+                      final sending = transfer?.direction == TransferOverlayDirection.sending || (transfer == null && service.isSharing);
+                      return Positioned(
+                        right: 16,
+                        bottom: wide ? 24 : 92,
+                        child: Material(
+                          color: colors.surface,
+                          elevation: 8,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: _showTransferQueue,
+                            child: SizedBox(
+                              width: 58,
+                              height: 58,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: CircularProgressIndicator(
+                                      value: transfer?.progress ?? 0,
+                                      strokeWidth: 3.5,
+                                      color: colors.primary,
+                                      backgroundColor: colors.primary.withValues(alpha: 0.16),
+                                    ),
+                                  ),
+                                  Icon(
+                                    sending ? Icons.upload_rounded : Icons.download_rounded,
+                                    size: 19,
+                                    color: colors.primary,
+                                  ),
+                                  Positioned(
+                                    right: 1,
+                                    top: 1,
+                                    child: Container(
+                                      constraints: const BoxConstraints(minWidth: 19, minHeight: 19),
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: colors.primary,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        '${items.length}',
+                                        style: TextStyle(
+                                          color: colors.onPrimary,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          Icon(
-                            transfer.direction == TransferOverlayDirection.sending
-                                ? Icons.upload_rounded
-                                : Icons.download_rounded,
-                            size: 19,
-                            color: colors.primary,
-                          ),
-                          Positioned(
-                            right: 1,
-                            top: 1,
-                            child: Container(
-                              constraints: const BoxConstraints(minWidth: 19, minHeight: 19),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: colors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                '${XenderLocalTransferService().roomFiles.value.length}',
-                                style: TextStyle(
-                                  color: colors.onPrimary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          );
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
             },
-          ),
-        ],
+          ),        ],
       ),
     );
   }
