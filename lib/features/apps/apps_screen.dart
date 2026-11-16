@@ -345,6 +345,7 @@ class _AppsScreenState extends State<AppsScreen> {
       if (!mounted) return;
       setState(() { _invite = invite; _selected.removeAll(packages); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
       _updateSelectionCount();
+      _updateDesktopSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
@@ -406,6 +407,8 @@ class _AppsScreenState extends State<AppsScreen> {
     }
   }
 
+  void _updateDesktopSelectionCount() => AppsScreen.selectedCount.value = _desktopSelected.length;
+
   void _toggleDesktopApp(DesktopInstalledApp app) {
     if (!app.canBundle) {
       _message('No accessible install folder was found for ${app.name}. Use Choose installer to share its setup file.');
@@ -414,6 +417,7 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() {
       if (!_desktopSelected.add(app.name)) _desktopSelected.remove(app.name);
     });
+    _updateDesktopSelectionCount();
   }
 
   Future<File> _bundleDesktopApp(DesktopInstalledApp app, Directory output) async {
@@ -769,10 +773,16 @@ class _AppsScreenState extends State<AppsScreen> {
               onChanged: (value) => setState(() => _desktopSearchQuery = value),
             ),
             Row(children: [
-              TextButton(onPressed: () => setState(() {
-                _desktopSelected.addAll(_filteredDesktopApps.where((app) => app.canBundle).map((app) => app.name));
-              }), child: const Text('Select all')),
-              TextButton(onPressed: () => setState(() => _desktopSelected.clear()), child: const Text('Clear selection')),
+              TextButton(onPressed: () {
+                setState(() {
+                  _desktopSelected.addAll(_filteredDesktopApps.where((app) => app.canBundle).map((app) => app.name));
+                });
+                _updateDesktopSelectionCount();
+              }, child: const Text('Select all')),
+              TextButton(onPressed: () {
+                setState(() => _desktopSelected.clear());
+                _updateDesktopSelectionCount();
+              }, child: const Text('Clear selection')),
               const Spacer(),
               Text('${_desktopSelected.length} selected', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
             ]),
