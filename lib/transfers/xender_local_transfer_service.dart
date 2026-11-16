@@ -905,6 +905,7 @@ class XenderLocalTransferService {
               files: restarted,
               destination: _lastDownloadDestination!,
               onProgress: _lastDownloadProgress!,
+              onSaved: _lastDownloadSaved,
             ).whenComplete(() => _retryingFailedQueue = false));
           }
           yield _joinedManifest;
@@ -1210,9 +1211,10 @@ class XenderLocalTransferService {
       if (completeResponse.statusCode == HttpStatus.conflict) {
         await completeResponse.drain<void>();
         final snapshot = await _fetchManifest(invite);
-        _joinedManifest = snapshot.files;
+        _joinedManifest = _mergeReceiverManifest(snapshot.files);
         _publishRoomFiles();
-        pendingFiles = snapshot.files.where((item) => item.status == 'waiting').toList();
+        pendingFiles = _joinedManifest.where((item) =>
+            item.status != 'saved' && item.status != 'cancelled').toList();
         if (pendingFiles.isEmpty || ++queueRefreshAttempts > 20) {
           throw StateError('The room queue changed but could not be acknowledged. Refresh and retry.');
         }
