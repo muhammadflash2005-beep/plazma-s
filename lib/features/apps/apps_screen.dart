@@ -204,6 +204,7 @@ class _AppsScreenState extends State<AppsScreen> {
         if (mounted) setState(() => _saved.remove(packageName));
         return;
       }
+      if (!mounted) return;
       final confirmed = await confirmPermanentDelete(context, itemDescription: 'the saved APK copy of $appName');
       if (!confirmed) return;
       try {

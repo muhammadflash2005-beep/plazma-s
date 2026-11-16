@@ -283,7 +283,9 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         final page = await album.getAssetListRange(start: start, end: end);
         for (final asset in page) {
           if (query.isNotEmpty &&
-              !(asset.title ?? '').toLowerCase().contains(query)) continue;
+              !(asset.title ?? '').toLowerCase().contains(query)) {
+            continue;
+          }
           try {
             final mediaFile = await asset.file;
             if (mediaFile == null || !await mediaFile.exists()) continue;
@@ -323,6 +325,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       final oldPath = source.path;
       final name = oldPath.split(Platform.pathSeparator).last;
       if (action == 'delete') {
+        if (!mounted) return;
         final confirmed = await confirmPermanentDelete(context, itemDescription: name);
         if (!confirmed) return;
         final deleted = await PhotoManager.editor.deleteWithIds([asset.id]);
@@ -334,6 +337,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         return;
       }
       if (action == 'rename') {
+        if (!mounted) return;
         final controller = TextEditingController(text: name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : name);
         final nextName = await showDialog<String>(
           context: context,
@@ -363,6 +367,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         final directory = await FilePicker.getDirectoryPath();
         if (directory == null) return;
         if (action == 'move') {
+          if (!mounted) return;
           final confirmed = await confirmPermanentDelete(context,
             itemDescription: 'the original $name after it is copied to the selected folder');
           if (!confirmed) return;
@@ -378,9 +383,11 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
           _thumbnailFutures.remove(asset.id);
           await _load();
         }
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(action == 'move' ? 'Media moved to selected folder.' : 'Media copied to selected folder.')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(action == 'move' ? 'Media moved to selected folder.' : 'Media copied to selected folder.')),
+          );
+        }
       }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not $action media: $error')));

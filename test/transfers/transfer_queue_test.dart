@@ -57,17 +57,17 @@ void main() {
 
   test('one receiver cancelling an item does not cancel it for another', () {
     final statuses = ReceiverQueueStatusRegistry();
-    expect(statuses.update('phone-a', 7, 'cancelled'), isTrue);
+    expect(statuses.update('phone-a', 7, 'cancelled', 0), isTrue);
     expect(statuses.statusFor('phone-a', 7), 'cancelled');
     expect(statuses.statusFor('phone-b', 7), isNull);
-    expect(statuses.update('phone-a', 7, 'sending'), isFalse);
-    expect(statuses.update('phone-b', 7, 'sending'), isTrue);
+    expect(statuses.update('phone-a', 7, 'sending', 0), isFalse);
+    expect(statuses.update('phone-b', 7, 'sending', 0), isTrue);
     expect(statuses.statusFor('phone-b', 7), 'sending');
   });
 
   test('receiver cancellation state is removed when that device leaves', () {
     final statuses = ReceiverQueueStatusRegistry();
-    statuses.update('phone-a', 2, 'cancelled');
+    statuses.update('phone-a', 2, 'cancelled', 0);
     statuses.removeDevice('phone-a');
     expect(statuses.statusFor('phone-a', 2), isNull);
   });

@@ -341,7 +341,7 @@ class XenderLocalTransferService {
         final isJoinedReceiver = deviceId is String &&
             (_room?.members.any((member) => member.deviceId == deviceId) ?? false);
         if (currentStatus == 'cancelled' || !isJoinedReceiver ||
-            !_receiverQueueStatuses.update(deviceId as String, id, status, bytes)) {
+            !_receiverQueueStatuses.update(deviceId, id, status, bytes)) {
           request.response.statusCode = currentStatus == 'cancelled' ? HttpStatus.ok : HttpStatus.forbidden;
           request.response.headers.contentType = ContentType.json;
           request.response.write(jsonEncode({'status': 'cancelled'}));

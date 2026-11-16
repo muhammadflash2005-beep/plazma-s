@@ -180,6 +180,7 @@ class _FilesScreenState extends State<FilesScreen> {
         if (await target.exists()) throw FileSystemException('A file with that name already exists in the selected folder.', target.path);
         await source.copy(target.path);
         if (action == 'move') {
+          if (!mounted) return;
           final confirmed = await confirmPermanentDelete(context,
             itemDescription: 'the original $name after it is copied to the selected folder');
           if (!confirmed) { await target.delete(); return; }
