@@ -163,6 +163,7 @@ class _AppsScreenState extends State<AppsScreen> {
       await library.create(recursive: true);
       final apps = await FlutterDeviceApps.listApps(
         includeSystem: false, onlyLaunchable: true, includeIcons: false);
+      apps.removeWhere((app) => (app.packageName ?? '').startsWith('org.chromium.webapk.'));
       apps.sort((a,b) => (a.appName ?? '').toLowerCase().compareTo((b.appName ?? '').toLowerCase()));
       final saved = <String,String>{};
       await for (final entity in library.list(followLinks: false)) {
@@ -182,6 +183,7 @@ class _AppsScreenState extends State<AppsScreen> {
         _iconFutures.clear();
         _saved..clear()..addAll(saved);
         _selected.removeWhere((p) => !apps.any((a) => a.packageName == p));
+        _error = apps.isEmpty ? 'No installed apps were returned. Check app visibility permissions, then tap refresh.' : null;
       });
     } catch (e) { if (mounted) setState(() => _error = 'Could not load apps: ' + e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
@@ -640,6 +642,35 @@ class _AppsScreenState extends State<AppsScreen> {
     } catch (e) { _message('Could not refresh shared apps: $e'); }
   }
 
+  Future<void> _installReceivedApp(String packageName) async {
+    if (!Platform.isAndroid || _library == null) return;
+    final folder = Directory(_library!.path + Platform.pathSeparator + packageName);
+    if (!await folder.exists()) {
+      _message('This app has not been saved on this device yet.');
+      return;
+    }
+    final apks = <File>[];
+    await for (final entry in folder.list(followLinks: false)) {
+      if (entry is File && entry.path.toLowerCase().endsWith('.apk')) apks.add(entry);
+    }
+    apks.sort((a, b) => a.path.contains('base.apk') ? -1 : b.path.contains('base.apk') ? 1 : a.path.compareTo(b.path));
+    if (apks.isEmpty || !apks.first.path.endsWith('base.apk')) {
+      _message('This app package is incomplete and cannot be installed.');
+      return;
+    }
+    try {
+      await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+        'installApkSet',
+        {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
+      );
+      _message('Android installer opened. Review and approve the installation.');
+    } catch (error) {
+      _message(error.toString().contains('INSTALL_PERMISSION_REQUIRED')
+          ? 'Allow Plazma S to install unknown apps in Android settings, then tap Install again.'
+          : 'Could not open the installer. Check the saved APK and try again.');
+    }
+  }
+
   Future<void> _download() async {
     if (_receiver == null || _library == null || _busy) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving apps…'; });
@@ -747,7 +778,11 @@ class _AppsScreenState extends State<AppsScreen> {
           TextButton(onPressed: _busy ? null : _refreshIncomingApps, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         ..._incoming.entries.map((e) => ListTile(leading: const Icon(Icons.android),
-          title: Text(e.key), subtitle: Text(e.value.length.toString() + ' APK part(s)'))),
+          title: Text(e.key), subtitle: Text(e.value.length.toString() + ' APK part(s)'),
+          trailing: _saved.containsKey(e.key)
+              ? TextButton.icon(onPressed: _busy ? null : () => _installReceivedApp(e.key),
+                  icon: const Icon(Icons.install_mobile_rounded), label: const Text('Install'))
+              : null)),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
         FilledButton.icon(onPressed: _busy ? null : _download,
           icon: const Icon(Icons.download), label: const Text('Receive and save apps')),
