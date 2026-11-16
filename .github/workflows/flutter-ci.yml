@@ -784,6 +784,36 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build ${{ matrix.target }} --release
+      - name: Bundle Microsoft Visual C++ runtime for Windows
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "Visual Studio locator not found: $vswhere" }
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw "Visual Studio installation was not found." }
+          $redistRoot = Join-Path $vs "VC\\Redist\\MSVC"
+          $crt = Get-ChildItem -Path $redistRoot -Directory -Recurse -Filter "Microsoft.VC143.CRT" |
+            Where-Object { $_.FullName -match '[\\/]x64[\\/]Microsoft\\.VC143\\.CRT
+        with:
+          name: plazma-s-${{ matrix.target }}
+          path: ${{ matrix.output }}
+          if-no-files-found: error
+ } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $crt) { throw "The x64 Microsoft.VC143.CRT runtime folder was not found." }
+          $destination = "${{ matrix.output }}"
+          Copy-Item -Path (Join-Path $crt.FullName '*') -Destination $destination -Recurse -Force
+          foreach ($dll in @('VCRUNTIME140.dll','VCRUNTIME140_1.dll','MSVCP140.dll')) {
+            if (-not (Test-Path (Join-Path $destination $dll))) { throw "Required runtime file missing after packaging: $dll" }
+          }
+          @"
+          Plazma S for Windows
+          Extract this entire folder, then run plazma_s.exe.
+          The Microsoft Visual C++ runtime files are bundled beside the application.
+          Do not move plazma_s.exe away from the other files in this folder.
+          "@ | Set-Content -Path (Join-Path $destination 'README-Windows.txt')
       - uses: actions/upload-artifact@v4
         with:
           name: plazma-s-${{ matrix.target }}
