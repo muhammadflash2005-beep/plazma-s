@@ -702,10 +702,23 @@ class _AppsScreenState extends State<AppsScreen> {
         {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
       );
       _message('Android installer opened. Review and approve the installation.');
+    } on PlatformException catch (error) {
+      final detail = (error.message ?? error.toString()).toLowerCase();
+      if (detail.contains('allow installs') || detail.contains('unknown app')) {
+        _message('Allow Plazma S to install unknown apps in Android settings, return here, then tap Install again.');
+      } else if (detail.contains('signature') || detail.contains('conflict')) {
+        _message('Installation blocked by a package/signature conflict. Android may require uninstalling the existing app first; its data could be lost.');
+      } else if (detail.contains('downgrade') || detail.contains('older version')) {
+        _message('Android blocked this older app version. Install a newer or matching version instead.');
+      } else if (detail.contains('storage') || detail.contains('space')) {
+        _message('Not enough storage to install this app. Free space and try again.');
+      } else if (detail.contains('incompatible') || detail.contains('abi')) {
+        _message('This app is not compatible with this device or CPU architecture.');
+      } else {
+        _message('Android could not start installation: ${error.message ?? error.code}');
+      }
     } catch (error) {
-      _message(error.toString().contains('INSTALL_PERMISSION_REQUIRED')
-          ? 'Allow Plazma S to install unknown apps in Android settings, then tap Install again.'
-          : 'Could not open the installer. Check the saved APK and try again.');
+      _message('Could not start installation: $error');
     }
   }
 
