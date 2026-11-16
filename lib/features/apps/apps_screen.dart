@@ -85,6 +85,7 @@ class _AppsScreenState extends State<AppsScreen> {
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
   bool _loading = false, _busy = false;
+  bool _receivedRoom = false;
   Timer? _roomRefreshTimer;
   StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
   double _progress = 0;
@@ -709,6 +710,7 @@ class _AppsScreenState extends State<AppsScreen> {
         if (!mounted) return;
         setState(() => _status = 'Received and saved ' + _incoming.length.toString() + ' app(s).');
       }
+      _receivedRoom = true;
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) { _message('App transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.'); }
@@ -732,7 +734,7 @@ class _AppsScreenState extends State<AppsScreen> {
     if (_busy) return;
     await _service.disconnect();
     TransferOverlayController.clear();
-    if (mounted) setState(() { _receiver = null; _incoming.clear(); _status = 'Disconnected.'; });
+    if (mounted) setState(() { _receiver = null; _incoming.clear(); _receivedRoom = false; _status = 'Disconnected.'; });
   }
 
   void _savedMessage(String path, String? uri) {
@@ -811,8 +813,11 @@ class _AppsScreenState extends State<AppsScreen> {
                   icon: const Icon(Icons.install_mobile_rounded), label: const Text('Install'))
               : null)),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy ? null : _download,
-          icon: const Icon(Icons.download), label: const Text('Receive and save apps')),
+        if (!_receivedRoom)
+          FilledButton.icon(onPressed: _busy ? null : _download,
+            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : 'Receive and save apps'))
+        else
+          const Text('Room files received and saved.'),
       ]))),
       if (_receiver == null) ...[
         Row(children: [
