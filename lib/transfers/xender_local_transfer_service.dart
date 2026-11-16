@@ -98,6 +98,8 @@ class XenderLocalTransferService {
   HttpServer? _server;
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
+  int _manifestRevision = 0;
+  Completer<void>? _manifestChanged;
   PlazmaConnectionInvite? _invite;
   Future<void> Function()? _onTransferCompleted;
   RoomRegistry? _room;
@@ -168,6 +170,8 @@ class XenderLocalTransferService {
       server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port);
       _files = checkedFiles;
       _manifest = manifest;
+      _manifestRevision = 1;
+      _manifestChanged = Completer<void>();
       _invite = invite;
       _room = RoomRegistry(roomId: roomId);
       _onTransferCompleted = onTransferCompleted;
@@ -219,8 +223,14 @@ class XenderLocalTransferService {
         'sha256': digest.toString(),
       });
     }
-    _files = [..._files, ...nextFiles];
-    _manifest = [..._manifest, ...additions];
+    if (additions.isNotEmpty) {
+      _files = [..._files, ...nextFiles];
+      _manifest = [..._manifest, ...additions];
+      _manifestRevision++;
+      final changed = _manifestChanged;
+      if (changed != null && !changed.isCompleted) changed.complete();
+      _manifestChanged = Completer<void>();
+    }
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -302,9 +312,26 @@ class XenderLocalTransferService {
         return;
       }
       if (request.uri.path == '/manifest') {
+        // Receivers can long-poll the room revision. A sender adding items
+        // wakes every waiting receiver without requiring a room rejoin.
+        final since = int.tryParse(request.uri.queryParameters['since'] ?? '');
+        if (since != null && since == _manifestRevision) {
+          final changed = _manifestChanged;
+          if (changed != null && !changed.isCompleted) {
+            try {
+              await changed.future.timeout(const Duration(seconds: 20));
+            } on TimeoutException {
+              // A timeout is a heartbeat; the client simply rechecks.
+            }
+          }
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.headers.set('Cache-Control', 'no-store');
-        request.response.write(jsonEncode({'version': 1, 'files': _manifest}));
+        request.response.write(jsonEncode({
+          'version': 1,
+          'revision': _manifestRevision,
+          'files': _manifest,
+        }));
         await request.response.close();
         return;
       }
@@ -390,7 +417,9 @@ class XenderLocalTransferService {
         throw HttpException(reason.isEmpty ? 'Could not join room.' : reason);
       }
       await joinResponse.drain<void>();
-      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      final request = await client.getUrl(_endpoint(invite, '/manifest', {
+        if (since != null && since >= 0) 'since': since.toString(),
+      }));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 60));
       if (response.statusCode != HttpStatus.ok) {
@@ -413,6 +442,27 @@ class XenderLocalTransferService {
   }
 
   Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
+    final snapshot = await _fetchManifest(invite);
+    return snapshot.files;
+  }
+
+  /// Emits the current room manifest and then waits for live additions.
+  /// The server holds each request until its manifest revision changes, so
+  /// receivers stay current without repeatedly downloading the whole list.
+  Stream<List<SharedLocalFile>> watchManifest(PlazmaConnectionInvite invite) async* {
+    var revision = -1;
+    while (_joinedInvite == invite && _joinedDeviceId != null) {
+      final snapshot = await _fetchManifest(invite, since: revision);
+      if (snapshot.revision != revision) {
+        revision = snapshot.revision;
+        yield snapshot.files;
+      }
+    }
+  }
+
+  Future<({int revision, List<SharedLocalFile> files})> _fetchManifest(
+    PlazmaConnectionInvite invite, {int? since}
+  ) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       final request = await client.getUrl(_endpoint(invite, '/manifest'));
@@ -425,10 +475,12 @@ class XenderLocalTransferService {
       if (decoded is! Map<String, dynamic> || decoded['version'] != 1 || decoded['files'] is! List) {
         throw const FormatException('The sender returned an unsupported file list.');
       }
-      return (decoded['files'] as List)
+      final revision = decoded['revision'] as int? ?? 0;
+      final files = (decoded['files'] as List)
           .whereType<Map>()
           .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
           .toList();
+      return (revision: revision, files: files);
     } finally {
       client.close(force: true);
     }
@@ -630,6 +682,10 @@ class XenderLocalTransferService {
     _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
+    _manifestRevision = 0;
+    final changed = _manifestChanged;
+    if (changed != null && !changed.isCompleted) changed.complete();
+    _manifestChanged = null;
     _room = null;
     await server?.close(force: true);
     TransferOverlayController.clear();
