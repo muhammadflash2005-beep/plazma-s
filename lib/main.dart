@@ -378,6 +378,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _sendAllSelected() async {
+    // Keep each category's existing preparation/validation logic, but run the
+    // selected categories sequentially so each one appends to the same room.
+    final senders = <Future<void> Function()?>[
+      AppsScreen.sendSelected,
+      ImagesScreen.sendSelected,
+      MusicScreen.sendSelected,
+      VideosScreen.sendSelected,
+    ];
+    for (final send in senders) {
+      if (send != null) await send();
+    }
+  }
+
   Widget _stickySendButton({required VoidCallback? onPressed}) {
     final addToRoom = XenderLocalTransferService().isSharing;
     final colors = Theme.of(context).colorScheme;
@@ -463,50 +477,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
           ),
-          if (_tab == 0 && _category == 0)
-            Positioned(
-              left: wide ? 300 : 16,
-              right: 16,
-              bottom: wide ? 84 : 84,
-              child: ValueListenableBuilder<int>(
-                valueListenable: AppsScreen.selectedCount,
-                builder: (context, count, _) => count == 0
-                    ? const SizedBox.shrink()
-                    : Align(
-                        alignment: Alignment.centerRight,
-                        child: _stickySendButton(onPressed: AppsScreen.sendSelected),
-                      ),
-              ),
-            ),
-          if (_tab == 0 && _category == 1)
-            Positioned(
-              right: 16, bottom: wide ? 92 : 158,
-              child: ValueListenableBuilder<int>(
-                valueListenable: ImagesScreen.selectedCount,
-                builder: (context, count, _) => count == 0
-                    ? const SizedBox.shrink()
-                    : _stickySendButton(onPressed: ImagesScreen.sendSelected),
-              ),
-            ),
-          if (_tab == 0 && _category == 2)
-            Positioned(
-              right: 16, bottom: wide ? 92 : 158,
-              child: ValueListenableBuilder<int>(
-                valueListenable: MusicScreen.selectedCount,
-                builder: (context, count, _) => count == 0
-                    ? const SizedBox.shrink()
-                    : _stickySendButton(onPressed: MusicScreen.sendSelected),
-              ),
-            ),
-          if (_tab == 0 && _category == 3)
-            Positioned(
-              right: 16, bottom: wide ? 92 : 158,
-              child: ValueListenableBuilder<int>(
-                valueListenable: VideosScreen.selectedCount,
-                builder: (context, count, _) => count == 0
-                    ? const SizedBox.shrink()
-                    : _stickySendButton(onPressed: VideosScreen.sendSelected),
-              ),
+          if (_tab == 0)
+            AnimatedBuilder(
+              animation: Listenable.merge([
+                AppsScreen.selectedCount,
+                ImagesScreen.selectedCount,
+                VideosScreen.selectedCount,
+                MusicScreen.selectedCount,
+              ]),
+              builder: (context, _) {
+                final count = AppsScreen.selectedCount.value +
+                    ImagesScreen.selectedCount.value +
+                    MusicScreen.selectedCount.value +
+                    VideosScreen.selectedCount.value;
+                if (count == 0) return const SizedBox.shrink();
+                return Positioned(
+                  left: wide ? 300 : 16,
+                  right: 16,
+                  bottom: wide ? 84 : 158,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _stickySendButton(onPressed: _sendAllSelected),
+                  ),
+                );
+              },
             ),
           AnimatedBuilder(
             animation: Listenable.merge([
@@ -517,10 +511,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ]),
             builder: (context, _) {
               final hasSelection = _tab == 0 && (
-                (_category == 0 && AppsScreen.selectedCount.value > 0) ||
-                (_category == 1 && ImagesScreen.selectedCount.value > 0) ||
-                (_category == 2 && MusicScreen.selectedCount.value > 0) ||
-                (_category == 3 && VideosScreen.selectedCount.value > 0)
+                AppsScreen.selectedCount.value +
+                ImagesScreen.selectedCount.value +
+                MusicScreen.selectedCount.value +
+                VideosScreen.selectedCount.value > 0
               );
               if (hasSelection) return const SizedBox.shrink();
               final service = XenderLocalTransferService();

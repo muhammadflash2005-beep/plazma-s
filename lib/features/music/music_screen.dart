@@ -18,7 +18,7 @@ import '../../transfers/xender_local_transfer_service.dart';
 
 class MusicScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
-  static VoidCallback? sendSelected;
+  static Future<void> Function()? sendSelected;
   const MusicScreen({this.enabled = true, this.scrollController, super.key});
   final bool enabled;
   final ScrollController? scrollController;
