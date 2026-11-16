@@ -325,6 +325,28 @@ jobs:
                                       } ?: throw IllegalStateException("Android could not write to the selected folder.")
                                       getSharedPreferences("plazma_save_locations", MODE_PRIVATE).edit().putString(savedKey, document.uri.toString()).apply()
                                       if (type != "app") source.delete()
+                                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                          val channel = android.app.NotificationChannel("plazma_saved", "Saved files", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                                          getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
+                                          val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                              setDataAndType(document.uri, mime)
+                                              addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                          }
+                                          val pending = android.app.PendingIntent.getActivity(this, System.currentTimeMillis().toInt(), openIntent,
+                                              android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                                          val notification = androidx.core.app.NotificationCompat.Builder(this, "plazma_saved")
+                                              .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                                              .setContentTitle("Saved to Plazma S")
+                                              .setContentText((destinationFolder.name ?: "Selected folder") + "/" + finalName)
+                                              .setContentIntent(pending)
+                                              .setAutoCancel(true)
+                                              .build()
+                                          try {
+                                              androidx.core.app.NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), notification)
+                                          } catch (_: SecurityException) {
+                                              // File saving must still work when notifications are disabled.
+                                          }
+                                      }
                                       result.success(mapOf("uri" to document.uri.toString(), "path" to ((destinationFolder.name ?: "Selected folder") + "/" + finalName)))
                                   } catch (error: Exception) {
                                       document.delete()
