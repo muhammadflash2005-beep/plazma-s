@@ -780,7 +780,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev
-      - run: flutter create --platforms=windows,macos,linux --org com.plazma --project-name plazma_s .
+      - run: flutter create --platforms=windows,linux --org com.plazma --project-name plazma_s .
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build ${{ matrix.target }} --release

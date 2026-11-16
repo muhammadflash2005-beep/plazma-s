@@ -121,19 +121,33 @@ class TransferQueue {
 
 /// Tracks cancellation independently for each receiver. One recipient leaving
 /// an item must not cancel that item for every other device in the room.
+class ReceiverQueueItemStatus {
+  const ReceiverQueueItemStatus(this.status, this.bytesTransferred);
+  final String status;
+  final int bytesTransferred;
+}
+
+/// Status is tracked per receiver. The shared manifest exposes an aggregate
+/// only, so one receiver can never overwrite another receiver's progress.
 class ReceiverQueueStatusRegistry {
-  final Map<String, Map<int, String>> _statuses = {};
+  final Map<String, Map<int, ReceiverQueueItemStatus>> _statuses = {};
 
-  String? statusFor(String deviceId, int itemId) => _statuses[deviceId]?[itemId];
+  ReceiverQueueItemStatus? statusFor(String deviceId, int itemId) =>
+      _statuses[deviceId]?[itemId];
 
-  bool update(String deviceId, int itemId, String status) {
-    final receiverItems = _statuses.putIfAbsent(deviceId, () => <int, String>{});
-    if (receiverItems[itemId] == 'cancelled' && status != 'cancelled') {
-      return false;
-    }
-    receiverItems[itemId] = status;
+  bool update(String deviceId, int itemId, String status, int bytesTransferred) {
+    final receiverItems = _statuses.putIfAbsent(
+      deviceId, () => <int, ReceiverQueueItemStatus>{});
+    final current = receiverItems[itemId];
+    if (current?.status == 'cancelled' && status != 'cancelled') return false;
+    receiverItems[itemId] = ReceiverQueueItemStatus(status, bytesTransferred);
     return true;
   }
+
+  List<ReceiverQueueItemStatus> statusesFor(int itemId) => _statuses.values
+      .map((items) => items[itemId])
+      .whereType<ReceiverQueueItemStatus>()
+      .toList(growable: false);
 
   void removeDevice(String deviceId) => _statuses.remove(deviceId);
   void clear() => _statuses.clear();

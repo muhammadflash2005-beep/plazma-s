@@ -338,20 +338,20 @@ class XenderLocalTransferService {
         }
         final currentStatus = _manifest[id]['status'] as String? ?? 'waiting';
         final deviceId = decoded is Map ? decoded['deviceId'] : null;
-        final receiverCanUpdate = deviceId is! String ||
-            _receiverQueueStatuses.update(deviceId, id, status);
-        if (currentStatus == 'cancelled' || !receiverCanUpdate) {
-          request.response.statusCode = HttpStatus.ok;
+        final isJoinedReceiver = deviceId is String &&
+            (_room?.members.any((member) => member.deviceId == deviceId) ?? false);
+        if (currentStatus == 'cancelled' || !isJoinedReceiver ||
+            !_receiverQueueStatuses.update(deviceId as String, id, status, bytes)) {
+          request.response.statusCode = currentStatus == 'cancelled' ? HttpStatus.ok : HttpStatus.forbidden;
           request.response.headers.contentType = ContentType.json;
           request.response.write(jsonEncode({'status': 'cancelled'}));
           await request.response.close();
           return;
         }
-        // A receiver's cancellation is local to that receiver. Host-side
-        // cancellation remains in the shared manifest and stops every receiver.
-        if (status != 'cancelled') {
-          _setQueueStatus(id, status, bytes, decoded is Map ? decoded['error'] as String? : null);
-        }
+        // Keep receiver progress isolated, then publish an aggregate across
+        // every connected receiver. A single fast receiver cannot mark the
+        // shared item done while another device is still downloading it.
+        _refreshAggregateQueueStatus(id);
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode({'status': status}));
         await request.response.close();
@@ -407,6 +407,10 @@ class XenderLocalTransferService {
           await request.response.close();
           return;
         }
+        // A newly joined receiver starts at zero progress for every queue item.
+        for (var itemId = 0; itemId < _manifest.length; itemId++) {
+          _refreshAggregateQueueStatus(itemId);
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode({
           'roomId': _room?.roomId,
@@ -420,7 +424,13 @@ class XenderLocalTransferService {
         final body = await utf8.decoder.bind(request).join();
         final decoded = jsonDecode(body);
         final deviceId = decoded is Map ? decoded['deviceId'] : null;
-        if (deviceId is String) { _room?.leave(deviceId); _receiverQueueStatuses.removeDevice(deviceId); }
+        if (deviceId is String) {
+          _room?.leave(deviceId);
+          _receiverQueueStatuses.removeDevice(deviceId);
+          for (var itemId = 0; itemId < _manifest.length; itemId++) {
+            _refreshAggregateQueueStatus(itemId);
+          }
+        }
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         return;
@@ -527,6 +537,38 @@ class XenderLocalTransferService {
         await request.response.close();
       } catch (_) {}
     }
+  }
+
+  void _refreshAggregateQueueStatus(int id) {
+    if (id < 0 || id >= _manifest.length) return;
+    final receivers = _room?.members ?? const <RoomDevice>[];
+    final statuses = receivers
+        .map((device) => _receiverQueueStatuses.statusFor(device.deviceId, id))
+        .toList(growable: false);
+    if (statuses.isEmpty) {
+      _setQueueStatus(id, 'waiting', 0);
+      return;
+    }
+    final totalBytes = _manifest[id]['size'] as int;
+    final aggregateBytes = (statuses.fold<int>(
+      0, (sum, item) => sum + (item?.bytesTransferred ?? 0)) / statuses.length).round();
+    final values = statuses.map((item) => item?.status ?? 'waiting').toList();
+    final String aggregateStatus;
+    if (values.every((value) => value == 'done')) {
+      aggregateStatus = 'done';
+    } else if (values.every((value) => value == 'cancelled')) {
+      aggregateStatus = 'cancelled';
+    } else if (values.any((value) => value == 'sending')) {
+      aggregateStatus = 'sending';
+    } else if (values.any((value) => value == 'failed') &&
+        values.every((value) => value == 'failed' || value == 'done' || value == 'cancelled')) {
+      aggregateStatus = 'failed';
+    } else if (values.every((value) => value == 'done' || value == 'cancelled')) {
+      aggregateStatus = 'done';
+    } else {
+      aggregateStatus = 'waiting';
+    }
+    _setQueueStatus(id, aggregateStatus, aggregateBytes.clamp(0, totalBytes));
   }
 
   void _setQueueStatus(int id, String status, int bytesTransferred, [String? error]) {
