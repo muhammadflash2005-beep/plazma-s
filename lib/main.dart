@@ -25,7 +25,7 @@ import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
 
-enum PlazmaTheme { light, dark, ocean, sunset, forest, purple, crimson, midnight, obsidian }
+enum PlazmaTheme { light, dark, ocean, sunset, forest, purple, crimson, midnight, obsidian, monochrome, blackGold }
 
 extension PlazmaThemeInfo on PlazmaTheme {
   String get label => switch (this) {
@@ -38,9 +38,11 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.crimson => 'Crimson',
         PlazmaTheme.midnight => 'Midnight',
         PlazmaTheme.obsidian => 'Obsidian',
+        PlazmaTheme.monochrome => 'Black & White',
+        PlazmaTheme.blackGold => 'Black & Gold',
       };
 
-  bool get isDark => this == PlazmaTheme.dark || this == PlazmaTheme.midnight || this == PlazmaTheme.obsidian;
+  bool get isDark => {PlazmaTheme.dark, PlazmaTheme.midnight, PlazmaTheme.obsidian, PlazmaTheme.monochrome, PlazmaTheme.blackGold}.contains(this);
 
   String get description => switch (this) {
         PlazmaTheme.light => 'Clean white surfaces and electric blue',
@@ -52,6 +54,8 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.crimson => 'Bold red with soft rose accents',
         PlazmaTheme.midnight => 'Near-black surfaces with violet-blue accents',
         PlazmaTheme.obsidian => 'Deep graphite with vivid emerald accents',
+        PlazmaTheme.monochrome => 'Pure black surfaces with crisp white and grey details',
+        PlazmaTheme.blackGold => 'Matte black surfaces with elegant gold highlights',
       };
 
   Color get background => switch (this) {
@@ -64,6 +68,8 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.crimson => const Color(0xFFFFF1F2),
         PlazmaTheme.midnight => const Color(0xFF09090F),
         PlazmaTheme.obsidian => const Color(0xFF07130F),
+        PlazmaTheme.monochrome => const Color(0xFF000000),
+        PlazmaTheme.blackGold => const Color(0xFF080808),
       };
 
   Color get surface => switch (this) {
@@ -76,6 +82,8 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.crimson => const Color(0xFFFFFFFF),
         PlazmaTheme.midnight => const Color(0xFF181824),
         PlazmaTheme.obsidian => const Color(0xFF10231B),
+        PlazmaTheme.monochrome => const Color(0xFF101010),
+        PlazmaTheme.blackGold => const Color(0xFF19150B),
       };
 
   Color get primary => switch (this) {
@@ -88,6 +96,8 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.crimson => const Color(0xFFE11D48),
         PlazmaTheme.midnight => const Color(0xFF8B5CF6),
         PlazmaTheme.obsidian => const Color(0xFF10B981),
+        PlazmaTheme.monochrome => const Color(0xFFFFFFFF),
+        PlazmaTheme.blackGold => const Color(0xFFD4AF37),
       };
 
   Color get accent => switch (this) {
@@ -100,20 +110,22 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.crimson => const Color(0xFFFB7185),
         PlazmaTheme.midnight => const Color(0xFF22D3EE),
         PlazmaTheme.obsidian => const Color(0xFFA3E635),
+        PlazmaTheme.monochrome => const Color(0xFFBDBDBD),
+        PlazmaTheme.blackGold => const Color(0xFFFFD76A),
       };
 
   Color get foreground => switch (this) {
-        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian => const Color(0xFFF1F5F9),
+        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian || PlazmaTheme.monochrome || PlazmaTheme.blackGold => const Color(0xFFF1F5F9),
         _ => const Color(0xFF0F172A),
       };
 
   Color get muted => switch (this) {
-        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian => const Color(0xFF94A3B8),
+        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian || PlazmaTheme.monochrome || PlazmaTheme.blackGold => const Color(0xFF94A3B8),
         _ => const Color(0xFF64748B),
       };
 
   ThemeData toThemeData() {
-    final isDark = this == PlazmaTheme.dark || this == PlazmaTheme.midnight || this == PlazmaTheme.obsidian;
+    final isDark = this.isDark;
     final scheme = ColorScheme.fromSeed(
       seedColor: primary,
       brightness: isDark ? Brightness.dark : Brightness.light,
@@ -906,7 +918,7 @@ class _HomeScreenState extends State<HomeScreen> {
         runSpacing: 10,
         children: PlazmaTheme.values.map((theme) {
           final isSelected = selected == theme;
-          final brightness = {PlazmaTheme.dark, PlazmaTheme.midnight, PlazmaTheme.obsidian}.contains(theme) ? 'Dark' : 'Light';
+          final brightness = theme.isDark ? 'Dark' : 'Light';
           return SizedBox(
             width: 92,
             child: InkWell(
