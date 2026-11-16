@@ -566,6 +566,14 @@ jobs:
                                       result.error("APP_LIST_FAILED", error.message, null)
                                   }
                               }
+                              "inspectApk" -> {
+                                  val path = call.argument<String>("path").orEmpty()
+                                  try {
+                                      result.success(inspectApk(path))
+                                  } catch (error: Exception) {
+                                      result.error("APK_INSPECT_FAILED", error.message, null)
+                                  }
+                              }
                               "exportApks" -> {
                                   val packageNames = call.argument<List<String>>("packageNames") ?: emptyList()
                                   try {
@@ -634,11 +642,41 @@ jobs:
                       }.sortedBy { it["appName"].toString().lowercase() }
               }
 
+              private fun inspectApk(path: String): Map<String, Any?> {
+                  if (path.isBlank()) throw IllegalArgumentException("An APK path is required.")
+                  val apk = File(path)
+                  if (!apk.isFile) throw IllegalStateException("The received base APK is missing.")
+                  val info = packageManager.getPackageArchiveInfo(path, PackageManager.GET_ACTIVITIES)
+                      ?: throw IllegalStateException("The APK is corrupted or is not a valid Android package.")
+                  val application = info.applicationInfo ?: throw IllegalStateException("The APK has no application metadata.")
+                  application.sourceDir = path
+                  application.publicSourceDir = path
+                  val drawable = application.loadIcon(packageManager)
+                  val width = drawable.intrinsicWidth.coerceAtLeast(1)
+                  val height = drawable.intrinsicHeight.coerceAtLeast(1)
+                  val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                  val canvas = android.graphics.Canvas(bitmap)
+                  drawable.setBounds(0, 0, canvas.width, canvas.height)
+                  drawable.draw(canvas)
+                  val stream = java.io.ByteArrayOutputStream()
+                  bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+                  return mapOf(
+                      "packageName" to info.packageName,
+                      "appName" to packageManager.getApplicationLabel(application).toString(),
+                      "versionName" to (info.versionName ?: ""),
+                      "versionCode" to if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
+                      "iconBase64" to android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
+                  )
+              }
+
               private fun exportApks(packageNames: List<String>): List<Map<String, Any>> {
                   val exported = mutableListOf<Map<String, Any>>()
                   packageNames.distinct().forEach { packageName ->
                       val appInfo = packageManager.getApplicationInfo(packageName, 0)
                       val appName = packageManager.getApplicationLabel(appInfo).toString()
+                      val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                      val versionName = packageInfo.versionName ?: ""
+                      val versionCode = if (Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode else packageInfo.versionCode.toLong()
                       val sourcePaths = mutableListOf(appInfo.sourceDir)
                       appInfo.splitSourceDirs?.let { sourcePaths.addAll(it) }
                       val outputDirectory = File(cacheDir, "plazma_shared_apps/$packageName")
@@ -654,6 +692,8 @@ jobs:
                           exported.add(mapOf(
                               "packageName" to packageName,
                               "appName" to appName,
+                              "versionName" to versionName,
+                              "versionCode" to versionCode,
                               "relativePath" to "$packageName/$fileName",
                               "path" to destination.absolutePath,
                               "size" to destination.length()
