@@ -112,11 +112,13 @@ class _FilesScreenState extends State<FilesScreen> {
     if (!confirmed) return;
     var deleted = 0;
     final errors = <String>[];
+    final failedPaths = <String>{};
     for (final file in List<File>.from(_files)) {
       try {
         if (await file.exists()) await file.delete();
         deleted++;
       } catch (error) {
+        failedPaths.add(file.path);
         errors.add('${file.uri.pathSegments.last}: $error');
       }
     }
@@ -126,9 +128,8 @@ class _FilesScreenState extends State<FilesScreen> {
         _files.clear();
         _relativePaths.clear();
       } else {
-        final failedPaths = errors.map((entry) => entry.split(':').first).toSet();
         for (var i = _files.length - 1; i >= 0; i--) {
-          if (!failedPaths.contains(_files[i].uri.pathSegments.last)) {
+          if (!failedPaths.contains(_files[i].path)) {
             _files.removeAt(i);
             _relativePaths.removeAt(i);
           }
