@@ -818,7 +818,7 @@ class _AppsScreenState extends State<AppsScreen> {
           }
         }
       }
-      if (apks.isEmpty || apks.first.uri.pathSegments.last != 'base.apk') {
+      if (apks.isEmpty || (apks.length > 1 && apks.first.uri.pathSegments.last != 'base.apk')) {
         throw StateError('The received app package is incomplete and cannot be installed.');
       }
       final inspected = await const MethodChannel('com.plazma.s/apps')
