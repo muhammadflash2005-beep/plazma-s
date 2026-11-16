@@ -60,10 +60,11 @@ class AppBundle {
     final names = <String>{};
     for (final apk in ordered) {
       final name = apk.uri.pathSegments.last;
-      if (!_validApkName(name) || !names.add(name) || !await apk.isFile()) {
+      final stat = await apk.stat();
+      if (!_validApkName(name) || !names.add(name) || stat.type != FileSystemEntityType.file) {
         throw FormatException('An APK part is missing or has an unsafe name: $name');
       }
-      final size = await apk.length();
+      final size = stat.size;
       if (size <= 0) throw FormatException('APK part $name is empty.');
       final digest = await sha256.bind(apk.openRead()).first;
       entries.add({'name': name, 'size': size, 'sha256': digest.toString()});
@@ -215,7 +216,7 @@ class AppBundle {
   static bool _validApkName(String value) =>
       value != '.' && value != '..' &&
       RegExp(r'^[A-Za-z0-9._-]+\.apk$', caseSensitive: false).hasMatch(value) &&
-      !value.contains('/') && !value.contains(r'\\');
+      !value.contains('/') && !value.contains(String.fromCharCode(92));
 
   static bool _sameBytes(List<int> a, List<int> b) {
     if (a.length != b.length) return false;
