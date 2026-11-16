@@ -263,7 +263,11 @@ jobs:
                                               .setContentIntent(pending)
                                               .setAutoCancel(true)
                                               .build()
-                                          androidx.core.app.NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), notification)
+                                          try {
+                                              androidx.core.app.NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), notification)
+                                          } catch (_: SecurityException) {
+                                              // Saving must still succeed when notification permission is denied.
+                                          }
                                       }
                                       result.success(mapOf("uri" to uri.toString(), "path" to "$relativeFolder/$finalName"))
                                   } catch (error: Exception) {
