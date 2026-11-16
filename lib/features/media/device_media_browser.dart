@@ -66,6 +66,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   bool _hasMore = false;
   bool _needsRefresh = false;
   String? _message;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -211,6 +212,30 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     );
   }
 
+  List<AssetEntity> get _filteredAssets {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _assets;
+    return _assets.where((asset) =>
+      (asset.title ?? '').toLowerCase().contains(query)).toList();
+  }
+
+  Future<void> _selectAllVisible() async {
+    for (final asset in _filteredAssets) {
+      try {
+        final file = await asset.file;
+        if (file == null || !await file.exists()) continue;
+        _assetPaths[asset.id] = file.path;
+        if (!widget.selectedPaths.contains(file.path)) widget.onSelect(file);
+      } catch (_) {}
+    }
+  }
+
+  void _clearVisibleSelection() {
+    for (final asset in _filteredAssets) {
+      final path = _assetPaths[asset.id];
+      if (path != null && widget.selectedPaths.contains(path)) widget.onSelect(File(path));
+    }
+  }
   Future<void> _select(AssetEntity asset) async {
     try {
       final file = await asset.file;
@@ -284,8 +309,25 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         ],
         if (_loaded && _assets.isNotEmpty) ...[
           const SizedBox(height: 10),
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Search device $_label',
+              prefixIcon: const Icon(Icons.search_rounded),
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (value) => setState(() => _searchQuery = value),
+          ),
+          Row(children: [
+            TextButton(onPressed: _selectAllVisible, child: const Text('Select all')),
+            TextButton(onPressed: _clearVisibleSelection, child: const Text('Clear selection')),
+            const Spacer(),
+            Text('${widget.selectedPaths.length} selected',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+          ]),
+
           Text(
-            'Showing ${_assets.length} of $_totalCount',
+            'Showing ${_filteredAssets.length} of $_totalCount',
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 12,
@@ -297,7 +339,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             Card(
               child: Column(
                 children: [
-                  for (final asset in _assets)
+                  for (final asset in _filteredAssets)
                     ListTile(
                       dense: true,
                       leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
@@ -317,14 +359,14 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _assets.length,
+              itemCount: _filteredAssets.length,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 crossAxisSpacing: 7,
                 mainAxisSpacing: 7,
               ),
               itemBuilder: (context, index) {
-                final asset = _assets[index];
+                final asset = _filteredAssets[index];
                 final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
                 return InkWell(
                   onTap: () => _select(asset),
