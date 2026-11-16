@@ -132,6 +132,7 @@ class XenderLocalTransferService {
   PlazmaConnectionInvite? get invite => _invite;
   PlazmaConnectionInvite? get joinedInvite => _joinedInvite;
   bool get isSharing => _server != null;
+  bool get isReceiving => _joinedInvite != null && _server == null;
 
   void _bumpManifestRevision() {
     _manifestRevision++;
@@ -690,9 +691,11 @@ class XenderLocalTransferService {
     _retryingFailedQueue = true;
     try {
       final snapshot = await _fetchManifest(invite);
-      _joinedManifest = snapshot.files;
+      _joinedManifest = _mergeReceiverManifest(snapshot.files);
       _publishRoomFiles();
-      final retryItems = snapshot.files.where((item) => item.status == 'waiting').toList();
+      final failedIds = _joinedManifest.where((item) => item.status == 'waiting' &&
+          _lastDownloadDestination != null).map((item) => item.id).toSet();
+      final retryItems = _joinedManifest.where((item) => failedIds.contains(item.id)).toList();
       if (retryItems.isNotEmpty) {
         await downloadAll(
           invite: invite,
@@ -811,11 +814,30 @@ class XenderLocalTransferService {
     }
   }
 
+  List<SharedLocalFile> _mergeReceiverManifest(List<SharedLocalFile> remote) {
+    final previous = {for (final item in _joinedManifest) item.id: item};
+    return remote.map((item) {
+      final local = previous[item.id];
+      var status = local?.status ?? 'waiting';
+      var bytes = local?.bytesTransferred ?? 0;
+      if (local?.status == 'failed' && item.status == 'waiting') {
+        status = 'waiting';
+        bytes = 0;
+      }
+      if (local == null) bytes = 0;
+      return SharedLocalFile(
+        id: item.id, name: item.name, relativePath: item.relativePath,
+        size: item.size, sha256: item.sha256, status: status,
+        bytesTransferred: bytes, type: item.type,
+      );
+    }).toList();
+  }
+
   Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
     final snapshot = await _fetchManifest(invite);
-    _joinedManifest = snapshot.files;
+    _joinedManifest = _mergeReceiverManifest(snapshot.files);
     _publishRoomFiles();
-    return snapshot.files;
+    return _joinedManifest;
   }
 
   /// Emits the current room manifest and then waits for live additions.
@@ -831,9 +853,9 @@ class XenderLocalTransferService {
         failures = 0;
         if (snapshot.revision != revision) {
           revision = snapshot.revision;
-          _joinedManifest = snapshot.files;
+          _joinedManifest = _mergeReceiverManifest(snapshot.files);
           _publishRoomFiles();
-          yield snapshot.files;
+          yield _joinedManifest;
         }
       } catch (error) {
         failures++;
