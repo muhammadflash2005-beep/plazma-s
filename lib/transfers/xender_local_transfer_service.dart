@@ -976,8 +976,16 @@ class XenderLocalTransferService {
             continue;
           }
           final relative = _safeRelativePath(item.relativePath);
+          final categoryFolder = switch (item.type) {
+            'image' => 'Pictures/Plazma S',
+            'video' => 'Movies/Plazma S',
+            'music' => 'Music/Plazma S',
+            'app' => 'Download/Plazma S',
+            _ => 'Documents/Plazma S',
+          };
           final target = File(
-            '${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
+            '${destination.path}${Platform.pathSeparator}${categoryFolder.replaceAll('/', Platform.pathSeparator)}'
+            '${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
           );
           await target.parent.create(recursive: true);
           if (await target.exists()) {
