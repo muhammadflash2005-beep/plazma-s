@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/android_wifi_session_service.dart';
 import '../rooms/room_id.dart';
@@ -125,6 +126,7 @@ class XenderLocalTransferService {
   bool _retryingFailedQueue = false;
   final Set<String> _recordedSentHistory = <String>{};
   final Set<String> _recordedReceivedHistory = <String>{};
+  final Map<int, String> _finalSavedPaths = <int, String>{};
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -759,7 +761,7 @@ class XenderLocalTransferService {
             } else if (_recordedReceivedHistory.add('item:$id')) {
               await TransferHistoryStore.add(
                 name: item.name, type: item.type, direction: 'received',
-                path: target.path, bytes: item.size, peer: 'Nearby Plazma S device',
+                path: finalPath, bytes: item.size, peer: 'Nearby Plazma S device',
               );
             }
             debugPrint('Plazma receiver completion confirmed for item ' + id.toString());
@@ -791,6 +793,7 @@ class XenderLocalTransferService {
     _lastDownloadDestination = null;
     _lastDownloadProgress = null;
     _recordedReceivedHistory.clear();
+    _finalSavedPaths.clear();
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final deviceId = List.generate(
@@ -955,6 +958,29 @@ class XenderLocalTransferService {
     }
   }
 
+  Future<String> _persistReceivedFile(File file, SharedLocalFile item) async {
+    if (!Platform.isAndroid) return file.path;
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool('plazma_auto_save_received') ?? true)) return file.path;
+    try {
+      final saved = await const MethodChannel('com.plazma.s/storage')
+          .invokeMapMethod<String, dynamic>('saveReceivedFile', {
+        'sourcePath': file.path,
+        'name': item.name,
+        'type': item.type,
+      }).timeout(const Duration(seconds: 30));
+      final path = saved?['path'];
+      if (path is! String || path.isEmpty) {
+        throw StateError('Android did not return the saved file location.');
+      }
+      debugPrint('Plazma MediaStore save complete: $path');
+      return path;
+    } catch (error) {
+      debugPrint('Plazma MediaStore save failed: $error');
+      rethrow;
+    }
+  }
+
   Future<void> downloadAll({
     required PlazmaConnectionInvite invite,
     required List<SharedLocalFile> files,
@@ -1036,6 +1062,7 @@ class XenderLocalTransferService {
             final digest = await sha256.bind(partial.openRead()).first;
             if (digest.toString() == item.sha256) {
               await partial.rename(target.path);
+              _finalSavedPaths[item.id] = await _persistReceivedFile(target, item);
               totalBytes += item.size;
               final finalStatus = await _postQueueStatusReliable(
                 invite, item.id, 'done', item.size, client: client,
@@ -1111,6 +1138,7 @@ class XenderLocalTransferService {
             );
           }
           await partial.rename(target.path);
+          _finalSavedPaths[item.id] = await _persistReceivedFile(target, item);
           final finalStatus = await _postQueueStatusReliable(
             invite, item.id, 'done', item.size, client: client,
           );
