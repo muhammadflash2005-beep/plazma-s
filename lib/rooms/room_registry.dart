@@ -37,6 +37,7 @@ class RoomRegistry {
 
   List<RoomDevice> get members => List.unmodifiable(_members.values);
   int get joinedCount => _members.length + 1;
+  int get receiverCount => _members.length;
   int get completedCount => _members.values.where((member) => member.completed).length;
   bool get isFull => joinedCount >= maxMembers;
 
