@@ -25,7 +25,7 @@ class TransferHistoryEntry {
   final String peer;
   final DateTime completedAt;
 
-  Map<String, Object> toJson() => {
+  Map<String, Object?> toJson() => {
         'id': id,
         'name': name,
         'type': type,
