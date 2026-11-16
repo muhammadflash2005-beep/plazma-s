@@ -151,10 +151,12 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       }
       final album = albums.first;
       final count = await album.assetCountAsync;
-      final firstPage = await album.getAssetListRange(
-        start: 0,
-        end: count < _pageSize ? count : _pageSize,
-      );
+      // Preserve the loaded page depth when refreshing after a tab switch or
+      // app resume instead of silently collapsing a 96-item list to 48.
+      final previouslyLoaded = _assets.length;
+      final targetLength = previouslyLoaded > _pageSize ? previouslyLoaded : _pageSize;
+      final end = count < targetLength ? count : targetLength;
+      final firstPage = await album.getAssetListRange(start: 0, end: end);
       if (!mounted) return;
       setState(() {
         _album = album;
@@ -323,7 +325,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
               ),
               itemBuilder: (context, index) {
                 final asset = _assets[index];
-                final selected = widget.selectedPaths.contains(asset.id);
+                final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
                 return InkWell(
                   onTap: () => _select(asset),
                   borderRadius: BorderRadius.circular(10),
@@ -336,11 +338,31 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                           future: _thumbnail(asset),
                           builder: (context, snapshot) {
                             final bytes = snapshot.data;
+                            if (snapshot.hasError ||
+                                (snapshot.connectionState == ConnectionState.done && bytes == null)) {
+                              return ColoredBox(
+                                color: const Color(0x22000000),
+                                child: Center(
+                                  child: IconButton(
+                                    tooltip: 'Retry thumbnail',
+                                    onPressed: () {
+                                      _thumbnailFutures.remove(asset.id);
+                                      setState(() {});
+                                    },
+                                    icon: const Icon(Icons.refresh_rounded, size: 22),
+                                  ),
+                                ),
+                              );
+                            }
                             if (bytes == null) {
                               return const ColoredBox(
                                 color: Color(0x22000000),
                                 child: Center(
-                                  child: Icon(Icons.photo_outlined, size: 22),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
                                 ),
                               );
                             }
