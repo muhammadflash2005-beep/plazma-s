@@ -1,11 +1,16 @@
 // Flutter 3.50 currently reports the Material library import as deprecated.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:photo_manager/photo_manager.dart';
+
+import 'permanent_delete_confirmation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MediaKind { images, videos, music }
@@ -16,6 +21,7 @@ class DeviceMediaBrowser extends StatefulWidget {
     required this.onSelect,
     this.enabled = true,
     this.selectedPaths = const <String>{},
+    this.parentScrollController,
     super.key,
   });
 
@@ -23,6 +29,7 @@ class DeviceMediaBrowser extends StatefulWidget {
   final ValueChanged<File> onSelect;
   final bool enabled;
   final Set<String> selectedPaths;
+  final ScrollController? parentScrollController;
 
   @override
   State<DeviceMediaBrowser> createState() => _DeviceMediaBrowserState();
@@ -58,19 +65,24 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   AssetPathEntity? _album;
   List<AssetEntity> _assets = [];
   final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
+  final Map<String, Future<Map<String, String?>>> _musicMetadataFutures = {};
   final Map<String, String> _assetPaths = {};
   int _totalCount = 0;
   bool _loading = false;
   bool _loadingMore = false;
+  bool _selectingAll = false;
+  int _selectAllProgress = 0;
   bool _loaded = false;
   bool _hasMore = false;
   bool _needsRefresh = false;
   String? _message;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.parentScrollController?.addListener(_handleParentScroll);
     if (widget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.enabled) _load();
@@ -81,6 +93,10 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   @override
   void didUpdateWidget(covariant DeviceMediaBrowser oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.parentScrollController != widget.parentScrollController) {
+      oldWidget.parentScrollController?.removeListener(_handleParentScroll);
+      widget.parentScrollController?.addListener(_handleParentScroll);
+    }
     if (!oldWidget.enabled && widget.enabled && (!_loaded || _needsRefresh)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.enabled) _load();
@@ -99,6 +115,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
 
   @override
   void dispose() {
+    widget.parentScrollController?.removeListener(_handleParentScroll);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -151,10 +168,12 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       }
       final album = albums.first;
       final count = await album.assetCountAsync;
-      final firstPage = await album.getAssetListRange(
-        start: 0,
-        end: count < _pageSize ? count : _pageSize,
-      );
+      // Preserve the loaded page depth when refreshing after a tab switch or
+      // app resume instead of silently collapsing a 96-item list to 48.
+      final previouslyLoaded = _assets.length;
+      final targetLength = previouslyLoaded > _pageSize ? previouslyLoaded : _pageSize;
+      final end = count < targetLength ? count : targetLength;
+      final firstPage = await album.getAssetListRange(start: 0, end: end);
       if (!mounted) return;
       setState(() {
         _album = album;
@@ -175,6 +194,17 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       }
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _handleParentScroll() {
+    final controller = widget.parentScrollController;
+    if (!widget.enabled || _loading || _loadingMore || !_hasMore ||
+        controller == null || !controller.hasClients) {
+      return;
+    }
+    if (controller.position.extentAfter < 420) {
+      unawaited(_loadMore());
     }
   }
 
@@ -202,12 +232,181 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     }
   }
 
+  String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainder = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainder.toString().padLeft(2, '0')}';
+  }
+
+  Future<Map<String, String?>> _musicMetadata(AssetEntity asset) {
+    return _musicMetadataFutures.putIfAbsent(asset.id, () async {
+      try {
+        final file = await asset.file;
+        if (file == null || !await file.exists()) return const {};
+        final metadata = readMetadata(file, getImage: false);
+        return {
+          'title': metadata.title,
+          'artist': metadata.artist,
+          'duration': metadata.duration?.inSeconds.toString(),
+        };
+      } catch (_) {
+        return const {};
+      }
+    });
+  }
+
   Future<Uint8List?> _thumbnail(AssetEntity asset) {
     return _thumbnailFutures.putIfAbsent(
       asset.id,
       () => asset.thumbnailDataWithSize(const ThumbnailSize(180, 180)),
     );
   }
+
+  List<AssetEntity> get _filteredAssets {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _assets;
+    return _assets.where((asset) =>
+      (asset.title ?? '').toLowerCase().contains(query)).toList();
+  }
+
+  Future<void> _selectAllVisible() async {
+    final album = _album;
+    if (album == null || _selectingAll) return;
+    final query = _searchQuery.trim().toLowerCase();
+    final selected = <String>{...widget.selectedPaths};
+    setState(() { _selectingAll = true; _selectAllProgress = 0; });
+    try {
+      // Walk the complete album in bounded pages; Select all must not silently
+      // mean only the first page currently loaded for infinite scrolling.
+      for (var start = 0; start < _totalCount; start += _pageSize) {
+        final end = (start + _pageSize).clamp(0, _totalCount).toInt();
+        final page = await album.getAssetListRange(start: start, end: end);
+        for (final asset in page) {
+          if (query.isNotEmpty &&
+              !(asset.title ?? '').toLowerCase().contains(query)) {
+            continue;
+          }
+          try {
+            final mediaFile = await asset.file;
+            if (mediaFile == null || !await mediaFile.exists()) continue;
+            _assetPaths[asset.id] = mediaFile.path;
+            if (selected.add(mediaFile.path)) widget.onSelect(mediaFile);
+          } catch (_) {}
+          if (mounted) setState(() => _selectAllProgress++);
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _selectingAll = false);
+    }
+  }
+
+  Future<void> _clearVisibleSelection() async {
+    final selected = <String>{...widget.selectedPaths};
+    // Clear cached selections from every loaded page, including items hidden
+    // by the current search filter.
+    for (final path in _assetPaths.values.toSet()) {
+      if (selected.remove(path)) widget.onSelect(File(path));
+    }
+    // Resolve paths after a refresh if a selected asset is not cached.
+    for (final asset in _filteredAssets) {
+      try {
+        final mediaFile = await asset.file;
+        if (mediaFile != null && selected.remove(mediaFile.path)) {
+          _assetPaths[asset.id] = mediaFile.path;
+          widget.onSelect(mediaFile);
+        }
+      } catch (_) {}
+    }
+  }
+  Future<void> _manageAsset(AssetEntity asset, String action) async {
+    try {
+      final source = await asset.file;
+      if (source == null || !await source.exists()) throw StateError('This media file is no longer available.');
+      final oldPath = source.path;
+      final name = oldPath.split(Platform.pathSeparator).last;
+      if (action == 'delete') {
+        if (!mounted) return;
+        final confirmed = await confirmPermanentDelete(context, itemDescription: name);
+        if (!confirmed) return;
+        final deleted = await PhotoManager.editor.deleteWithIds([asset.id]);
+        if (!deleted.contains(asset.id)) return;
+        if (widget.selectedPaths.contains(oldPath)) widget.onSelect(source);
+        _assetPaths.remove(asset.id);
+        _thumbnailFutures.remove(asset.id);
+        await _load();
+        return;
+      }
+      if (action == 'rename') {
+        if (!mounted) return;
+        final controller = TextEditingController(text: name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : name);
+        final nextName = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Rename media'),
+            content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'New file name')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Rename')),
+            ],
+          ),
+        );
+        controller.dispose();
+        if (nextName == null || nextName.isEmpty) return;
+        final extension = name.contains('.') ? name.substring(name.lastIndexOf('.')) : '';
+        final targetName = nextName.endsWith(extension) ? nextName : '$nextName$extension';
+        final target = File('${source.parent.path}${Platform.pathSeparator}$targetName');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists.', target.path);
+        final renamed = await source.rename(target.path);
+        if (widget.selectedPaths.contains(oldPath)) { widget.onSelect(source); widget.onSelect(renamed); }
+        _assetPaths[asset.id] = renamed.path;
+        _thumbnailFutures.remove(asset.id);
+        await _load();
+        return;
+      }
+      if (action == 'copy' || action == 'move') {
+        final directory = await FilePicker.getDirectoryPath();
+        if (directory == null) return;
+        if (action == 'move') {
+          if (!mounted) return;
+          final confirmed = await confirmPermanentDelete(context,
+            itemDescription: 'the original $name after it is copied to the selected folder');
+          if (!confirmed) return;
+        }
+        final target = File('$directory${Platform.pathSeparator}$name');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists in the selected folder.', target.path);
+        await source.copy(target.path);
+        if (action == 'move') {
+          final deleted = await PhotoManager.editor.deleteWithIds([asset.id]);
+          if (!deleted.contains(asset.id)) { await target.delete(); throw StateError('Android did not approve removing the original media item.'); }
+          if (widget.selectedPaths.contains(oldPath)) widget.onSelect(source);
+          _assetPaths.remove(asset.id);
+          _thumbnailFutures.remove(asset.id);
+          await _load();
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(action == 'move' ? 'Media moved to selected folder.' : 'Media copied to selected folder.')),
+          );
+        }
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not $action media: $error')));
+    }
+  }
+
+  PopupMenuButton<String> _assetMenu(AssetEntity asset) => PopupMenuButton<String>(
+    tooltip: 'Manage media',
+    icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 18),
+    color: Theme.of(context).colorScheme.surface,
+    onSelected: (action) => _manageAsset(asset, action),
+    itemBuilder: (_) => const [
+      PopupMenuItem(value: 'rename', child: Text('Rename')),
+      PopupMenuItem(value: 'copy', child: Text('Copy to folder')),
+      PopupMenuItem(value: 'move', child: Text('Move to folder')),
+      PopupMenuDivider(),
+      PopupMenuItem(value: 'delete', child: Text('Delete permanently')),
+    ],
+  );
 
   Future<void> _select(AssetEntity asset) async {
     try {
@@ -282,6 +481,38 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         ],
         if (_loaded && _assets.isNotEmpty) ...[
           const SizedBox(height: 10),
+          TextField(
+            decoration: InputDecoration(
+              hintText: 'Search device $_label',
+              prefixIcon: const Icon(Icons.search_rounded),
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (value) => setState(() => _searchQuery = value),
+          ),
+          Row(children: [
+            TextButton(
+              onPressed: _selectingAll ? null : _selectAllVisible,
+              child: Text(_selectingAll ? 'Selecting…' : 'Select all'),
+            ),
+            TextButton(
+              onPressed: _selectingAll ? null : _clearVisibleSelection,
+              child: const Text('Clear selection'),
+            ),
+            const Spacer(),
+            Text('${widget.selectedPaths.length} selected',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+          ]),
+
+          if (_selectingAll)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2)),
+                const SizedBox(width: 8),
+                Text('Selecting $_selectAllProgress media item(s)…'),
+              ]),
+            ),
           Text(
             'Showing ${_assets.length} of $_totalCount',
             style: TextStyle(
@@ -295,18 +526,39 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             Card(
               child: Column(
                 children: [
-                  for (final asset in _assets)
-                    ListTile(
-                      dense: true,
-                      leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
-                      title: Text(asset.title ?? 'Audio file',
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(asset.createDateTime.toLocal().toString().split('.').first),
-                      trailing: Icon(
-                        widget.selectedPaths.contains(_assetPaths[asset.id]) ? Icons.check_circle : Icons.circle_outlined,
-                        color: widget.selectedPaths.contains(asset.id) ? colors.primary : colors.onSurfaceVariant,
-                      ),
-                      onTap: () => _select(asset),
+                  for (final asset in _filteredAssets)
+                    FutureBuilder<Map<String, String?>>(
+                      future: _musicMetadata(asset),
+                      builder: (context, snapshot) {
+                        final details = snapshot.data ?? const <String, String?>{};
+                        final title = (details['title']?.trim().isNotEmpty ?? false)
+                            ? details['title']!
+                            : (asset.title?.trim().isNotEmpty ?? false)
+                                ? asset.title!
+                                : (asset.relativePath ?? 'Audio file').split('/').last;
+                        final artist = details['artist']?.trim();
+                        final duration = int.tryParse(details['duration'] ?? '') ?? asset.duration;
+                        final subtitle = [
+                          artist?.isNotEmpty == true ? artist! : 'Unknown artist',
+                          duration > 0 ? _formatDuration(duration) : 'Duration unavailable',
+                        ].join(' · ');
+                        final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
+                        return ListTile(
+                          dense: true,
+                          leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
+                          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(selected ? Icons.check_circle : Icons.circle_outlined,
+                                color: selected ? colors.primary : colors.onSurfaceVariant),
+                              _assetMenu(asset),
+                            ],
+                          ),
+                          onTap: () => _select(asset),
+                        );
+                      },
                     ),
                 ],
               ),
@@ -315,15 +567,15 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: _assets.length,
+              itemCount: _filteredAssets.length,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 crossAxisSpacing: 7,
                 mainAxisSpacing: 7,
               ),
               itemBuilder: (context, index) {
-                final asset = _assets[index];
-                final selected = widget.selectedPaths.contains(asset.id);
+                final asset = _filteredAssets[index];
+                final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
                 return InkWell(
                   onTap: () => _select(asset),
                   borderRadius: BorderRadius.circular(10),
@@ -336,16 +588,43 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                           future: _thumbnail(asset),
                           builder: (context, snapshot) {
                             final bytes = snapshot.data;
+                            if (snapshot.hasError ||
+                                (snapshot.connectionState == ConnectionState.done && bytes == null)) {
+                              return ColoredBox(
+                                color: const Color(0x22000000),
+                                child: Center(
+                                  child: IconButton(
+                                    tooltip: 'Retry thumbnail',
+                                    onPressed: () {
+                                      _thumbnailFutures.remove(asset.id);
+                                      setState(() {});
+                                    },
+                                    icon: const Icon(Icons.refresh_rounded, size: 22),
+                                  ),
+                                ),
+                              );
+                            }
                             if (bytes == null) {
                               return const ColoredBox(
                                 color: Color(0x22000000),
                                 child: Center(
-                                  child: Icon(Icons.photo_outlined, size: 22),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
                                 ),
                               );
                             }
                             return Image.memory(bytes, fit: BoxFit.cover);
                           },
+                        ),
+                        Positioned(
+                          top: 0, right: 0,
+                          child: Container(
+                            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                            child: _assetMenu(asset),
+                          ),
                         ),
                         if (widget.kind == MediaKind.videos)
                           const Center(

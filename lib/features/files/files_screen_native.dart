@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+
+import '../media/permanent_delete_confirmation.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -41,10 +43,18 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _downloading = false;
   bool _downloaded = false;
   Timer? _roomRefreshTimer;
+  Timer? _statusMessageTimer;
+  String _fileSearchQuery = '';
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
   void initState() {
     super.initState();
+    _invite = _service.invite;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
+    _receiverInvite = _service.joinedInvite;
+    if (_receiverInvite != null) _watchIncomingFiles(_receiverInvite!);
     _addInitialPaths(widget.initialPaths);
   }
 
@@ -54,6 +64,13 @@ class _FilesScreenState extends State<FilesScreen> {
     if (oldWidget.initialPaths != widget.initialPaths) {
       _addInitialPaths(widget.initialPaths);
     }
+  }
+
+  List<int> get _visibleFileIndexes {
+    final query = _fileSearchQuery.trim().toLowerCase();
+    return List<int>.generate(_files.length, (index) => index)
+        .where((index) => query.isEmpty || _relativePaths[index].toLowerCase().contains(query))
+        .toList();
   }
 
   void _addInitialPaths(List<String> paths) {
@@ -76,9 +93,113 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _statusMessageTimer?.cancel();
+    _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
+  }
+
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    if (!mounted) return;
+    setState(() { _receiverInvite = invite; _availableFiles = invite == null ? const [] : _service.roomFiles.value; });
+  }
+  Future<void> _deleteSelectedFiles() async {
+    if (_files.isEmpty || _busy) return;
+    final count = _files.length;
+    final confirmed = await confirmPermanentDelete(
+      context,
+      itemDescription: '$count selected file(s)',
+    );
+    if (!confirmed) return;
+    var deleted = 0;
+    final errors = <String>[];
+    final failedPaths = <String>{};
+    for (final file in List<File>.from(_files)) {
+      try {
+        if (await file.exists()) await file.delete();
+        deleted++;
+      } catch (error) {
+        failedPaths.add(file.path);
+        errors.add('${file.uri.pathSegments.last}: $error');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      if (errors.isEmpty) {
+        _files.clear();
+        _relativePaths.clear();
+      } else {
+        for (var i = _files.length - 1; i >= 0; i--) {
+          if (!failedPaths.contains(_files[i].path)) {
+            _files.removeAt(i);
+            _relativePaths.removeAt(i);
+          }
+        }
+      }
+    });
+    _message(errors.isEmpty
+        ? 'Permanently deleted $deleted file(s).'
+        : 'Deleted $deleted file(s); ${errors.length} could not be deleted.');
+  }
+
+  Future<void> _manageStagedFile(int index, String action) async {
+    if (index < 0 || index >= _files.length || _busy) return;
+    final source = _files[index];
+    final name = _relativePaths[index].split('/').last;
+    try {
+      if (action == 'remove') {
+        setState(() { _files.removeAt(index); _relativePaths.removeAt(index); });
+        return;
+      }
+      if (action == 'rename') {
+        final controller = TextEditingController(text: name);
+        final nextName = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Rename file'),
+            content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'New name')),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Rename')),
+            ],
+          ),
+        );
+        controller.dispose();
+        if (nextName == null || nextName.isEmpty || nextName == name) return;
+        final target = File('${source.parent.path}${Platform.pathSeparator}$nextName');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists.', target.path);
+        final renamed = await source.rename(target.path);
+        if (!mounted) return;
+        setState(() { _files[index] = renamed; _relativePaths[index] = nextName; });
+        _message('File renamed');
+      } else if (action == 'copy' || action == 'move') {
+        final directory = await FilePicker.getDirectoryPath();
+        if (directory == null) return;
+        final target = File('$directory${Platform.pathSeparator}$name');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists in the selected folder.', target.path);
+        await source.copy(target.path);
+        if (action == 'move') {
+          if (!mounted) return;
+          final confirmed = await confirmPermanentDelete(context,
+            itemDescription: 'the original $name after it is copied to the selected folder');
+          if (!confirmed) { await target.delete(); return; }
+          await source.delete();
+          if (!mounted) return;
+          setState(() { _files[index] = target; _relativePaths[index] = name; });
+        }
+        _message(action == 'move' ? 'File moved' : 'File copied to selected folder');
+      } else if (action == 'delete') {
+        final confirmed = await confirmPermanentDelete(context, itemDescription: name);
+        if (!confirmed) return;
+        await source.delete();
+        if (!mounted) return;
+        setState(() { _files.removeAt(index); _relativePaths.removeAt(index); });
+        _message('File permanently deleted');
+      }
+    } catch (error) {
+      if (mounted) _message('Could not $action file: $error');
+    }
   }
 
   Future<void> _pickFiles() async {
@@ -147,7 +268,12 @@ class _FilesScreenState extends State<FilesScreen> {
           : 'Preparing a local network share…';
     });
     try {
-      final invite = await _service.startSharing(
+      final invite = _service.isSharing
+          ? await _service.addFiles(
+              files: List<File>.from(_files),
+              relativePaths: List<String>.from(_relativePaths),
+            ).then((_) => _service.invite!)
+          : await _service.startSharing(
         files: List<File>.from(_files),
         relativePaths: List<String>.from(_relativePaths),
         onTransferCompleted: () async {
@@ -198,15 +324,15 @@ class _FilesScreenState extends State<FilesScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('On the sending device, copy the Plazma S room code and paste it below. Both devices must already be connected to the same Wi-Fi.'),
+                const Text('On the sending device, open More room actions → Copy connection link, then paste that link below. The short room code is for identifying the room; it does not contain the connection details. Both devices must already be connected to the same Wi-Fi.'),
                 const SizedBox(height: 12),
                 TextField(
                   controller: controller,
                   minLines: 2,
                   maxLines: 4,
                   decoration: const InputDecoration(
-                    labelText: 'Plazma S connection code',
-                    hintText: 'plazmas://connect?...',
+                    labelText: 'Plazma S connection link',
+                    hintText: 'Paste the copied connection link',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -282,6 +408,14 @@ class _FilesScreenState extends State<FilesScreen> {
     );
   }
 
+  void _watchIncomingFiles(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      if (!mounted) return;
+      setState(() { _availableFiles = manifest; _status = 'Connected — ${manifest.length} item(s) available'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
+  }
+
   Future<void> _joinSender() async {
     if (_busy) return;
     final invite = await _scanInvite();
@@ -299,6 +433,7 @@ class _FilesScreenState extends State<FilesScreen> {
         _availableFiles = files;
         _status = files.isEmpty ? 'Connected. The sender has no files available.' : 'Connected — ${files.length} file(s) available';
       });
+      _watchIncomingFiles(invite);
       if (files.isNotEmpty) {
         TransferOverlayController.show(TransferOverlaySnapshot(
           direction: TransferOverlayDirection.receiving,
@@ -432,9 +567,16 @@ class _FilesScreenState extends State<FilesScreen> {
     await _service.stopSharing();
     TransferOverlayController.clear();
     if (!mounted) return;
+    _statusMessageTimer?.cancel();
     setState(() {
       _invite = null;
       _status = 'Sharing stopped';
+    });
+    // Keep the confirmation visible briefly, then clear it so the idle
+    // Files screen does not retain a stale session message indefinitely.
+    _statusMessageTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted || _status != 'Sharing stopped') return;
+      setState(() => _status = null);
     });
   }
 
@@ -556,28 +698,42 @@ class _FilesScreenState extends State<FilesScreen> {
                   }),
                   child: const Text('Clear'),
                 ),
+                TextButton.icon(
+                  onPressed: _busy ? null : _deleteSelectedFiles,
+                  icon: const Icon(Icons.delete_outline_rounded, size: 17),
+                  label: const Text('Delete selected'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                ),
             ]),
             if (_files.isNotEmpty) ...[
               const SizedBox(height: 10),
-              Text('${_files.length} selected · ${_formatBytes(_files.fold<int>(0, (sum, file) => sum + file.lengthSync()))}',
+              TextField(
+                decoration: const InputDecoration(hintText: 'Search selected files', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+                onChanged: (value) => setState(() => _fileSearchQuery = value),
+              ),
+              Text('${_visibleFileIndexes.length} shown · ${_files.length} selected · ${_formatBytes(_files.fold<int>(0, (sum, file) => sum + file.lengthSync()))}',
                   style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              ...List.generate(_files.length > 5 ? 5 : _files.length, (index) => ListTile(
+              ..._visibleFileIndexes.take(5).map((index) => ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.insert_drive_file_outlined),
                     title: Text(_relativePaths[index], maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: Text(_formatBytes(_files[index].lengthSync())),
-                    trailing: IconButton(
-                      tooltip: 'Remove',
-                      onPressed: _busy ? null : () => setState(() {
-                        _files.removeAt(index);
-                        _relativePaths.removeAt(index);
-                      }),
-                      icon: const Icon(Icons.close_rounded),
+                    trailing: PopupMenuButton<String>(
+                      tooltip: 'Manage file',
+                      onSelected: (action) => _manageStagedFile(index, action),
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'rename', child: Text('Rename')),
+                        PopupMenuItem(value: 'copy', child: Text('Copy to folder')),
+                        PopupMenuItem(value: 'move', child: Text('Move to folder')),
+                        PopupMenuDivider(),
+                        PopupMenuItem(value: 'delete', child: Text('Delete permanently')),
+                        PopupMenuItem(value: 'remove', child: Text('Remove from selection')),
+                      ],
                     ),
                   )),
-              if (_files.length > 5) Text('And ${_files.length - 5} more…'),
+              if (_visibleFileIndexes.length > 5) Text('And ${_visibleFileIndexes.length - 5} more…'),
             ],
             const SizedBox(height: 14),
             SizedBox(
@@ -585,7 +741,7 @@ class _FilesScreenState extends State<FilesScreen> {
               child: FilledButton.icon(
                 onPressed: _busy || _files.isEmpty ? null : _startSharing,
                 icon: const Icon(Icons.qr_code_2_rounded),
-                label: const Text('Start sharing'),
+                label: Text(_service.isSharing ? 'Add to room' : 'Start sharing'),
               ),
             ),
           ]),
@@ -596,7 +752,9 @@ class _FilesScreenState extends State<FilesScreen> {
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(children: [
-            const Text('Scan this code on the receiving device', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+            Text('Room ${_invite!.roomId}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+            const SizedBox(height: 4),
+            const Text('Scan this code on the receiving device', style: TextStyle(fontSize: 13)),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -611,19 +769,30 @@ class _FilesScreenState extends State<FilesScreen> {
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
             TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())),
+              onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)),
               icon: const Icon(Icons.copy_rounded, size: 16),
-              label: const Text('Copy connection code'),
+              label: const Text('Copy room code'),
             ),
+            PopupMenuButton<String>(
+              tooltip: 'More room actions',
+              onSelected: (value) {
+                if (value == 'link') {
+                  Clipboard.setData(ClipboardData(text: _invite!.toQrValue()));
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'link', child: Text('Copy connection link')),
+              ],
+            ),
+
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: Text(
                 'Connected devices',
                 style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               )),
-              Text('${_service.joinedDeviceCount}/8',
+              Text('${_service.joinedDeviceCount}/7',
                   style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w900)),
             ]),
             const SizedBox(height: 6),

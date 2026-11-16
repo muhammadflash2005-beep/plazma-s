@@ -5,6 +5,7 @@
 
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'updates/app_update_card.dart';
@@ -14,8 +15,8 @@ import 'features/files/files_screen.dart';
 import 'features/images/images_screen.dart';
 import 'features/music/music_screen.dart';
 import 'features/videos/videos_screen.dart';
-import 'transfers/transfer_mode.dart';
 import 'transfers/transfer_overlay_controller.dart';
+import 'transfers/xender_local_transfer_service.dart';
 import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
@@ -34,6 +35,8 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.midnight => 'Midnight',
         PlazmaTheme.obsidian => 'Obsidian',
       };
+
+  bool get isDark => this == PlazmaTheme.dark || this == PlazmaTheme.midnight || this == PlazmaTheme.obsidian;
 
   String get description => switch (this) {
         PlazmaTheme.light => 'Clean white surfaces and electric blue',
@@ -201,7 +204,15 @@ class _PlazmaAppState extends State<PlazmaApp> {
           title: 'Plazma S',
           debugShowCheckedModeBanner: false,
           theme: _themes.selected.toThemeData(),
-          home: HomeScreen(themes: _themes),
+          home: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle(
+              statusBarColor: _themes.selected.background,
+              statusBarIconBrightness: _themes.selected.isDark ? Brightness.light : Brightness.dark,
+              systemNavigationBarColor: _themes.selected.surface,
+              systemNavigationBarIconBrightness: _themes.selected.isDark ? Brightness.light : Brightness.dark,
+            ),
+            child: HomeScreen(themes: _themes),
+          ),
         ),
       );
 }
@@ -217,15 +228,115 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _category = 0;
-  TransferMode? _transferMode;
-  String? _transferAction;
+  final ScrollController _contentScrollController = ScrollController();
 
   @override
   void dispose() {
+    _contentScrollController.dispose();
     super.dispose();
   }
 
-  void _showJoinDialog() => setState(() { _transferAction = null; _transferMode = null; _tab = 1; });
+  void _showTransferQueue() {
+    final service = XenderLocalTransferService();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ValueListenableBuilder<List<SharedLocalFile>>(
+          valueListenable: service.roomFiles,
+          builder: (context, items, _) {
+            final roomId = service.invite?.roomId ?? service.joinedInvite?.roomId;
+            final totalBytes = items.fold<int>(0, (sum, item) => sum + item.size);
+            final transferredBytes = items.fold<int>(0, (sum, item) => sum + item.bytesTransferred);
+            return SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.65,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Expanded(child: Text(roomId == null ? 'Transfer queue' : 'Room $roomId',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+                    IconButton(onPressed: () => Navigator.of(sheetContext).pop(), icon: const Icon(Icons.close)),
+                  ]),
+                  Text('${items.length} item(s) in this room',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  if (items.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(spacing: 8, children: [
+                      OutlinedButton.icon(onPressed: () => service.cancelAllQueuedItems(),
+                        icon: const Icon(Icons.cancel_outlined, size: 16), label: const Text('Cancel all')),
+                      OutlinedButton.icon(onPressed: () => service.retryFailedQueueItems(),
+                        icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry failed')),
+                    ]),
+                  ],
+                  if (totalBytes > 0) ...[
+                    Text('Overall progress · ${(transferredBytes / totalBytes * 100).clamp(0, 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12)),
+                    const SizedBox(height: 4),
+                    LinearProgressIndicator(value: (transferredBytes / totalBytes).clamp(0.0, 1.0)),
+                  ],
+                  const SizedBox(height: 10),
+                  Expanded(child: items.isEmpty
+                    ? const Center(child: Text('No items in this room yet. Add files from any category.'))
+                    : ListView.separated(
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return ListTile(
+                            leading: Icon(switch (item.type) { 'app' => Icons.apps_rounded, 'image' => Icons.image_outlined, 'video' => Icons.movie_outlined, 'music' => Icons.music_note_rounded, _ => Icons.insert_drive_file_outlined }),
+                            title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(item.relativePath),
+                            trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
+                              Text(item.status, style: const TextStyle(fontSize: 10)),
+                              const SizedBox(height: 4),
+                              LinearProgressIndicator(value: item.size <= 0 ? 0 : (item.bytesTransferred / item.size).clamp(0.0, 1.0)),
+                              if (item.status == 'waiting' || item.status == 'sending')
+                                IconButton(visualDensity: VisualDensity.compact, tooltip: 'Cancel item',
+                                  onPressed: () => service.cancelQueuedItem(item.id),
+                                  icon: const Icon(Icons.close_rounded, size: 17)),
+                            ])),
+                          );
+                        },
+                      )),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _stickySendButton({required VoidCallback? onPressed}) {
+    final addToRoom = XenderLocalTransferService().isSharing;
+    final colors = Theme.of(context).colorScheme;
+    final label = addToRoom ? 'Add to room' : 'Send';
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: colors.primary,
+        elevation: 7,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(28),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 17),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text(label, style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13,
+                )),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -236,24 +347,25 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: Row(
           children: [
-            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() { _tab = value; if (value != 1) { _transferMode = null; _transferAction = null; } })),
+            if (wide) _Sidebar(selected: _tab, onSelect: (value) => setState(() => _tab = value)),
             Expanded(
               child: Column(
                 children: [
-                  _TopBar(onJoin: _showJoinDialog),
+                  const _TopBar(),
                   if (_tab == 0) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
+                          controller: _contentScrollController,
                           physics: const ClampingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+                          padding: EdgeInsets.fromLTRB(16, 10, 16, _tab == 0 ? 112 : 18),
                           child: IndexedStack(
                             index: _tab,
                             children: [
                               _categoryContent(),
-                              _transferAction == null ? _transferChooser(wide) : FilesScreen(transferMode: _transferMode, initialAction: _transferAction),
+                              const FilesScreen(),
                               _meContent(),
                             ],
                           ),
@@ -263,10 +375,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   if (!wide)
                     NavigationBar(
+                      labelTextStyle: WidgetStateProperty.resolveWith((states) => const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                       selectedIndex: _tab,
                       onDestinationSelected: (value) => setState(() {
                         _tab = value;
-                        if (value != 2) { _transferMode = null; _transferAction = null; }
                       }),
                       destinations: const [
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
@@ -284,27 +396,14 @@ class _HomeScreenState extends State<HomeScreen> {
             Positioned(
               left: wide ? 300 : 16,
               right: 16,
-              bottom: wide ? 92 : 158,
+              bottom: wide ? 84 : 84,
               child: ValueListenableBuilder<int>(
                 valueListenable: AppsScreen.selectedCount,
                 builder: (context, count, _) => count == 0
                     ? const SizedBox.shrink()
-                    : Tooltip(
-                        message: 'Send selected apps',
-                        child: Material(
-                          color: Theme.of(context).colorScheme.primary,
-                          elevation: 7,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: AppsScreen.sendSelected,
-                            child: const SizedBox(
-                              width: 58,
-                              height: 58,
-                              child: Icon(Icons.send_rounded, color: Colors.white, size: 25),
-                            ),
-                          ),
-                        ),
+                    : Align(
+                        alignment: Alignment.centerRight,
+                        child: _stickySendButton(onPressed: AppsScreen.sendSelected),
                       ),
               ),
             ),
@@ -313,10 +412,9 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 16, bottom: wide ? 92 : 158,
               child: ValueListenableBuilder<int>(
                 valueListenable: ImagesScreen.selectedCount,
-                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
-                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
-                        child: InkWell(customBorder: const CircleBorder(), onTap: ImagesScreen.sendSelected,
-                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : _stickySendButton(onPressed: ImagesScreen.sendSelected),
               ),
             ),
           if (_tab == 0 && _category == 2)
@@ -324,10 +422,9 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 16, bottom: wide ? 92 : 158,
               child: ValueListenableBuilder<int>(
                 valueListenable: MusicScreen.selectedCount,
-                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
-                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
-                        child: InkWell(customBorder: const CircleBorder(), onTap: MusicScreen.sendSelected,
-                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : _stickySendButton(onPressed: MusicScreen.sendSelected),
               ),
             ),
           if (_tab == 0 && _category == 3)
@@ -335,10 +432,9 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 16, bottom: wide ? 92 : 158,
               child: ValueListenableBuilder<int>(
                 valueListenable: VideosScreen.selectedCount,
-                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
-                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
-                        child: InkWell(customBorder: const CircleBorder(), onTap: VideosScreen.sendSelected,
-                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : _stickySendButton(onPressed: VideosScreen.sendSelected),
               ),
             ),
           AnimatedBuilder(
@@ -356,73 +452,79 @@ class _HomeScreenState extends State<HomeScreen> {
                 (_category == 3 && VideosScreen.selectedCount.value > 0)
               );
               if (hasSelection) return const SizedBox.shrink();
-              return Positioned(
-            right: 16,
-            bottom: wide ? 24 : 92,
-            child: ValueListenableBuilder<TransferOverlaySnapshot?>(
-              valueListenable: TransferOverlayController.current,
-              builder: (context, transfer, _) {
-                if (transfer == null) return const SizedBox.shrink();
-                final colors = Theme.of(context).colorScheme;
-                return Material(
-                  color: colors.surface,
-                  elevation: 8,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 0 : 1),
-                    child: SizedBox(
-                      width: 58,
-                      height: 58,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          SizedBox(
-                            width: 48,
-                            height: 48,
-                            child: CircularProgressIndicator(
-                              value: transfer.progress,
-                              strokeWidth: 3.5,
-                              color: colors.primary,
-                              backgroundColor: colors.primary.withValues(alpha: 0.16),
+              final service = XenderLocalTransferService();
+              return ValueListenableBuilder<List<SharedLocalFile>>(
+                valueListenable: service.roomFiles,
+                builder: (context, items, _) {
+                  return ValueListenableBuilder<TransferOverlaySnapshot?>(
+                    valueListenable: TransferOverlayController.current,
+                    builder: (context, transfer, _) {
+                      final hasRoom = service.isSharing || service.joinedInvite != null;
+                      if (!hasRoom && transfer == null) return const SizedBox.shrink();
+                      final colors = Theme.of(context).colorScheme;
+                      final sending = transfer?.direction == TransferOverlayDirection.sending || (transfer == null && service.isSharing);
+                      return Positioned(
+                        right: 16,
+                        bottom: wide ? 24 : 92,
+                        child: Material(
+                          color: colors.surface,
+                          elevation: 8,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: _showTransferQueue,
+                            child: SizedBox(
+                              width: 58,
+                              height: 58,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: CircularProgressIndicator(
+                                      value: transfer?.progress ?? 0,
+                                      strokeWidth: 3.5,
+                                      color: colors.primary,
+                                      backgroundColor: colors.primary.withValues(alpha: 0.16),
+                                    ),
+                                  ),
+                                  Icon(
+                                    sending ? Icons.upload_rounded : Icons.download_rounded,
+                                    size: 19,
+                                    color: colors.primary,
+                                  ),
+                                  Positioned(
+                                    right: 1,
+                                    top: 1,
+                                    child: Container(
+                                      constraints: const BoxConstraints(minWidth: 19, minHeight: 19),
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: colors.primary,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        '${items.length}',
+                                        style: TextStyle(
+                                          color: colors.onPrimary,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          Icon(
-                            transfer.direction == TransferOverlayDirection.sending
-                                ? Icons.upload_rounded
-                                : Icons.download_rounded,
-                            size: 19,
-                            color: colors.primary,
-                          ),
-                          Positioned(
-                            right: 1,
-                            top: 1,
-                            child: Container(
-                              constraints: const BoxConstraints(minWidth: 19, minHeight: 19),
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: colors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                '${transfer.fileCount}',
-                                style: TextStyle(
-                                  color: colors.onPrimary,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          );
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
             },
           ),
         ],
@@ -430,33 +532,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openTransfer(TransferMode? mode, String action) => setState(() {
-        _transferMode = mode;
-        _transferAction = action;
-        _tab = 1;
-      });
-
-  Widget _notice() => Card(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        child: Padding(
-          padding: const EdgeInsets.all(15),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.wifi_rounded, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 10),
-            const Expanded(child: Text(
-              'All devices must already be connected to the same Wi-Fi network. Plazma S does not create or switch hotspots. Rooms support up to one sender and seven recipients across Android and PC.',
-              style: TextStyle(height: 1.4, fontSize: 13),
-            )),
-          ]),
-        ),
-      );
-
   Widget _topCategoryNavigation() {
     const labels = ['Apps', 'Images', 'Music', 'Videos', 'Files'];
     const icons = [Icons.apps_rounded, Icons.photo_library_rounded, Icons.library_music_rounded, Icons.video_library_rounded, Icons.folder_rounded];
     return SizedBox(
       height: 54,
       child: ListView.separated(
+        clipBehavior: Clip.hardEdge,
+        physics: const ClampingScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         scrollDirection: Axis.horizontal,
         itemCount: labels.length,
@@ -475,56 +558,23 @@ class _HomeScreenState extends State<HomeScreen> {
     index: _category,
     children: [
       const AppsScreen(),
-      ImagesScreen(enabled: _category == 1),
-      MusicScreen(enabled: _category == 2),
-      VideosScreen(enabled: _category == 3),
+      ImagesScreen(enabled: _category == 1, scrollController: _contentScrollController),
+      MusicScreen(enabled: _category == 2, scrollController: _contentScrollController),
+      VideosScreen(enabled: _category == 3, scrollController: _contentScrollController),
       const FilesScreen(),
     ],
   );
 
-  Widget _transferChooser(bool wide) {
-    final theme = Theme.of(context);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Transfer', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
-      const SizedBox(height: 8),
-      Text('All devices must be connected to the same Wi-Fi. Create a room or join someone else’s room.',
-        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, height: 1.4)),
-      const SizedBox(height: 22),
-      _notice(),
-      const SizedBox(height: 20),
-      _ActionCard(
-        icon: Icons.add_circle_outline_rounded,
-        title: 'Create room',
-        subtitle: 'Choose apps, files, images, music or videos to share. Invite up to seven devices using a QR code or room code.',
-        buttonText: 'Create room',
-        onPressed: () => _openTransfer(null, 'create'),
-      ),
-      const SizedBox(height: 14),
-      _ActionCard(
-        icon: Icons.meeting_room_outlined,
-        title: 'Join room',
-        subtitle: 'Scan the host QR code on Android or enter the connection code on a computer to receive shared content.',
-        buttonText: 'Join room',
-        outlined: true,
-        onPressed: () => _openTransfer(null, 'join'),
-      ),
-    ]);
-  }
-
   Widget _meContent() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text('Me', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
-    const SizedBox(height: 16),
     _settingsContent(),
     const SizedBox(height: 22),
-    Text('Transfer history', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-    const SizedBox(height: 10),
     _secondaryContent(),
   ]);
 
   Widget _settingsContent() {
     final selected = widget.themes.selected;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Settings', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+      Text('Settings', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 8),
       Text('Make Plazma S look the way you want. Your choice is saved on this device.',
           style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
@@ -536,21 +586,30 @@ class _HomeScreenState extends State<HomeScreen> {
         runSpacing: 10,
         children: PlazmaTheme.values.map((theme) {
           final isSelected = selected == theme;
-          return Tooltip(
-            message: theme.label,
+          final brightness = {PlazmaTheme.dark, PlazmaTheme.midnight, PlazmaTheme.obsidian}.contains(theme) ? 'Dark' : 'Light';
+          return SizedBox(
+            width: 92,
             child: InkWell(
-              customBorder: const CircleBorder(),
+              borderRadius: BorderRadius.circular(12),
               onTap: () => widget.themes.setTheme(theme),
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                    width: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isSelected ? Theme.of(context).colorScheme.primary : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: _ThemeSwatch(theme: theme),
                   ),
-                ),
-                child: _ThemeSwatch(theme: theme),
+                  const SizedBox(height: 4),
+                  Text(theme.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                  Text(brightness, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                ]),
               ),
             ),
           );
@@ -590,8 +649,7 @@ class _ThemeSwatch extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onJoin});
-  final VoidCallback onJoin;
+  const _TopBar();
 
   @override
   Widget build(BuildContext context) {
@@ -613,7 +671,6 @@ class _TopBar extends StatelessWidget {
         Text('plazma', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface, letterSpacing: -0.8)),
         Text(' S', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.primary)),
         const Spacer(),
-        OutlinedButton.icon(onPressed: onJoin, icon: const Icon(Icons.meeting_room_outlined, size: 18), label: const Text('Transfer')),
       ]),
     );
   }
@@ -649,29 +706,4 @@ class _Sidebar extends StatelessWidget {
     dense: true,
   );
 }
-
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({required this.icon, required this.title, required this.subtitle, required this.buttonText, required this.onPressed, this.outlined = false});
-  final IconData icon;
-  final String title, subtitle, buttonText;
-  final VoidCallback onPressed;
-  final bool outlined;
-
-  @override
-  Widget build(BuildContext context) => Card(child: Padding(
-    padding: const EdgeInsets.all(20),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Icon(icon, color: Theme.of(context).colorScheme.primary, size: 30),
-      const SizedBox(height: 15),
-      Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 6),
-      Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.45)),
-      const SizedBox(height: 18),
-      SizedBox(width: double.infinity, child: outlined
-        ? OutlinedButton(onPressed: onPressed, child: Text(buttonText))
-        : FilledButton.icon(onPressed: onPressed, icon: const Icon(Icons.arrow_forward_rounded, size: 17), label: Text(buttonText))),
-    ]),
-  ));
-}
-
 

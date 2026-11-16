@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../media/permanent_delete_confirmation.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
@@ -35,18 +37,59 @@ class _AppsScreenState extends State<AppsScreen> {
   final Map<String, Future<Uint8List?>> _iconFutures = {};
   static const int _appPageSize = 60;
   int _visibleAppCount = _appPageSize;
+  String _appSearchQuery = '';
+  bool _preparing = false;
+  int _preparedApps = 0;
+  int _preparingTotal = 0;
+  String? _preparingAppName;
   Directory? _library;
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiver;
   bool _loading = false, _busy = false;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
   double _progress = 0;
   String? _status, _error;
 
   @override
-  void initState() { super.initState(); AppsScreen.sendSelected = _send; _load(); }
+  void initState() {
+    super.initState();
+    AppsScreen.sendSelected = _send;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingApps(_receiver!);
+    _load();
+  }
 
   void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
+
+  List<AppInfo> get _filteredApps {
+    final query = _appSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _apps;
+    return _apps.where((app) =>
+      (app.appName ?? '').toLowerCase().contains(query) ||
+      (app.packageName ?? '').toLowerCase().contains(query)).toList();
+  }
+
+  void _selectAllVisibleApps() {
+    final targets = _filteredApps.take(_visibleAppCount).where((app) =>
+      app.packageName != null && !_selected.contains(app.packageName)).toList();
+    setState(() => _selected.addAll(targets.map((app) => app.packageName!)));
+    _updateSelectionCount();
+    for (final app in targets) {
+      final package = app.packageName!;
+      unawaited(_saveApp(package, app.appName ?? package).catchError((Object error) {
+        if (mounted) _message('Could not save ${app.appName ?? package}: $error');
+      }));
+    }
+  }
+
+  void _clearSelectedApps() {
+    setState(() => _selected.clear());
+    _updateSelectionCount();
+  }
 
   Future<void> _load() async {
     if (kIsWeb) {
@@ -154,6 +197,36 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() => _saved[pkg] = name);
   }
 
+  Future<void> _manageInstalledApp(String packageName, String appName, String action) async {
+    if (action == 'deleteSaved') {
+      final directory = Directory(_library!.path + Platform.pathSeparator + packageName);
+      if (!await directory.exists()) {
+        if (mounted) setState(() => _saved.remove(packageName));
+        return;
+      }
+      if (!mounted) return;
+      final confirmed = await confirmPermanentDelete(context, itemDescription: 'the saved APK copy of $appName');
+      if (!confirmed) return;
+      try {
+        await directory.delete(recursive: true);
+        if (mounted) {
+          setState(() => _saved.remove(packageName));
+          _message('Saved APK copy deleted. The installed app was not uninstalled.');
+        }
+      } catch (error) {
+        if (mounted) _message('Could not delete saved APK copy: $error');
+      }
+    } else if (action == 'settings') {
+      try {
+        await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
+          'openAppSettings', {'packageName': packageName},
+        );
+      } catch (error) {
+        if (mounted) _message('Could not open Android app settings: $error');
+      }
+    }
+  }
+
   Future<void> _toggleAppSelection(String pkg, String name) async {
     if (_selected.contains(pkg)) {
       setState(() => _selected.remove(pkg));
@@ -177,8 +250,8 @@ class _AppsScreenState extends State<AppsScreen> {
       await _sendDesktopInstallers();
       return;
     }
-    if (_selected.isEmpty || _busy) return;
-    setState(() { _busy = true; _status = 'Saving and preparing selected apps…'; });
+    if (_selected.isEmpty || _busy || _preparing) return;
+    setState(() { _preparing = true; _preparedApps = 0; _preparingTotal = _selected.length; _status = 'Saving and preparing selected apps…'; });
     try {
       final packages = _apps
           .where((a) => a.packageName != null && _selected.contains(a.packageName))
@@ -186,10 +259,15 @@ class _AppsScreenState extends State<AppsScreen> {
           .toList();
 
       // Finish any automatic saves started when the apps were selected.
-      await Future.wait(packages.map((pkg) {
+      // Prepare sequentially so the displayed app name and completed count
+      // always describe the same operation, and avoid competing APK exports.
+      for (final pkg in packages) {
         final app = _apps.firstWhere((a) => a.packageName == pkg);
-        return _saveApp(pkg, app.appName ?? pkg);
-      }));
+        if (mounted) setState(() => _preparingAppName = app.appName ?? pkg);
+        await _saveApp(pkg, app.appName ?? pkg);
+        if (mounted) setState(() => _preparedApps++);
+      }
+      if (mounted) setState(() { _preparing = false; _busy = true; _preparingAppName = null; });
 
       final files = <File>[], paths = <String>[];
       for (final pkg in packages) {
@@ -219,7 +297,7 @@ class _AppsScreenState extends State<AppsScreen> {
           ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
           : _service.startSharing(files: files, relativePaths: paths));
       if (!mounted) return;
-      setState(() { _invite = invite; _selected.clear(); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
+      setState(() { _invite = invite; _selected.removeAll(packages); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
       _updateSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -229,7 +307,7 @@ class _AppsScreenState extends State<AppsScreen> {
         direction: TransferOverlayDirection.sending, fileCount: packages.length,
         label: 'Sharing apps', isAppTransfer: true));
     } catch (e) { _message('Could not start app sharing: ' + e.toString()); }
-    finally { if (mounted) setState(() => _busy = false); }
+    finally { if (mounted) setState(() { _busy = false; _preparing = false; _preparingAppName = null; }); }
   }
 
   Future<void> _sendDesktopInstallers() async {
@@ -306,6 +384,33 @@ class _AppsScreenState extends State<AppsScreen> {
     });
   }
 
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    final groups = <String, List<SharedLocalFile>>{};
+    if (invite != null) {
+      for (final item in _service.roomFiles.value) {
+        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        final package = item.relativePath.split('/').first;
+        if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
+      }
+    }
+    if (!mounted) return;
+    setState(() { _receiver = invite; _incoming..clear()..addAll(groups); });
+  }
+  void _watchIncomingApps(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final groups = <String, List<SharedLocalFile>>{};
+      for (final item in manifest) {
+        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        final package = item.relativePath.split('/').first;
+        if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
+      }
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(groups); _status = '${groups.length} app(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
+  }
+
   Future<void> _receive() async {
     if (_busy) return;
     final invite = await _scan();
@@ -321,6 +426,7 @@ class _AppsScreenState extends State<AppsScreen> {
           _incoming..clear()..['Application installers'] = manifest;
           _status = manifest.length.toString() + ' application package(s) ready to receive.';
         });
+        _watchIncomingApps(invite);
         return;
       }
       final groups = <String,List<SharedLocalFile>>{};
@@ -332,6 +438,7 @@ class _AppsScreenState extends State<AppsScreen> {
       if (groups.isEmpty) throw StateError('This QR code does not contain Android apps.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(groups); _status = 'Apps ready to receive.'; });
+      _watchIncomingApps(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving, fileCount: groups.length,
         label: 'Ready to receive apps', isAppTransfer: true));
@@ -393,7 +500,12 @@ class _AppsScreenState extends State<AppsScreen> {
     _roomRefreshTimer = null;
     await _service.stopSharing();
     TransferOverlayController.clear();
-    if (mounted) setState(() { _invite = null; _status = 'App sharing stopped.'; });
+    if (mounted) {
+      setState(() { _invite = null; _status = 'App sharing stopped.'; });
+      _roomRefreshTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && _status == 'App sharing stopped.') setState(() => _status = null);
+      });
+    }
   }
 
   Future<void> _disconnect() async {
@@ -408,10 +520,10 @@ class _AppsScreenState extends State<AppsScreen> {
   @override
   void dispose() {
     _roomRefreshTimer?.cancel();
+    _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
     AppsScreen.selectedCount.value = 0;
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
     super.dispose();
   }
 
@@ -427,15 +539,28 @@ class _AppsScreenState extends State<AppsScreen> {
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_error != null) Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
       if (_loading) const LinearProgressIndicator(),
+      if (_preparing) Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          LinearProgressIndicator(value: _preparingTotal == 0 ? null : _preparedApps / _preparingTotal),
+          const SizedBox(height: 5),
+          Text('Preparing ${_preparingAppName ?? 'selected apps'} · $_preparedApps/$_preparingTotal',
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
+        ]),
+      ),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('Room ' + _invite!.roomId + ' · Scan to receive these apps', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ' + _invite!.roomId, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(padding: const EdgeInsets.all(10), color: Colors.white,
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8), Text('Same Wi-Fi · ' + _invite!.host + ':' + _invite!.port.toString()),
-        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
-        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
-        Row(children: [Expanded(child: Text('Connected devices', style: const TextStyle(fontWeight: FontWeight.w800))), Text(_service.joinedDeviceCount.toString() + '/8')]),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        PopupMenuButton<String>(
+          tooltip: 'More room actions',
+          onSelected: (value) { if (value == 'link') Clipboard.setData(ClipboardData(text: _invite!.toQrValue())); },
+          itemBuilder: (context) => const [PopupMenuItem(value: 'link', child: Text('Copy connection link'))],
+        ),
+        Row(children: [Expanded(child: Text('Connected devices', style: const TextStyle(fontWeight: FontWeight.w800))), Text(_service.joinedDeviceCount.toString() + '/7')]),
         ..._service.roomMembers.map((member) => ListTile(dense: true, leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer), title: Text(member.deviceName), subtitle: Text(member.platform), trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null))),
         const Text('Up to seven devices can join this room. Each selected app is sent as one app, with its APK parts grouped together.', textAlign: TextAlign.center),
         OutlinedButton.icon(onPressed: _busy ? null : _stop, icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
@@ -452,11 +577,11 @@ class _AppsScreenState extends State<AppsScreen> {
       ]))),
       if (_receiver == null) ...[
         Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: _busy ? null : _receive,
+          Expanded(child: FilledButton.icon(onPressed: _busy || _preparing ? null : _receive,
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
           const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: _busy || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
-            icon: const Icon(Icons.send), label: Text(Platform.isAndroid ? 'Send selected' : 'Send installers'))),
+          Expanded(child: OutlinedButton.icon(onPressed: _busy || _preparing || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
+            icon: const Icon(Icons.send), label: Text(_service.isSharing ? 'Add to room' : (Platform.isAndroid ? 'Send selected' : 'Send installers')))),
         ]),
         const SizedBox(height: 18),
         if (!Platform.isAndroid) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -467,17 +592,27 @@ class _AppsScreenState extends State<AppsScreen> {
           const Text('Supported formats: EXE, MSI, MSIX, AppImage, DEB, RPM, DMG, PKG and ZIP.'),
         ]))),
         if (Platform.isAndroid) ...[
-        Row(children: [Expanded(child: Text('Installed apps (' + _apps.length.toString() + ')',
+        Row(children: [Expanded(child: Text('Installed apps (' + _filteredApps.length.toString() + ')',
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))]),
+        TextField(
+          decoration: const InputDecoration(hintText: 'Search installed apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+          onChanged: (value) => setState(() { _appSearchQuery = value; _visibleAppCount = _appPageSize; }),
+        ),
+        Row(children: [
+          TextButton(onPressed: _selectAllVisibleApps, child: const Text('Select all')),
+          TextButton(onPressed: _clearSelectedApps, child: const Text('Clear selection')),
+          const Spacer(),
+          Text('${_selected.length} selected', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
+        ]),
         LayoutBuilder(builder: (context, c) {
           final columns = (c.maxWidth / 62).floor().clamp(2,5);
           return GridView.builder(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-            itemCount: _visibleAppCount.clamp(0, _apps.length).toInt(),
+            itemCount: _visibleAppCount.clamp(0, _filteredApps.length).toInt(),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns, crossAxisSpacing: 4, mainAxisSpacing: 5, childAspectRatio: .58),
             itemBuilder: (context,index) {
-              final app = _apps[index], pkg = app.packageName;
+              final app = _filteredApps[index], pkg = app.packageName;
               final selected = pkg != null && _selected.contains(pkg);
               final icon = pkg == null
                   ? const Icon(Icons.android, size: 30)
@@ -502,39 +637,52 @@ class _AppsScreenState extends State<AppsScreen> {
                     width: selected ? 1.6 : 0.7,
                   ),
                 ),
-                child: InkWell(
-                  onTap: pkg == null || _busy
-                      ? null
-                      : () => _toggleAppSelection(pkg, app.appName ?? pkg),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        icon,
-                        const SizedBox(height: 6),
-                        Text(
-                          app.appName ?? pkg ?? 'App',
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: InkWell(
+                        onTap: pkg == null || _busy ? null : () => _toggleAppSelection(pkg, app.appName ?? pkg),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              icon,
+                              const SizedBox(height: 6),
+                              Text(app.appName ?? pkg ?? 'App', textAlign: TextAlign.center,
+                                maxLines: 2, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+                            ],
+                          ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    if (pkg != null)
+                      Positioned(
+                        top: 0, right: 0,
+                        child: PopupMenuButton<String>(
+                          tooltip: 'Manage app', padding: EdgeInsets.zero, iconSize: 16,
+                          onSelected: (action) => _manageInstalledApp(pkg, app.appName ?? pkg, action),
+                          itemBuilder: (_) => [
+                            if (_saved.containsKey(pkg))
+                              const PopupMenuItem(value: 'deleteSaved', child: Text('Delete saved APK copy')),
+                            const PopupMenuItem(value: 'settings', child: Text('App settings / uninstall')),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               );
             });
         }),
-        if (_visibleAppCount < _apps.length)
+        if (_visibleAppCount < _filteredApps.length)
           Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: OutlinedButton.icon(
                 onPressed: () => setState(() {
                   _visibleAppCount = (_visibleAppCount + _appPageSize)
-                      .clamp(0, _apps.length).toInt();
+                      .clamp(0, _filteredApps.length).toInt();
                 }),
                 icon: const Icon(Icons.expand_more_rounded),
                 label: Text('Load more apps (${_apps.length - _visibleAppCount} remaining)'),

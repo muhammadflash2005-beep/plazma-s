@@ -769,9 +769,6 @@ jobs:
           - os: windows-latest
             target: windows
             output: build/windows/x64/runner/Release
-          - os: macos-latest
-            target: macos
-            output: build/macos/Build/Products/Release
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -783,10 +780,27 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libstdc++-12-dev
-      - run: flutter create --platforms=windows,macos,linux --org com.plazma --project-name plazma_s .
+      - run: flutter create --platforms=windows,linux --org com.plazma --project-name plazma_s .
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter build ${{ matrix.target }} --release
+      - name: Bundle Microsoft Visual C++ runtime for Windows
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'Visual Studio locator not found.' }
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio installation was not found.' }
+          $redistRoot = Join-Path $vs 'VC\Redist\MSVC'
+          $crt = Get-ChildItem -Path $redistRoot -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'x64\Microsoft.VC143.CRT' } | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $crt) { throw 'The x64 Microsoft.VC143.CRT runtime folder was not found.' }
+          $destination = '${{ matrix.output }}'
+          Copy-Item -Path (Join-Path $crt '*') -Destination $destination -Recurse -Force
+          foreach ($dll in @('VCRUNTIME140.dll','VCRUNTIME140_1.dll','MSVCP140.dll')) {
+            if (-not (Test-Path (Join-Path $destination $dll))) { throw "Required runtime file missing: $dll" }
+          }
+          @('Extract this entire folder, then run plazma_s.exe.','The Microsoft Visual C++ runtime files are bundled beside the application.','Keep all files in this folder together.') | Set-Content -Path (Join-Path $destination 'README-Windows.txt')
       - uses: actions/upload-artifact@v4
         with:
           name: plazma-s-${{ matrix.target }}

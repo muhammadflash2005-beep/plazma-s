@@ -11,6 +11,7 @@ import '../network/android_wifi_session_service.dart';
 import '../rooms/room_id.dart';
 import '../rooms/room_registry.dart';
 import 'transfer_overlay_controller.dart';
+import 'transfer_queue.dart';
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -19,6 +20,9 @@ class SharedLocalFile {
     required this.relativePath,
     required this.size,
     required this.sha256,
+    this.status = 'waiting',
+    this.bytesTransferred = 0,
+    this.type = 'file',
   });
 
   final int id;
@@ -26,6 +30,9 @@ class SharedLocalFile {
   final String relativePath;
   final int size;
   final String sha256;
+  final String status;
+  final int bytesTransferred;
+  final String type;
 
   factory SharedLocalFile.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
@@ -48,6 +55,9 @@ class SharedLocalFile {
       relativePath: relativePath,
       size: size,
       sha256: digest,
+      status: json['status'] as String? ?? 'waiting',
+      bytesTransferred: json['bytesTransferred'] as int? ?? 0,
+      type: json['type'] as String? ?? 'file',
     );
   }
 }
@@ -67,7 +77,7 @@ class LocalTransferProgress {
   final int totalBytes;
   final int totalSize;
 
-  double get fraction => totalSize == 0 ? 1 : totalBytes / totalSize;
+  double get fraction => totalSize == 0 ? 1 : (totalBytes / totalSize).clamp(0.0, 1.0);
 }
 
 /// Direct device-to-device sharing over the existing Wi-Fi/LAN network.
@@ -96,22 +106,78 @@ class XenderLocalTransferService {
     }
   }
   HttpServer? _server;
+  Future<void> _roomMutationTail = Future<void>.value();
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
+  List<SharedLocalFile> _joinedManifest = const [];
+  final ValueNotifier<List<SharedLocalFile>> roomFiles = ValueNotifier(const []);
+  final ReceiverQueueStatusRegistry _receiverQueueStatuses = ReceiverQueueStatusRegistry();
+  int _manifestRevision = 0;
+  Completer<void>? _manifestChanged;
   PlazmaConnectionInvite? _invite;
   Future<void> Function()? _onTransferCompleted;
   RoomRegistry? _room;
   String? _joinedDeviceId;
   PlazmaConnectionInvite? _joinedInvite;
+  Directory? _lastDownloadDestination;
+  void Function(LocalTransferProgress progress)? _lastDownloadProgress;
+  bool _retryingFailedQueue = false;
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
-  int get joinedDeviceCount => _room?.joinedCount ?? 1;
+  int get joinedDeviceCount => _room?.receiverCount ?? 0;
   int get completedDeviceCount => _room?.completedCount ?? 0;
 
   PlazmaConnectionInvite? get invite => _invite;
+  PlazmaConnectionInvite? get joinedInvite => _joinedInvite;
   bool get isSharing => _server != null;
 
+  void _bumpManifestRevision() {
+    _manifestRevision++;
+    _publishRoomFiles();
+    final changed = _manifestChanged;
+    if (changed != null && !changed.isCompleted) changed.complete();
+    _manifestChanged = Completer<void>();
+  }
+
+  void _publishRoomFiles() {
+    if (_server != null) {
+      roomFiles.value = List.unmodifiable(_manifest.map((entry) =>
+        SharedLocalFile.fromJson(Map<String, dynamic>.from(entry))).toList());
+    } else {
+      roomFiles.value = List.unmodifiable(_joinedManifest);
+    }
+  }
+
+  Future<T> _serializeRoomMutation<T>(Future<T> Function() action) {
+    final operation = _roomMutationTail.then((_) => action());
+    _roomMutationTail = operation.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {},
+    );
+    return operation;
+  }
+
   Future<PlazmaConnectionInvite> startSharing({
+    required List<File> files,
+    required List<String> relativePaths,
+    Future<void> Function()? onTransferCompleted,
+  }) {
+    return _serializeRoomMutation(() async {
+      // Two category tabs can be tapped almost simultaneously. The second
+      // request must append to the room created by the first, never replace it.
+      if (_server != null && _invite != null) {
+        await _addFilesInternal(files: files, relativePaths: relativePaths);
+        return _invite!;
+      }
+      return _startSharingInternal(
+        files: files,
+        relativePaths: relativePaths,
+        onTransferCompleted: onTransferCompleted,
+      );
+    });
+  }
+
+  Future<PlazmaConnectionInvite> _startSharingInternal({
     required List<File> files,
     required List<String> relativePaths,
     Future<void> Function()? onTransferCompleted,
@@ -123,11 +189,14 @@ class XenderLocalTransferService {
 
     final checkedFiles = <File>[];
     final checkedPaths = <String>[];
+    final seenPaths = <String>{};
     for (var i = 0; i < files.length; i++) {
       final stat = await files[i].stat();
       if (stat.type != FileSystemEntityType.file) continue;
+      final path = _safeRelativePath(relativePaths[i]);
+      if (!seenPaths.add(path)) continue;
       checkedFiles.add(files[i]);
-      checkedPaths.add(_safeRelativePath(relativePaths[i]));
+      checkedPaths.add(path);
     }
     if (checkedFiles.isEmpty) throw ArgumentError('No readable files were selected.');
 
@@ -143,6 +212,9 @@ class XenderLocalTransferService {
         'relativePath': checkedPaths[index],
         'size': await file.length(),
         'sha256': digest.toString(),
+        'status': 'waiting',
+        'bytesTransferred': 0,
+        'type': _itemTypeForPath(checkedPaths[index]),
       });
     }
 
@@ -168,10 +240,13 @@ class XenderLocalTransferService {
       server = await HttpServer.bind(InternetAddress.anyIPv4, invite.port);
       _files = checkedFiles;
       _manifest = manifest;
+      _manifestRevision = 1;
+      _manifestChanged = Completer<void>();
       _invite = invite;
       _room = RoomRegistry(roomId: roomId);
       _onTransferCompleted = onTransferCompleted;
       _server = server;
+      _publishRoomFiles();
       server.listen(
         _handleRequest,
         onError: (Object error, StackTrace stack) {
@@ -190,6 +265,15 @@ class XenderLocalTransferService {
   Future<void> addFiles({
     required List<File> files,
     required List<String> relativePaths,
+  }) {
+    return _serializeRoomMutation(
+      () => _addFilesInternal(files: files, relativePaths: relativePaths),
+    );
+  }
+
+  Future<void> _addFilesInternal({
+    required List<File> files,
+    required List<String> relativePaths,
   }) async {
     if (_server == null || _invite == null) {
       throw StateError('There is no active sharing room.');
@@ -199,11 +283,14 @@ class XenderLocalTransferService {
     }
     final nextFiles = <File>[];
     final nextPaths = <String>[];
+    final seenPaths = _manifest
+        .map((entry) => entry['relativePath'] as String)
+        .toSet();
     for (var i = 0; i < files.length; i++) {
       final stat = await files[i].stat();
       if (stat.type != FileSystemEntityType.file) continue;
       final path = _safeRelativePath(relativePaths[i]);
-      if (_manifest.any((entry) => entry['relativePath'] == path)) continue;
+      if (!seenPaths.add(path)) continue;
       nextFiles.add(files[i]);
       nextPaths.add(path);
     }
@@ -217,10 +304,16 @@ class XenderLocalTransferService {
         'relativePath': nextPaths[i],
         'size': await file.length(),
         'sha256': digest.toString(),
+        'status': 'waiting',
+        'bytesTransferred': 0,
+        'type': _itemTypeForPath(nextPaths[i]),
       });
     }
-    _files = [..._files, ...nextFiles];
-    _manifest = [..._manifest, ...additions];
+    if (additions.isNotEmpty) {
+      _files = [..._files, ...nextFiles];
+      _manifest = [..._manifest, ...additions];
+      _bumpManifestRevision();
+    }
   }
 
   Future<void> _handleRequest(HttpRequest request) async {
@@ -231,7 +324,55 @@ class XenderLocalTransferService {
       return;
     }
     try {
+      if (request.method == 'POST' && request.uri.path == '/queue-status') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        final id = decoded is Map ? decoded['id'] : null;
+        final status = decoded is Map ? decoded['status'] : null;
+        final bytes = decoded is Map ? decoded['bytesTransferred'] : null;
+        if (id is! int || status is! String || bytes is! int || id < 0 || id >= _manifest.length ||
+            !{'waiting', 'sending', 'done', 'failed', 'cancelled'}.contains(status)) {
+          request.response.statusCode = HttpStatus.badRequest;
+          await request.response.close();
+          return;
+        }
+        final currentStatus = _manifest[id]['status'] as String? ?? 'waiting';
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        final isJoinedReceiver = deviceId is String &&
+            (_room?.members.any((member) => member.deviceId == deviceId) ?? false);
+        if (currentStatus == 'cancelled' || !isJoinedReceiver ||
+            !_receiverQueueStatuses.update(deviceId, id, status, bytes)) {
+          request.response.statusCode = currentStatus == 'cancelled' ? HttpStatus.ok : HttpStatus.forbidden;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'status': 'cancelled'}));
+          await request.response.close();
+          return;
+        }
+        // Keep receiver progress isolated, then publish an aggregate across
+        // every connected receiver. A single fast receiver cannot mark the
+        // shared item done while another device is still downloading it.
+        _refreshAggregateQueueStatus(id);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'status': status}));
+        await request.response.close();
+        return;
+      }
       if (request.method == 'POST' && request.uri.path == '/complete') {
+        // Do not acknowledge a receiver while new room items are still waiting.
+        // The receiver will refresh the manifest and drain those additions.
+        final waitingCount = _manifest.where(
+          (item) => item['status'] == 'waiting',
+        ).length;
+        if (waitingCount > 0) {
+          request.response.statusCode = HttpStatus.conflict;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({
+            'pendingCount': waitingCount,
+            'revision': _manifestRevision,
+          }));
+          await request.response.close();
+          return;
+        }
         final deviceId = request.uri.queryParameters['deviceId'];
         final wasFirst = (_room?.completedCount ?? 0) == 0;
         final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
@@ -266,6 +407,10 @@ class XenderLocalTransferService {
           await request.response.close();
           return;
         }
+        // A newly joined receiver starts at zero progress for every queue item.
+        for (var itemId = 0; itemId < _manifest.length; itemId++) {
+          _refreshAggregateQueueStatus(itemId);
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode({
           'roomId': _room?.roomId,
@@ -279,7 +424,13 @@ class XenderLocalTransferService {
         final body = await utf8.decoder.bind(request).join();
         final decoded = jsonDecode(body);
         final deviceId = decoded is Map ? decoded['deviceId'] : null;
-        if (deviceId is String) _room?.leave(deviceId);
+        if (deviceId is String) {
+          _room?.leave(deviceId);
+          _receiverQueueStatuses.removeDevice(deviceId);
+          for (var itemId = 0; itemId < _manifest.length; itemId++) {
+            _refreshAggregateQueueStatus(itemId);
+          }
+        }
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         return;
@@ -302,9 +453,26 @@ class XenderLocalTransferService {
         return;
       }
       if (request.uri.path == '/manifest') {
+        // Receivers can long-poll the room revision. A sender adding items
+        // wakes every waiting receiver without requiring a room rejoin.
+        final since = int.tryParse(request.uri.queryParameters['since'] ?? '');
+        if (since != null && since == _manifestRevision) {
+          final changed = _manifestChanged;
+          if (changed != null && !changed.isCompleted) {
+            try {
+              await changed.future.timeout(const Duration(seconds: 20));
+            } on TimeoutException {
+              // A timeout is a heartbeat; the client simply rechecks.
+            }
+          }
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.headers.set('Cache-Control', 'no-store');
-        request.response.write(jsonEncode({'version': 1, 'files': _manifest}));
+        request.response.write(jsonEncode({
+          'version': 1,
+          'revision': _manifestRevision,
+          'files': _manifest,
+        }));
         await request.response.close();
         return;
       }
@@ -312,6 +480,11 @@ class XenderLocalTransferService {
         final id = int.tryParse(request.uri.queryParameters['id'] ?? '');
         if (id == null || id < 0 || id >= _files.length) {
           request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
+        if ((_manifest[id]['status'] as String? ?? 'waiting') == 'cancelled') {
+          request.response.statusCode = HttpStatus.gone;
           await request.response.close();
           return;
         }
@@ -366,7 +539,169 @@ class XenderLocalTransferService {
     }
   }
 
+  void _refreshAggregateQueueStatus(int id) {
+    if (id < 0 || id >= _manifest.length) return;
+    final receivers = _room?.members ?? const <RoomDevice>[];
+    final statuses = receivers
+        .map((device) => _receiverQueueStatuses.statusFor(device.deviceId, id))
+        .toList(growable: false);
+    if (statuses.isEmpty) {
+      _setQueueStatus(id, 'waiting', 0);
+      return;
+    }
+    final totalBytes = _manifest[id]['size'] as int;
+    final aggregateBytes = (statuses.fold<int>(
+      0, (sum, item) => sum + (item?.bytesTransferred ?? 0)) / statuses.length).round();
+    final values = statuses.map((item) => item?.status ?? 'waiting').toList();
+    final String aggregateStatus;
+    if (values.every((value) => value == 'done')) {
+      aggregateStatus = 'done';
+    } else if (values.every((value) => value == 'cancelled')) {
+      aggregateStatus = 'cancelled';
+    } else if (values.any((value) => value == 'sending')) {
+      aggregateStatus = 'sending';
+    } else if (values.any((value) => value == 'failed') &&
+        values.every((value) => value == 'failed' || value == 'done' || value == 'cancelled')) {
+      aggregateStatus = 'failed';
+    } else if (values.every((value) => value == 'done' || value == 'cancelled')) {
+      aggregateStatus = 'done';
+    } else {
+      aggregateStatus = 'waiting';
+    }
+    _setQueueStatus(id, aggregateStatus, aggregateBytes.clamp(0, totalBytes));
+  }
+
+  void _setQueueStatus(int id, String status, int bytesTransferred, [String? error]) {
+    if (id < 0 || id >= _manifest.length) return;
+    final current = _manifest[id];
+    if (current['status'] == 'cancelled' && status != 'cancelled') return;
+    final updated = Map<String, Object>.from(current);
+    updated['status'] = status;
+    updated['bytesTransferred'] = bytesTransferred.clamp(0, updated['size'] as int).toInt();
+    if (status == 'waiting') updated.remove('error');
+    if (error != null) updated['error'] = error;
+    _manifest = [..._manifest]..[id] = updated;
+    _bumpManifestRevision();
+  }
+
+  void _updateJoinedQueueStatus(int id, String status, int bytesTransferred) {
+    _joinedManifest = _joinedManifest.map((item) {
+      if (item.id != id) return item;
+      return SharedLocalFile(
+        id: item.id,
+        name: item.name,
+        relativePath: item.relativePath,
+        size: item.size,
+        sha256: item.sha256,
+        status: status,
+        bytesTransferred: bytesTransferred.clamp(0, item.size),
+        type: item.type,
+      );
+    }).toList();
+    _publishRoomFiles();
+  }
+
+  Future<void> cancelQueuedItem(int id) async {
+    if (_server != null) {
+      if (id >= 0 && id < _manifest.length) {
+        final status = _manifest[id]['status'] as String? ?? 'waiting';
+        if (status == 'waiting' || status == 'sending') _setQueueStatus(id, 'cancelled', _manifest[id]['bytesTransferred'] as int? ?? 0);
+      }
+    } else if (_joinedInvite != null && id >= 0 && id < _joinedManifest.length) {
+      final bytes = _joinedManifest[id].bytesTransferred;
+      final status = await _postQueueStatus(_joinedInvite!, id, 'cancelled', bytes);
+      if (status == 'cancelled') _updateJoinedQueueStatus(id, 'cancelled', bytes);
+    }
+  }
+
+  Future<void> cancelAllQueuedItems() async {
+    if (_server != null) {
+      var changed = false;
+      final next = <Map<String, Object>>[];
+      for (final item in _manifest) {
+        final status = item['status'] as String? ?? 'waiting';
+        if (status == 'waiting' || status == 'sending') { next.add({...item, 'status': 'cancelled'}); changed = true; }
+        else { next.add(item); }
+      }
+      if (changed) { _manifest = next; _bumpManifestRevision(); }
+    } else if (_joinedInvite != null) {
+      for (final item in _joinedManifest) {
+        if (item.status == 'waiting' || item.status == 'sending') {
+          final status = await _postQueueStatus(_joinedInvite!, item.id, 'cancelled', item.bytesTransferred);
+          if (status == 'cancelled') {
+            _updateJoinedQueueStatus(item.id, 'cancelled', item.bytesTransferred);
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> retryFailedQueueItems() async {
+    if (_server != null) {
+      var changed = false;
+      final next = <Map<String, Object>>[];
+      for (final item in _manifest) {
+        if (item['status'] == 'failed') { next.add({...item, 'status': 'waiting', 'bytesTransferred': 0}..remove('error')); changed = true; }
+        else { next.add(item); }
+      }
+      if (changed) { _manifest = next; _bumpManifestRevision(); }
+      return;
+    }
+    final invite = _joinedInvite;
+    final destination = _lastDownloadDestination;
+    final onProgress = _lastDownloadProgress;
+    if (invite == null || _retryingFailedQueue) return;
+
+    for (final item in _joinedManifest) {
+      if (item.status == 'failed') {
+        final status = await _postQueueStatus(invite, item.id, 'waiting', 0);
+        if (status == 'waiting') _updateJoinedQueueStatus(item.id, 'waiting', 0);
+      }
+    }
+
+    // A retry must resume the receiver, not merely change the sender's queue
+    // state. Reuse the last destination and progress callback from the active
+    // category screen; if no download has been started on this device yet,
+    // leave the items waiting for the normal Receive action.
+    if (destination == null || onProgress == null) return;
+    _retryingFailedQueue = true;
+    try {
+      final snapshot = await _fetchManifest(invite);
+      _joinedManifest = snapshot.files;
+      _publishRoomFiles();
+      final retryItems = snapshot.files.where((item) => item.status == 'waiting').toList();
+      if (retryItems.isNotEmpty) {
+        await downloadAll(
+          invite: invite,
+          files: retryItems,
+          destination: destination,
+          onProgress: onProgress,
+        );
+      }
+    } catch (error) {
+      debugPrint('Plazma queue retry did not complete: $error');
+    } finally {
+      _retryingFailedQueue = false;
+    }
+  }
+
+  Future<String?> _postQueueStatus(PlazmaConnectionInvite invite, int id, String status, int bytes, {String? error, HttpClient? client}) async {
+    final ownsClient = client == null;
+    final httpClient = client ?? (HttpClient()..connectionTimeout = const Duration(seconds: 5));
+    try {
+      final request = await httpClient.postUrl(_endpoint(invite, '/queue-status'));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode({'id': id, 'status': status, 'bytesTransferred': bytes, if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId, if (error != null) 'error': error}));
+      final response = await request.close().timeout(const Duration(seconds: 8));
+      final decoded = jsonDecode(await utf8.decoder.bind(response).join());
+      return decoded is Map ? decoded['status'] as String? : null;
+    } catch (_) { return null; }
+    finally { if (ownsClient) httpClient.close(force: true); }
+  }
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
+    // A new room must never inherit a retry destination from an older room.
+    _lastDownloadDestination = null;
+    _lastDownloadProgress = null;
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final deviceId = List.generate(
@@ -403,19 +738,48 @@ class XenderLocalTransferService {
           decoded['files'] is! List) {
         throw const FormatException('The sender returned an unsupported file list.');
       }
-      return (decoded['files'] as List)
+      _joinedManifest = (decoded['files'] as List)
           .whereType<Map>()
           .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
           .toList();
+      _publishRoomFiles();
+      return _joinedManifest;
     } finally {
       client.close(force: true);
     }
   }
 
   Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
+    final snapshot = await _fetchManifest(invite);
+    _joinedManifest = snapshot.files;
+    _publishRoomFiles();
+    return snapshot.files;
+  }
+
+  /// Emits the current room manifest and then waits for live additions.
+  /// The server holds each request until its manifest revision changes, so
+  /// receivers stay current without repeatedly downloading the whole list.
+  Stream<List<SharedLocalFile>> watchManifest(PlazmaConnectionInvite invite) async* {
+    var revision = -1;
+    while (_joinedInvite == invite && _joinedDeviceId != null) {
+      final snapshot = await _fetchManifest(invite, since: revision);
+      if (snapshot.revision != revision) {
+        revision = snapshot.revision;
+        _joinedManifest = snapshot.files;
+        _publishRoomFiles();
+        yield snapshot.files;
+      }
+    }
+  }
+
+  Future<({int revision, List<SharedLocalFile> files})> _fetchManifest(
+    PlazmaConnectionInvite invite, {int? since}
+  ) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      final request = await client.getUrl(_endpoint(invite, '/manifest', {
+        if (since != null && since >= 0) 'since': since.toString(),
+      }));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 30));
       if (response.statusCode != HttpStatus.ok) {
@@ -425,10 +789,12 @@ class XenderLocalTransferService {
       if (decoded is! Map<String, dynamic> || decoded['version'] != 1 || decoded['files'] is! List) {
         throw const FormatException('The sender returned an unsupported file list.');
       }
-      return (decoded['files'] as List)
+      final revision = decoded['revision'] as int? ?? 0;
+      final files = (decoded['files'] as List)
           .whereType<Map>()
           .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
           .toList();
+      return (revision: revision, files: files);
     } finally {
       client.close(force: true);
     }
@@ -440,90 +806,138 @@ class XenderLocalTransferService {
     required Directory destination,
     required void Function(LocalTransferProgress progress) onProgress,
   }) async {
+    _lastDownloadDestination = destination;
+    _lastDownloadProgress = onProgress;
     await destination.create(recursive: true);
-    final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
+    var totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
+    var hadFailure = false;
+    var wasCancelled = false;
+    var queueRefreshAttempts = 0;
+    var pendingFiles = List<SharedLocalFile>.from(files);
+    final processedIds = <int>{};
+    final knownIds = files.map((item) => item.id).toSet();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      for (final item in files) {
-        final relative = _safeRelativePath(item.relativePath);
-        final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
-        await target.parent.create(recursive: true);
-        if (await target.exists()) {
-          final existingSize = await target.length();
-          final existingDigest = await sha256.bind(target.openRead()).first;
-          if (existingSize == item.size && existingDigest.toString() == item.sha256) {
-            totalBytes += item.size;
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: item.size,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
-            continue;
-          }
-          throw FileSystemException('A different file with this name already exists.', target.path);
+      while (true) {
+      for (final item in pendingFiles) {
+        if (!processedIds.add(item.id)) continue;
+        if (item.status == 'cancelled') {
+          wasCancelled = true;
+          continue;
         }
-        final partial = File('${target.path}.plazma-partial');
-        var offset = await partial.exists() ? await partial.length() : 0;
-        if (offset > item.size) {
-          await partial.delete();
-          offset = 0;
-        }
-        if (offset == item.size && offset > 0) {
-          final digest = await sha256.bind(partial.openRead()).first;
-          if (digest.toString() == item.sha256) {
-            await partial.rename(target.path);
-            totalBytes += item.size;
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: item.size,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
-            continue;
-          }
-          await partial.delete();
-          offset = 0;
-        }
-        final request = await client.getUrl(
-          _endpoint(invite, '/download', {'id': item.id.toString()}),
-        );
-        if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
-        final response = await request.close().timeout(const Duration(seconds: 30));
-        final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
-        if (response.statusCode != expectedStatus) {
-          throw HttpException(
-            'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
-          );
-        }
-        final sink = partial.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
-        var fileBytes = offset;
-        totalBytes += offset;
-        onProgress(LocalTransferProgress(
-          fileName: item.name,
-          fileBytes: fileBytes,
-          fileSize: item.size,
-          totalBytes: totalBytes,
-          totalSize: totalSize,
-        ));
+        var fileBytes = item.bytesTransferred;
         try {
-          await for (final chunk in response) {
-            sink.add(chunk);
-            fileBytes += chunk.length;
-            totalBytes += chunk.length;
-            onProgress(LocalTransferProgress(
-              fileName: item.name,
-              fileBytes: fileBytes,
-              fileSize: item.size,
-              totalBytes: totalBytes,
-              totalSize: totalSize,
-            ));
+          final initialStatus = await _postQueueStatus(
+            invite, item.id, 'sending', fileBytes, client: client,
+          );
+          if (initialStatus == 'cancelled') {
+            wasCancelled = true;
+            continue;
           }
-          await sink.flush();
-          await sink.close();
+          final relative = _safeRelativePath(item.relativePath);
+          final target = File(
+            '${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}',
+          );
+          await target.parent.create(recursive: true);
+          if (await target.exists()) {
+            final existingSize = await target.length();
+            final existingDigest = await sha256.bind(target.openRead()).first;
+            if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+              totalBytes += item.size;
+              final finalStatus = await _postQueueStatus(
+                invite, item.id, 'done', item.size, client: client,
+              );
+              if (finalStatus == 'cancelled') {
+                wasCancelled = true;
+                continue;
+              }
+              onProgress(LocalTransferProgress(
+                fileName: item.name, fileBytes: item.size, fileSize: item.size,
+                totalBytes: totalBytes, totalSize: totalSize,
+              ));
+              continue;
+            }
+            throw FileSystemException(
+              'A different file with this name already exists.', target.path,
+            );
+          }
+          final partial = File('${target.path}.plazma-partial');
+          var offset = await partial.exists() ? await partial.length() : 0;
+          if (offset > item.size) {
+            await partial.delete();
+            offset = 0;
+          }
+          if (offset == item.size && offset > 0) {
+            final digest = await sha256.bind(partial.openRead()).first;
+            if (digest.toString() == item.sha256) {
+              await partial.rename(target.path);
+              totalBytes += item.size;
+              final finalStatus = await _postQueueStatus(
+                invite, item.id, 'done', item.size, client: client,
+              );
+              if (finalStatus == 'cancelled') {
+                wasCancelled = true;
+                continue;
+              }
+              onProgress(LocalTransferProgress(
+                fileName: item.name, fileBytes: item.size, fileSize: item.size,
+                totalBytes: totalBytes, totalSize: totalSize,
+              ));
+              continue;
+            }
+            await partial.delete();
+            offset = 0;
+          }
+          final request = await client.getUrl(
+            _endpoint(invite, '/download', {'id': item.id.toString()}),
+          );
+          if (offset > 0) request.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
+          final response = await request.close().timeout(const Duration(seconds: 30));
+          final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
+          if (response.statusCode != expectedStatus) {
+            await response.drain<void>();
+            throw HttpException(
+              offset > 0
+                ? 'Download could not resume for ${item.name} (HTTP ${response.statusCode}).'
+                : 'Download failed for ${item.name} (HTTP ${response.statusCode}).',
+            );
+          }
+          final sink = partial.openWrite(
+            mode: offset > 0 ? FileMode.append : FileMode.write,
+          );
+          fileBytes = offset;
+          var lastQueueUpdate = offset;
+          totalBytes += offset;
+          onProgress(LocalTransferProgress(
+            fileName: item.name, fileBytes: fileBytes, fileSize: item.size,
+            totalBytes: totalBytes, totalSize: totalSize,
+          ));
+          try {
+            await for (final chunk in response) {
+              sink.add(chunk);
+              fileBytes += chunk.length;
+              totalBytes += chunk.length;
+              onProgress(LocalTransferProgress(
+                fileName: item.name, fileBytes: fileBytes, fileSize: item.size,
+                totalBytes: totalBytes, totalSize: totalSize,
+              ));
+              if (fileBytes - lastQueueUpdate >= 16 * 1024 * 1024) {
+                final status = await _postQueueStatus(
+                  invite, item.id, 'sending', fileBytes, client: client,
+                );
+                if (status == 'cancelled') {
+                  throw StateError('Transfer cancelled by sender.');
+                }
+                lastQueueUpdate = fileBytes;
+              }
+            }
+            await sink.flush();
+            await sink.close();
+          } catch (_) {
+            await sink.close();
+            rethrow;
+          }
           final receivedDigest = await sha256.bind(partial.openRead()).first;
           if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
             await partial.delete();
@@ -533,19 +947,65 @@ class XenderLocalTransferService {
             );
           }
           await partial.rename(target.path);
-        } catch (_) {
-          await sink.close();
-          rethrow;
+          final finalStatus = await _postQueueStatus(
+            invite, item.id, 'done', item.size, client: client,
+          );
+          if (finalStatus == 'cancelled') {
+            wasCancelled = true;
+            continue;
+          }
+        } catch (error) {
+          final cancelled = error.toString().toLowerCase().contains('cancelled');
+          await _postQueueStatus(
+            invite,
+            item.id,
+            cancelled ? 'cancelled' : 'failed',
+            fileBytes,
+            error: error.toString(),
+            client: client,
+          );
+          if (cancelled) {
+            wasCancelled = true;
+          } else {
+            hadFailure = true;
+          }
+          // A failed item must not block the remaining room queue.
+          continue;
         }
+      }
+      if (hadFailure || wasCancelled) {
+        throw StateError(
+          hadFailure
+            ? 'Some items failed. Retry failed items from the room queue.'
+            : 'One or more items were cancelled.',
+        );
       }
       final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
         if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
       }));
       final completeResponse = await completeRequest.close().timeout(const Duration(seconds: 10));
+      if (completeResponse.statusCode == HttpStatus.conflict) {
+        await completeResponse.drain<void>();
+        final snapshot = await _fetchManifest(invite);
+        _joinedManifest = snapshot.files;
+        _publishRoomFiles();
+        pendingFiles = snapshot.files.where((item) => item.status == 'waiting').toList();
+        if (pendingFiles.isEmpty || ++queueRefreshAttempts > 20) {
+          throw StateError('The room queue changed but could not be acknowledged. Refresh and retry.');
+        }
+        for (final item in pendingFiles) {
+          processedIds.remove(item.id);
+          if (knownIds.add(item.id)) totalSize += item.size;
+        }
+        continue;
+      }
       if (completeResponse.statusCode != HttpStatus.ok) {
+        await completeResponse.drain<void>();
         throw HttpException('The sender did not acknowledge transfer completion.');
       }
       await completeResponse.drain<void>();
+      break;
+      }
     } finally {
       client.close(force: true);
     }
@@ -621,15 +1081,32 @@ class XenderLocalTransferService {
     return normalized;
   }
 
+  String _itemTypeForPath(String path) {
+    final lower = path.toLowerCase();
+    if (['.apk', '.aab', '.exe', '.msi', '.msix', '.appimage', '.deb', '.rpm', '.dmg', '.pkg'].any(lower.endsWith)) return 'app';
+    if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif'].any(lower.endsWith)) return 'image';
+    if (['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.3gp'].any(lower.endsWith)) return 'video';
+    if (['.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus', '.wma'].any(lower.endsWith)) return 'music';
+    return 'file';
+  }
   String _displayName(String path) => path.split('/').last;
 
-  Future<void> stopSharing() async {
+  Future<void> stopSharing() => _serializeRoomMutation(_stopSharingInternal);
+
+  Future<void> _stopSharingInternal() async {
     final server = _server;
     _server = null;
     _invite = null;
     _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
+    _joinedManifest = const [];
+    _receiverQueueStatuses.clear();
+    _manifestRevision = 0;
+    _publishRoomFiles();
+    final changed = _manifestChanged;
+    if (changed != null && !changed.isCompleted) changed.complete();
+    _manifestChanged = null;
     _room = null;
     await server?.close(force: true);
     TransferOverlayController.clear();
@@ -641,6 +1118,11 @@ class XenderLocalTransferService {
     final deviceId = _joinedDeviceId;
     _joinedInvite = null;
     _joinedDeviceId = null;
+    _joinedManifest = const [];
+    _lastDownloadDestination = null;
+    _lastDownloadProgress = null;
+    _retryingFailedQueue = false;
+    _publishRoomFiles();
     if (invite != null && deviceId != null) {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
       try {

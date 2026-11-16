@@ -20,8 +20,9 @@ import '../../transfers/xender_local_transfer_service.dart';
 class MusicScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static VoidCallback? sendSelected;
-  const MusicScreen({this.enabled = true, super.key});
+  const MusicScreen({this.enabled = true, this.scrollController, super.key});
   final bool enabled;
+  final ScrollController? scrollController;
 
   @override
   State<MusicScreen> createState() => _MusicScreenState();
@@ -38,11 +39,17 @@ class _MusicScreenState extends State<MusicScreen> {
   double _progress = 0;
   String? _status;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
   void initState() {
     super.initState();
     MusicScreen.sendSelected = _sendMusic;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingMusic(_receiver!);
   }
 
   @override
@@ -50,9 +57,33 @@ class _MusicScreenState extends State<MusicScreen> {
     if (MusicScreen.sendSelected == _sendMusic) MusicScreen.sendSelected = null;
     MusicScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
+  }
+
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    final items = invite == null ? <SharedLocalFile>[] : _service.roomFiles.value.where((item) {
+      final name = item.relativePath.toLowerCase();
+      return ['.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus', '.wma'].any(name.endsWith);
+    }).toList();
+    if (!mounted) return;
+    setState(() { _receiver = invite; _incoming..clear()..addAll(items); });
+  }
+  void _watchIncomingMusic(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final items = manifest.where((item) {
+        final name = item.relativePath.toLowerCase();
+        return name.endsWith('.mp3') || name.endsWith('.m4a') ||
+            name.endsWith('.aac') || name.endsWith('.wav') ||
+            name.endsWith('.flac') || name.endsWith('.ogg') ||
+            name.endsWith('.opus') || name.endsWith('.wma');
+      }).toList();
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(items); _status = '${items.length} song(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
   }
 
   // ignore: unused_element
@@ -190,6 +221,7 @@ class _MusicScreenState extends State<MusicScreen> {
       if (musicFiles.isEmpty) throw StateError('No music files were found in this share.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(musicFiles); _status = '${musicFiles.length} song(s) ready to receive.'; });
+      _watchIncomingMusic(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving,
         fileCount: musicFiles.length,
@@ -284,17 +316,21 @@ class _MusicScreenState extends State<MusicScreen> {
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('Room ${_invite!.roomId} · Scan to receive music', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ${_invite!.roomId}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
         Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
-        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
-        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        PopupMenuButton<String>(
+          tooltip: 'More room actions',
+          onSelected: (value) { if (value == 'link') Clipboard.setData(ClipboardData(text: _invite!.toQrValue())); },
+          itemBuilder: (context) => const [PopupMenuItem(value: 'link', child: Text('Copy connection link'))],
+        ),
         Row(children: [
           const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
-          Text('${_service.joinedDeviceCount}/8'),
+          Text('${_service.joinedDeviceCount}/7'),
         ]),
         ..._service.roomMembers.map((member) => ListTile(
           dense: true,
@@ -317,6 +353,7 @@ class _MusicScreenState extends State<MusicScreen> {
       if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
+          parentScrollController: widget.scrollController,
           kind: MediaKind.music,
           selectedPaths: _selected.map((file) => file.path).toSet(),
           onSelect: (file) {

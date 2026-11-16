@@ -20,8 +20,9 @@ import '../../transfers/xender_local_transfer_service.dart';
 class ImagesScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static VoidCallback? sendSelected;
-  const ImagesScreen({this.enabled = true, super.key});
+  const ImagesScreen({this.enabled = true, this.scrollController, super.key});
   final bool enabled;
+  final ScrollController? scrollController;
 
   @override
   State<ImagesScreen> createState() => _ImagesScreenState();
@@ -38,9 +39,18 @@ class _ImagesScreenState extends State<ImagesScreen> {
   double _progress = 0;
   String? _status;
   Timer? _roomRefreshTimer;
+  StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
-  void initState() { super.initState(); ImagesScreen.sendSelected = _sendImages; }
+  void initState() {
+    super.initState();
+    ImagesScreen.sendSelected = _sendImages;
+    _service.roomFiles.addListener(_syncRoomFiles);
+    _syncRoomFiles();
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingImages(_receiver!);
+  }
 
   void _updateSelectionCount() => ImagesScreen.selectedCount.value = _selected.length;
 
@@ -49,9 +59,33 @@ class _ImagesScreenState extends State<ImagesScreen> {
     if (ImagesScreen.sendSelected == _sendImages) ImagesScreen.sendSelected = null;
     ImagesScreen.selectedCount.value = 0;
     _roomRefreshTimer?.cancel();
-    unawaited(_service.stopSharing());
-    unawaited(_service.disconnect());
+    _manifestSubscription?.cancel();
+    _service.roomFiles.removeListener(_syncRoomFiles);
     super.dispose();
+  }
+
+  void _syncRoomFiles() {
+    final invite = _service.joinedInvite;
+    final items = invite == null ? <SharedLocalFile>[] : _service.roomFiles.value.where((item) {
+      final name = item.relativePath.toLowerCase();
+      return ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif'].any(name.endsWith);
+    }).toList();
+    if (!mounted) return;
+    setState(() { _receiver = invite; _incoming..clear()..addAll(items); });
+  }
+  void _watchIncomingImages(PlazmaConnectionInvite invite) {
+    _manifestSubscription?.cancel();
+    _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
+      final items = manifest.where((item) {
+        final name = item.relativePath.toLowerCase();
+        return name.endsWith('.jpg') || name.endsWith('.jpeg') ||
+            name.endsWith('.png') || name.endsWith('.webp') ||
+            name.endsWith('.gif') || name.endsWith('.bmp') ||
+            name.endsWith('.heic') || name.endsWith('.heif');
+      }).toList();
+      if (!mounted) return;
+      setState(() { _incoming..clear()..addAll(items); _status = '${items.length} image(s) available in this room.'; });
+    }, onError: (Object error) { if (mounted) _message('Live room update failed: $error'); });
   }
 
   // ignore: unused_element
@@ -174,6 +208,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       if (images.isEmpty) throw StateError('No images were found in this share.');
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(images); _status = '${images.length} image(s) ready to receive.'; });
+      _watchIncomingImages(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
         direction: TransferOverlayDirection.receiving,
         fileCount: images.length,
@@ -268,17 +303,21 @@ class _ImagesScreenState extends State<ImagesScreen> {
       const SizedBox(height: 14),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('Room ${_invite!.roomId} · Scan to receive images', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        Text('Room ${_invite!.roomId}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         const SizedBox(height: 12),
         Container(color: Colors.white, padding: const EdgeInsets.all(10),
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
         Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
-        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
-        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        PopupMenuButton<String>(
+          tooltip: 'More room actions',
+          onSelected: (value) { if (value == 'link') Clipboard.setData(ClipboardData(text: _invite!.toQrValue())); },
+          itemBuilder: (context) => const [PopupMenuItem(value: 'link', child: Text('Copy connection link'))],
+        ),
         Row(children: [
           const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
-          Text('${_service.joinedDeviceCount}/8'),
+          Text('${_service.joinedDeviceCount}/7'),
         ]),
         ..._service.roomMembers.map((member) => ListTile(
           dense: true,
@@ -301,6 +340,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
+          parentScrollController: widget.scrollController,
           kind: MediaKind.images,
           selectedPaths: _selected.map((file) => file.path).toSet(),
           onSelect: (file) {

@@ -18,6 +18,7 @@ dependencies:
   package_info_plus: ^10.2.2
   path_provider: ^2.1.5
   photo_manager: ^3.7.1
+  audio_metadata_reader: ^1.8.1
   convert: ^3.1.2
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.0.1
