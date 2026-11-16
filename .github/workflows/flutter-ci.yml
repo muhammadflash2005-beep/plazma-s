@@ -644,7 +644,6 @@ jobs:
                       android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
                       else -> message.ifBlank { "Android could not install this app (status $status)." }
-                      else -> message.ifBlank { "Android could not install this app (status $status)." }
                   }
                   flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
                       MethodChannel(messenger, "com.plazma.s/apps").invokeMethod(
