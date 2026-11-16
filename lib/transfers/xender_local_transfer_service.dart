@@ -1003,12 +1003,15 @@ class XenderLocalTransferService {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('plazma_auto_save_received') ?? true)) return file.path;
     try {
+      final customFolderUri = prefs.getString('plazma_save_folder_${item.type}');
       final saved = await const MethodChannel('com.plazma.s/storage')
           .invokeMapMethod<String, dynamic>('saveReceivedFile', {
         'sourcePath': file.path,
         'name': item.name,
         'type': item.type,
         'transferKey': '${_joinedInvite?.roomId ?? 'room'}:${item.id}',
+        if (customFolderUri != null && customFolderUri.isNotEmpty)
+          'customFolderUri': customFolderUri,
       }).timeout(const Duration(seconds: 30));
       final path = saved?['path'];
       final uri = saved?['uri'];
