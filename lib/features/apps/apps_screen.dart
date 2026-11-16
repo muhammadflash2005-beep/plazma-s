@@ -169,6 +169,8 @@ class _AppsScreenState extends State<AppsScreen> {
         setState(() => _library = library);
         if (Platform.isWindows) {
           await _loadWindowsApps();
+        } else if (Platform.isLinux) {
+          await _loadLinuxApps();
         } else if (mounted) {
           setState(() => _error = 'Send complete installers or portable bundles (.exe, .msi, .dmg, .pkg, .AppImage, .deb, .rpm or .zip).');
         }
@@ -471,6 +473,83 @@ class _AppsScreenState extends State<AppsScreen> {
 
   String _encodePowerShell(String script) => base64.encode(
     script.codeUnits.expand((unit) => [unit & 0xff, (unit >> 8) & 0xff]).toList());
+
+  Future<String?> _resolveLinuxIcon(String iconName) async {
+    if (iconName.isEmpty) return null;
+    final direct = File(iconName);
+    if (iconName.startsWith('/') && await direct.exists()) return direct.path;
+    final roots = <String>[
+      '/usr/share/pixmaps',
+      '/usr/share/icons/hicolor',
+      '/usr/local/share/icons/hicolor',
+      '${Platform.environment['HOME'] ?? ''}/.local/share/icons/hicolor',
+    ];
+    final names = iconName.contains('.') ? [iconName] : [
+      '$iconName.png', '$iconName.svg', '$iconName.xpm',
+    ];
+    for (final root in roots) {
+      final directory = Directory(root);
+      if (!await directory.exists()) continue;
+      try {
+        await for (final entity in directory.list(recursive: true, followLinks: false)) {
+          if (entity is File && names.contains(entity.uri.pathSegments.last)) {
+            final extension = entity.path.toLowerCase();
+            if (extension.endsWith('.png') || extension.endsWith('.jpg') ||
+                extension.endsWith('.jpeg') || extension.endsWith('.webp')) {
+              return entity.path;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<void> _loadLinuxApps() async {
+    final home = Platform.environment['HOME'] ?? '';
+    final roots = <Directory>[
+      Directory('/usr/share/applications'),
+      if (home.isNotEmpty) Directory('$home/.local/share/applications'),
+    ];
+    final apps = <DesktopInstalledApp>[];
+    final seen = <String>{};
+    for (final root in roots) {
+      if (!await root.exists()) continue;
+      try {
+        await for (final entity in root.list(recursive: false, followLinks: false)) {
+          if (entity is! File || !entity.path.endsWith('.desktop')) continue;
+          try {
+            final lines = await entity.readAsLines();
+            if (!lines.contains('[Desktop Entry]')) continue;
+            final values = <String, String>{};
+            var inEntry = false;
+            for (final line in lines) {
+              if (line.startsWith('[')) {
+                inEntry = line == '[Desktop Entry]';
+                continue;
+              }
+              if (!inEntry || line.startsWith('#') || !line.contains('=')) continue;
+              final split = line.indexOf('=');
+              values[line.substring(0, split)] = line.substring(split + 1);
+            }
+            final name = values['Name']?.trim() ?? '';
+            if (name.isEmpty || values['NoDisplay'] == 'true' || values['Hidden'] == 'true' ||
+                values['Type'] != 'Application' || !seen.add(name.toLowerCase())) continue;
+            final icon = await _resolveLinuxIcon(values['Icon']?.trim() ?? '');
+            apps.add(DesktopInstalledApp(name: name, version: '', publisher: '',
+              installLocation: null, iconPath: icon));
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    apps.sort((a,b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (!mounted) return;
+    setState(() {
+      _desktopApps..clear()..addAll(apps);
+      _desktopSelected.clear();
+      _error = apps.isEmpty ? 'No installed Linux desktop applications were found.' : null;
+    });
+  }
 
   Future<void> _loadWindowsApps() async {
     if (!Platform.isWindows) return;
@@ -1115,10 +1194,10 @@ class _AppsScreenState extends State<AppsScreen> {
             Row(children: [
               Expanded(child: Text('Installed Windows apps (${_filteredDesktopApps.length})',
                 style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
-              IconButton(onPressed: _loading ? null : _loadWindowsApps, icon: const Icon(Icons.refresh)),
+              IconButton(onPressed: _loading ? null : (Platform.isWindows ? _loadWindowsApps : _loadLinuxApps), icon: const Icon(Icons.refresh)),
             ]),
             TextField(
-              decoration: const InputDecoration(hintText: 'Search installed Windows apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+              decoration: const InputDecoration(hintText: 'Search installed desktop apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
               onChanged: (value) => setState(() => _desktopSearchQuery = value),
             ),
             Row(children: [
@@ -1136,7 +1215,7 @@ class _AppsScreenState extends State<AppsScreen> {
               Text('${_desktopSelected.length} selected', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
             ]),
             if (_desktopApps.isEmpty && !_loading)
-              const Padding(padding: EdgeInsets.all(12), child: Text('No installed apps found. You can still choose an EXE or MSI installer below.')),
+              const Padding(padding: EdgeInsets.all(12), child: Text('No installed apps found. You can still choose an application installer below.')),
             ..._filteredDesktopApps.map((app) {
               final selected = _desktopSelected.contains(app.name);
               return Card(
