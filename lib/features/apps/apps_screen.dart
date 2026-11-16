@@ -1190,9 +1190,9 @@ class _AppsScreenState extends State<AppsScreen> {
         ]),
         const SizedBox(height: 18),
         if (!Platform.isAndroid) ...[
-          if (Platform.isWindows) ...[
+          if (Platform.isWindows || Platform.isLinux) ...[
             Row(children: [
-              Expanded(child: Text('Installed Windows apps (${_filteredDesktopApps.length})',
+              Expanded(child: Text('Installed ${Platform.isWindows ? 'Windows' : 'Linux'} apps (${_filteredDesktopApps.length})',
                 style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
               IconButton(onPressed: _loading ? null : (Platform.isWindows ? _loadWindowsApps : _loadLinuxApps), icon: const Icon(Icons.refresh)),
             ]),
