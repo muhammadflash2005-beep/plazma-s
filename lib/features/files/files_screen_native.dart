@@ -665,7 +665,7 @@ class _FilesScreenState extends State<FilesScreen> {
               Text('${_visibleFileIndexes.length} shown · ${_files.length} selected · ${_formatBytes(_files.fold<int>(0, (sum, file) => sum + file.lengthSync()))}',
                   style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              ..._visibleFileIndexes.take(5).map((index) => ListTile(
+              ..._visibleFileIndexes.map((index) => ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.insert_drive_file_outlined),
@@ -684,7 +684,6 @@ class _FilesScreenState extends State<FilesScreen> {
                       ],
                     ),
                   )),
-              if (_visibleFileIndexes.length > 5) Text('And ${_visibleFileIndexes.length - 5} more…'),
             ],
             const SizedBox(height: 14),
             SizedBox(

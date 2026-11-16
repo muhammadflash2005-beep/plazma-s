@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -298,6 +299,101 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       }
     }
   }
+  Future<void> _deleteSelectedVisible() async {
+    final selected = _filteredAssets.where((asset) {
+      final path = _assetPaths[asset.id];
+      return path != null && widget.selectedPaths.contains(path);
+    }).toList();
+    if (selected.isEmpty) return;
+    final confirmed = await confirmPermanentDelete(
+      context,
+      itemDescription: '${selected.length} selected ${_label}',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final deletedIds = await PhotoManager.editor.deleteWithIds(
+        selected.map((asset) => asset.id).toList(),
+      );
+      final deleted = deletedIds.toSet();
+      for (final asset in selected.where((asset) => deleted.contains(asset.id))) {
+        final path = _assetPaths[asset.id];
+        if (path != null && widget.selectedPaths.contains(path)) widget.onSelect(File(path));
+      }
+      _thumbnailFutures.removeWhere((id, _) => deleted.contains(id));
+      _assetPaths.removeWhere((id, _) => deleted.contains(id));
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Permanently deleted ${deleted.length} item(s).')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete selected media: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _copyOrMoveSelectedVisible({required bool move}) async {
+    final selected = _filteredAssets.where((asset) {
+      final path = _assetPaths[asset.id];
+      return path != null && widget.selectedPaths.contains(path);
+    }).toList();
+    if (selected.isEmpty) return;
+    if (move) {
+      final confirmed = await confirmPermanentDelete(
+        context,
+        itemDescription: '${selected.length} original ${_label} after copying them to another folder',
+      );
+      if (!confirmed || !mounted) return;
+    }
+    final directory = await FilePicker.getDirectoryPath();
+    if (directory == null || !mounted) return;
+    var copied = 0;
+    final copiedAssets = <AssetEntity>[];
+    try {
+      for (final asset in selected) {
+        final source = await asset.file;
+        if (source == null || !await source.exists()) continue;
+        final name = (asset.title?.trim().isNotEmpty ?? false)
+            ? asset.title!
+            : source.uri.pathSegments.last;
+        final target = File('$directory${Platform.pathSeparator}$name');
+        if (await target.exists()) continue;
+        await source.copy(target.path);
+        copied++;
+        copiedAssets.add(asset);
+      }
+      if (move && copiedAssets.isNotEmpty) {
+        final deletedIds = (await PhotoManager.editor.deleteWithIds(
+          copiedAssets.map((asset) => asset.id).toList(),
+        )).toSet();
+        for (final asset in copiedAssets.where((asset) => deletedIds.contains(asset.id))) {
+          final path = _assetPaths[asset.id];
+          if (path != null && widget.selectedPaths.contains(path)) widget.onSelect(File(path));
+          _assetPaths.remove(asset.id);
+          _thumbnailFutures.remove(asset.id);
+        }
+      }
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(move
+              ? 'Moved $copied item(s) to the selected folder.'
+              : 'Copied $copied item(s) to the selected folder.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not ${move ? 'move' : 'copy'} media: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _select(AssetEntity asset) async {
     try {
       final file = await asset.file;
@@ -384,10 +480,18 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             TextButton(onPressed: _selectAllVisible, child: const Text('Select all')),
             TextButton(onPressed: _clearVisibleSelection, child: const Text('Clear selection')),
             if (widget.selectedPaths.isNotEmpty)
-              TextButton(
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                onPressed: _deleteSelectedVisible,
-                child: const Text('Delete'),
+              PopupMenuButton<String>(
+                tooltip: 'Manage selected media',
+                onSelected: (action) {
+                  if (action == 'copy') _copyOrMoveSelectedVisible(move: false);
+                  if (action == 'move') _copyOrMoveSelectedVisible(move: true);
+                  if (action == 'delete') _deleteSelectedVisible();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'copy', child: Text('Copy to folder')),
+                  PopupMenuItem(value: 'move', child: Text('Move to folder')),
+                  PopupMenuItem(value: 'delete', child: Text('Delete permanently')),
+                ],
               ),
             const Spacer(),
             Text('${widget.selectedPaths.length} selected',
