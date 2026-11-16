@@ -94,6 +94,7 @@ jobs:
                   android:foregroundServiceType="dataSync" />
           """
           s = s.replace("</application>", service + "\n" + provider + "\n    </application>", 1)
+          s = s.replace('android:name=".MainActivity"', 'android:name=".MainActivity" android:launchMode="singleTop"', 1)
           manifest.write_text(s)
           gradle_kts = Path("android/app/build.gradle.kts")
           gradle_groovy = Path("android/app/build.gradle")
