@@ -1256,7 +1256,6 @@ jobs:
               "appInfo.splitSourceDirs",
               "private fun installApkSet",
               "if (index == 0)",
-              "PackageInstaller validates the complete set",
               "PackageInstaller.SessionParams.MODE_FULL_INSTALL",
               "packageManager.canRequestPackageInstalls()",
               "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES",
