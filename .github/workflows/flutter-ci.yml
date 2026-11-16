@@ -753,8 +753,10 @@ jobs:
                   if (packageName.isBlank() || paths.isEmpty() || paths.size > 100) {
                       throw IllegalArgumentException("A package and between one and 100 APK files are required.")
                   }
+                  if (!File(paths.first()).name.equals("base.apk", ignoreCase = true)) {
+                      throw IllegalStateException("The base APK must be first in the installation set.")
+                  }
                   val splitNames = mutableSetOf<String>()
-                  var expectedVersion: Long? = null
                   paths.forEachIndexed { index, path ->
                       val apk = File(path)
                       if (!apk.isFile || apk.length() == 0L) {
@@ -763,20 +765,18 @@ jobs:
                       if (!splitNames.add(apk.name)) {
                           throw IllegalStateException("The installation set contains a duplicate APK part: ${apk.name}")
                       }
-                      val info = packageManager.getPackageArchiveInfo(path, 0)
-                          ?: throw IllegalStateException("APK is corrupted or unreadable: $path")
-                      if (info.packageName != packageName) {
-                          throw IllegalStateException("APK package mismatch. Expected $packageName but found ${info.packageName}.")
-                      }
-                      val version = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
-                      if (expectedVersion == null) expectedVersion = version
-                      if (version != expectedVersion) {
-                          throw IllegalStateException("The base APK and split APKs have different versions.")
-                      }
-                      if (index == 0 && !apk.name.equals("base.apk", ignoreCase = true)) {
-                          throw IllegalStateException("The base APK must be first in the installation set.")
-                      }
-                      if (index > 0 && (!apk.name.startsWith("split_") || !apk.name.endsWith(".apk", ignoreCase = true))) {
+                      if (index == 0) {
+                          // PackageManager can inspect the standalone base APK.
+                          // Configuration split APKs are not standalone packages:
+                          // validating them with getPackageArchiveInfo rejects valid
+                          // files such as split_config.en.apk. PackageInstaller
+                          // validates the complete set when the session is committed.
+                          val info = packageManager.getPackageArchiveInfo(path, 0)
+                              ?: throw IllegalStateException("The base APK is corrupted or unreadable: $path")
+                          if (info.packageName != packageName) {
+                              throw IllegalStateException("APK package mismatch. Expected $packageName but found ${info.packageName}.")
+                          }
+                      } else if (!apk.name.startsWith("split_") || !apk.name.endsWith(".apk", ignoreCase = true)) {
                           throw IllegalStateException("An APK split has an invalid file name: ${apk.name}")
                       }
                   }
