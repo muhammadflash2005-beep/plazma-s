@@ -7,8 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../media/permanent_delete_confirmation.dart';
-
-import '../media/permanent_delete_confirmation.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';

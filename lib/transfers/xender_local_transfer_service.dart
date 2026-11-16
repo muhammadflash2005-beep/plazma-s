@@ -388,7 +388,7 @@ class XenderLocalTransferService {
           return;
         }
         final wasFirst = (_room?.completedCount ?? 0) == 0;
-        final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
+        final marked = _room?.markCompleted(deviceId) ?? false;
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         final onCompleted = marked && wasFirst ? _onTransferCompleted : null;
