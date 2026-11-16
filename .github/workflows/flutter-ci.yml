@@ -559,6 +559,13 @@ jobs:
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
+                              "listInstalledApps" -> {
+                                  try {
+                                      result.success(installedAppDetails())
+                                  } catch (error: Exception) {
+                                      result.error("APP_LIST_FAILED", error.message, null)
+                                  }
+                              }
                               "exportApks" -> {
                                   val packageNames = call.argument<List<String>>("packageNames") ?: emptyList()
                                   try {
@@ -602,6 +609,29 @@ jobs:
                               else -> result.notImplemented()
                           }
                       }
+              }
+
+              private fun installedAppDetails(): List<Map<String, Any>> {
+                  val packages = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
+                  return packages.filter { (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 }
+                      .filter { !it.packageName.startsWith("org.chromium.webapk.") }
+                      .mapNotNull { appInfo ->
+                          try {
+                              val info = packageManager.getPackageInfo(appInfo.packageName, 0)
+                              val label = packageManager.getApplicationLabel(appInfo).toString()
+                              val apkPaths = mutableListOf(appInfo.sourceDir).apply {
+                                  appInfo.splitSourceDirs?.let { addAll(it) }
+                              }
+                              val bytes = apkPaths.sumOf { path -> File(path).takeIf { it.isFile }?.length() ?: 0L }
+                              mapOf(
+                                  "packageName" to appInfo.packageName,
+                                  "appName" to label,
+                                  "versionName" to (info.versionName ?: ""),
+                                  "versionCode" to if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
+                                  "sizeBytes" to bytes
+                              )
+                          } catch (_: Exception) { null }
+                      }.sortedBy { it["appName"].toString().lowercase() }
               }
 
               private fun exportApks(packageNames: List<String>): List<Map<String, Any>> {
