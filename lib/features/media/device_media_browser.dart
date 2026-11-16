@@ -8,6 +8,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:photo_manager/photo_manager.dart';
+
+import 'permanent_delete_confirmation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MediaKind { images, videos, music }
@@ -296,6 +298,45 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       }
     }
   }
+  Future<void> _deleteSelectedVisible() async {
+    final selected = _filteredAssets.where((asset) {
+      final path = _assetPaths[asset.id];
+      return path != null && widget.selectedPaths.contains(path);
+    }).toList();
+    if (selected.isEmpty) return;
+    final confirmed = await confirmPermanentDelete(
+      context,
+      itemDescription: '${selected.length} selected ${_label}',
+    );
+    if (!confirmed) return;
+    try {
+      final deletedIds = await PhotoManager.editor.deleteWithIds(
+        selected.map((asset) => asset.id).toList(),
+      );
+      final deleted = deletedIds.toSet();
+      for (final asset in selected.where((asset) => deleted.contains(asset.id))) {
+        final path = _assetPaths[asset.id];
+        if (path != null && widget.selectedPaths.contains(path)) {
+          widget.onSelect(File(path));
+        }
+      }
+      _thumbnailFutures.removeWhere((id, _) => deleted.contains(id));
+      _assetPaths.removeWhere((id, _) => deleted.contains(id));
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Permanently deleted ${deleted.length} item(s).')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete selected media: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _select(AssetEntity asset) async {
     try {
       final file = await asset.file;
@@ -381,13 +422,21 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
           Row(children: [
             TextButton(onPressed: _selectAllVisible, child: const Text('Select all')),
             TextButton(onPressed: _clearVisibleSelection, child: const Text('Clear selection')),
+            if (widget.selectedPaths.isNotEmpty)
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: _deleteSelectedVisible,
+                child: const Text('Delete'),
+              ),
             const Spacer(),
             Text('${widget.selectedPaths.length} selected',
               style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
           ]),
 
           Text(
-            'Showing ${_filteredAssets.length} of $_totalCount',
+            _searchQuery.trim().isEmpty
+                ? 'Showing ${_assets.length} of $_totalCount'
+                : 'Showing ${_filteredAssets.length} matching items · ${_assets.length} loaded of $_totalCount',
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 12,
