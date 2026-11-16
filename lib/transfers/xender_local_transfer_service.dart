@@ -377,11 +377,11 @@ class XenderLocalTransferService {
           final itemType = _manifest[id]['type'] as String? ?? 'file';
           final relative = _manifest[id]['relativePath'] as String? ?? '';
           final isApp = itemType == 'app';
-          final package = isApp ? relative.split('/').first : '';
+          final package = isApp ? _appPackageKey(relative) : '';
           final packageIds = isApp
               ? List<int>.generate(_manifest.length, (index) => index).where((index) =>
                   (_manifest[index]['type'] as String? ?? '') == 'app' &&
-                  ((_manifest[index]['relativePath'] as String? ?? '').startsWith('$package/'))).toList()
+                  _appPackageKey(_manifest[index]['relativePath'] as String) == package).toList()
               : <int>[id];
           final packageDone = packageIds.every((index) =>
               _receiverQueueStatuses.statusFor(deviceId, index)?.status == 'done');
@@ -394,7 +394,7 @@ class XenderLocalTransferService {
                 name: isApp ? package : (_manifest[id]['name'] as String),
                 type: itemType,
                 direction: 'sent',
-                path: isApp ? _files[firstIndex].parent.path : _files[id].path,
+                path: isApp ? _files[firstIndex].path : _files[id].path,
                 bytes: packageIds.fold<int>(0, (sum, index) => sum + (_manifest[index]['size'] as int)),
                 peer: member.deviceName,
               );
@@ -781,15 +781,19 @@ class XenderLocalTransferService {
             final finalPath = _finalSavedPaths[id] ?? target.path;
             _updateJoinedQueueStatus(id, 'saved', item.size);
             if (item.type == 'app') {
-              final package = relative.split('/').first;
+              final package = _appPackageKey(relative);
               final packageItems = _joinedManifest.where((value) =>
-                  value.type == 'app' && value.relativePath.startsWith('$package/')).toList();
+                  value.type == 'app' && _appPackageKey(value.relativePath) == package).toList();
               if (packageItems.isNotEmpty && packageItems.every((value) => value.status == 'saved') &&
                   _recordedReceivedHistory.add('app:$package')) {
+                final isBundle = relative.toLowerCase().endsWith('.plazmaapp');
                 final publicFolder = finalPath.substring(0, finalPath.lastIndexOf(Platform.pathSeparator));
+                final installPath = isBundle
+                    ? target.parent.parent.path + Platform.pathSeparator + package
+                    : target.parent.path;
                 await TransferHistoryStore.add(
                   name: package, type: 'app', direction: 'received',
-                  path: publicFolder, installPath: target.parent.path,
+                  path: isBundle ? finalPath : publicFolder, installPath: installPath,
                   bytes: packageItems.fold<int>(0, (sum, value) => sum + value.size),
                   peer: 'Nearby Plazma S device',
                 );
@@ -1355,6 +1359,18 @@ class XenderLocalTransferService {
       throw const FormatException('Unsafe file path received.');
     }
     return normalized;
+  }
+
+  String _appPackageKey(String relativePath) {
+    final segments = relativePath.split('/');
+    final filename = segments.last;
+    if (filename.toLowerCase().endsWith('.plazmaapp')) {
+      return segments.length >= 3 && segments.first == 'Apps'
+          ? segments[1]
+          : filename.substring(0, filename.length - '.plazmaapp'.length);
+    }
+    if (filename.toLowerCase().endsWith('.apk')) return segments.first;
+    return relativePath;
   }
 
   String _itemTypeForPath(String path) {
