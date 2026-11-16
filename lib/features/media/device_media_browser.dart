@@ -64,6 +64,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     return PhotoManager.requestPermissionExtend(requestOption: requestOption);
   }
 
+  final List<File> _desktopFiles = [];
   AssetPathEntity? _album;
   List<AssetEntity> _assets = [];
   final Map<String, Future<Uint8List?>> _thumbnailFutures = {};
@@ -144,6 +145,10 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       _loading = true;
       _message = null;
     });
+    if (Platform.isWindows || Platform.isLinux) {
+      await _loadDesktopMedia();
+      return;
+    }
     try {
       final permission = await _ensureMediaPermission();
       if (!permission.hasAccess) {
@@ -201,6 +206,154 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadDesktopMedia() async {
+    final home = Platform.isWindows
+        ? (Platform.environment['USERPROFILE'] ?? '')
+        : (Platform.environment['HOME'] ?? '');
+    if (home.isEmpty) {
+      if (mounted) setState(() { _loaded = true; _message = 'Could not locate this user’s media folders.'; });
+      return;
+    }
+    final folderNames = switch (widget.kind) {
+      MediaKind.images => ['Pictures', 'Images', 'Downloads', 'Desktop'],
+      MediaKind.videos => ['Videos', 'Movies', 'Downloads', 'Desktop'],
+      MediaKind.music => ['Music', 'Downloads', 'Desktop'],
+    };
+    final extensions = switch (widget.kind) {
+      MediaKind.images => {'.jpg','.jpeg','.png','.gif','.bmp','.webp','.heic','.tif','.tiff'},
+      MediaKind.videos => {'.mp4','.mkv','.mov','.avi','.webm','.m4v','.3gp','.wmv'},
+      MediaKind.music => {'.mp3','.m4a','.aac','.wav','.flac','.ogg','.opus','.wma','.aiff'},
+    };
+    final found = <File>[];
+    for (final name in folderNames) {
+      final folder = Directory('$home${Platform.pathSeparator}$name');
+      if (!await folder.exists()) continue;
+      try {
+        await for (final entity in folder.list(recursive: true, followLinks: false)) {
+          if (entity is File && extensions.contains(
+              entity.path.substring(entity.path.lastIndexOf('.')).toLowerCase())) {
+            found.add(entity);
+          }
+          if (found.length >= 20000) break;
+        }
+      } catch (_) {}
+      if (found.length >= 20000) break;
+    }
+    found.sort((a,b) => a.path.toLowerCase().compareTo(b.path.toLowerCase()));
+    if (!mounted) return;
+    setState(() {
+      _desktopFiles..clear()..addAll(found);
+      _totalCount = found.length;
+      _loaded = true;
+      _needsRefresh = false;
+      _message = found.isEmpty
+          ? 'No $_label found in the standard user media folders. Put files in Pictures, Videos, Music or Downloads, then refresh.'
+          : null;
+    });
+  }
+
+  List<File> get _filteredDesktopFiles {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _desktopFiles;
+    return _desktopFiles.where((file) => file.uri.pathSegments.last.toLowerCase().contains(query)).toList();
+  }
+
+  Future<void> _deleteDesktopSelected() async {
+    final selected = _desktopFiles.where((file) => widget.selectedPaths.contains(file.path)).toList();
+    if (selected.isEmpty) return;
+    final confirmed = await confirmPermanentDelete(
+      context,
+      itemDescription: '${selected.length} selected $_label item(s)',
+    );
+    if (!confirmed || !mounted) return;
+    var deleted = 0;
+    for (final file in selected) {
+      try {
+        if (await file.exists()) await file.delete();
+        widget.onSelect(file);
+        deleted++;
+      } catch (_) {}
+    }
+    await _loadDesktopMedia();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Deleted $deleted selected $_label item(s).')),
+    );
+  }
+
+  Widget _buildDesktopMedia(ColorScheme colors) {
+    final files = _filteredDesktopFiles;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: Text(_loading ? 'Loading device $_label…' : 'On this PC · $_label',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w700))),
+        IconButton(tooltip: 'Refresh device media', onPressed: _loading ? null : _load,
+          icon: const Icon(Icons.refresh_rounded)),
+      ]),
+      Text('Browse local media folders on Windows and Linux.',
+        style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+      const SizedBox(height: 8),
+      TextField(
+        decoration: InputDecoration(hintText: 'Search $_label', prefixIcon: const Icon(Icons.search_rounded),
+          isDense: true, border: const OutlineInputBorder()),
+        onChanged: (value) => setState(() => _searchQuery = value),
+      ),
+      Row(children: [
+        TextButton(onPressed: () { for (final file in files) { if (!widget.selectedPaths.contains(file.path)) widget.onSelect(file); } },
+          child: const Text('Select all')),
+        TextButton(onPressed: () { for (final file in files) { if (widget.selectedPaths.contains(file.path)) widget.onSelect(file); } },
+          child: const Text('Clear selection')),
+        const Spacer(),
+        Text('${widget.selectedPaths.length} selected',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+      ]),
+      Text('Showing ${files.length} of ${_desktopFiles.length}',
+        style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+      if (files.isEmpty)
+        Padding(padding: const EdgeInsets.all(16), child: Text(_message ?? 'No matching files found.')),
+      if (widget.kind == MediaKind.music)
+        Card(child: Column(children: files.map((file) {
+          final selected = widget.selectedPaths.contains(file.path);
+          return ListTile(
+            dense: true,
+            leading: CircleAvatar(child: Icon(selected ? Icons.check : Icons.music_note_rounded)),
+            title: Text(file.uri.pathSegments.last, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(file.parent.path, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: Icon(selected ? Icons.check_circle : Icons.circle_outlined,
+              color: selected ? colors.primary : colors.onSurfaceVariant),
+            onTap: () => widget.onSelect(file),
+          );
+        }).toList())),
+      if (widget.kind != MediaKind.music)
+        GridView.builder(
+          shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          itemCount: files.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 4, crossAxisSpacing: 6, mainAxisSpacing: 6),
+          itemBuilder: (context, index) {
+            final file = files[index];
+            final selected = widget.selectedPaths.contains(file.path);
+            return InkWell(
+              onTap: () => widget.onSelect(file),
+              child: ClipRRect(borderRadius: BorderRadius.circular(9), child: Stack(fit: StackFit.expand, children: [
+                if (widget.kind == MediaKind.images)
+                  Image.file(file, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const ColoredBox(color: Color(0x22000000),
+                      child: Icon(Icons.broken_image_outlined)))
+                else
+                  const ColoredBox(color: Color(0x22000000),
+                    child: Center(child: Icon(Icons.play_circle_fill_rounded, size: 34))),
+                if (selected) Positioned.fill(child: DecoratedBox(
+                  decoration: BoxDecoration(color: colors.primary.withValues(alpha: .25),
+                    border: Border.all(color: colors.primary, width: 2)),
+                  child: const Align(alignment: Alignment.topRight,
+                    child: Padding(padding: EdgeInsets.all(4), child: Icon(Icons.check_circle))))),
+              ])),
+            );
+          },
+        ),
+    ]);
   }
 
   void _handleParentScroll() {
@@ -327,6 +480,10 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
 
   Future<void> _deleteSelectedAssets() async {
     if (!mounted || widget.selectedPaths.isEmpty) return;
+    if (Platform.isWindows || Platform.isLinux) {
+      await _deleteDesktopSelected();
+      return;
+    }
     final selectedAssets = _assets.where((asset) {
       final path = _assetPaths[asset.id];
       return path != null && widget.selectedPaths.contains(path);
@@ -493,6 +650,11 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    if (Platform.isWindows || Platform.isLinux) {
+      if (!widget.enabled && !_loaded) return Text('Open this tab to load device $_label.',
+        style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12));
+      return _buildDesktopMedia(colors);
+    }
     if (!widget.enabled && !_loaded) {
       return Text(
         'Open this tab to load device $_label.',
