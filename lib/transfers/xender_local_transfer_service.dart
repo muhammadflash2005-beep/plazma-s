@@ -745,6 +745,7 @@ class XenderLocalTransferService {
             final target = File(_lastDownloadDestination!.path + Platform.pathSeparator +
                 categoryFolder.replaceAll('/', Platform.pathSeparator) + Platform.pathSeparator +
                 relative.replaceAll('/', Platform.pathSeparator));
+            final finalPath = _finalSavedPaths[id] ?? target.path;
             _updateJoinedQueueStatus(id, 'saved', item.size);
             if (item.type == 'app') {
               final package = relative.split('/').first;
@@ -752,9 +753,11 @@ class XenderLocalTransferService {
                   value.type == 'app' && value.relativePath.startsWith('$package/')).toList();
               if (packageItems.isNotEmpty && packageItems.every((value) => value.status == 'saved') &&
                   _recordedReceivedHistory.add('app:$package')) {
+                final publicFolder = finalPath.substring(0, finalPath.lastIndexOf(Platform.pathSeparator));
                 await TransferHistoryStore.add(
                   name: package, type: 'app', direction: 'received',
-                  path: target.parent.path, bytes: packageItems.fold<int>(0, (sum, value) => sum + value.size),
+                  path: publicFolder, installPath: target.parent.path,
+                  bytes: packageItems.fold<int>(0, (sum, value) => sum + value.size),
                   peer: 'Nearby Plazma S device',
                 );
               }
@@ -1034,6 +1037,7 @@ class XenderLocalTransferService {
             final existingSize = await target.length();
             final existingDigest = await sha256.bind(target.openRead()).first;
             if (existingSize == item.size && existingDigest.toString() == item.sha256) {
+              _finalSavedPaths[item.id] = await _persistReceivedFile(target, item);
               totalBytes += item.size;
               final finalStatus = await _postQueueStatusReliable(
                 invite, item.id, 'done', item.size, client: client,
