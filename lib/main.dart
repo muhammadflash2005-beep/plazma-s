@@ -284,6 +284,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _resetSaveFolder(String type) async {
     final prefs = await SharedPreferences.getInstance();
+    final uri = prefs.getString('plazma_save_folder_$type');
+    if (Platform.isAndroid && uri != null && uri.isNotEmpty) {
+      try {
+        await const MethodChannel('com.plazma.s/storage')
+            .invokeMethod<void>('releaseSaveFolder', {'uri': uri});
+      } catch (_) {
+        // Clearing the saved override should still work if Android already revoked it.
+      }
+    }
     await prefs.remove('plazma_save_folder_$type');
     await prefs.remove('plazma_save_folder_label_$type');
     if (mounted) setState(() => _saveFolderLabels.remove(type));
