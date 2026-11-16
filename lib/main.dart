@@ -228,7 +228,22 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _category = 0;
+  bool _autoSaveReceivedFiles = true;
   final ScrollController _contentScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      if (mounted) setState(() => _autoSaveReceivedFiles = prefs.getBool('plazma_auto_save_received') ?? true);
+    });
+  }
+
+  Future<void> _setAutoSaveReceivedFiles(bool value) async {
+    setState(() => _autoSaveReceivedFiles = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('plazma_auto_save_received', value);
+  }
 
   @override
   void dispose() {
@@ -619,6 +634,13 @@ class _HomeScreenState extends State<HomeScreen> {
       const SizedBox(height: 20),
       const AppUpdateCard(),
       const SizedBox(height: 12),
+      Card(child: SwitchListTile(
+        secondary: const Icon(Icons.save_alt_rounded),
+        title: const Text('Auto-save received files'),
+        subtitle: const Text('Save incoming media and documents automatically to the device folders.'),
+        value: _autoSaveReceivedFiles,
+        onChanged: _setAutoSaveReceivedFiles,
+      )),
       Card(child: ListTile(
         leading: const Icon(Icons.wifi_rounded),
         title: const Text('Connection mode'),
