@@ -62,6 +62,7 @@ class DesktopInstalledApp {
 class AppsScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static Future<void> Function()? sendSelected;
+  static Future<void> Function()? deleteSelected;
 
   const AppsScreen({super.key});
   @override
@@ -107,6 +108,7 @@ class _AppsScreenState extends State<AppsScreen> {
       const MethodChannel('com.plazma.s/apps').setMethodCallHandler(_handleInstallerCallback);
     }
     AppsScreen.sendSelected = _send;
+    AppsScreen.deleteSelected = _deleteSelectedSavedApps;
     _service.roomFiles.addListener(_syncRoomFiles);
     _syncRoomFiles();
     _invite = _service.invite;
@@ -287,6 +289,66 @@ class _AppsScreenState extends State<AppsScreen> {
     setState(() => _saved[pkg] = name);
   }
 
+  Future<void> _deleteSelectedSavedApps() async {
+    final packages = _selected.where((pkg) => _saved.containsKey(pkg)).toList();
+    if (packages.isEmpty) {
+      _message('No selected apps have a saved APK copy to delete.');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete saved APK copies?'),
+        content: Text('Delete saved APK files for ${packages.length} selected app(s)? Installed apps will not be removed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || _library == null) return;
+    var deleted = 0;
+    for (final pkg in packages) {
+      try {
+        final directory = Directory(_library!.path + Platform.pathSeparator + pkg);
+        if (await directory.exists()) await directory.delete(recursive: true);
+        _saved.remove(pkg);
+        deleted++;
+      } catch (error) {
+        if (mounted) _message('Could not delete saved APK copy for $pkg: $error');
+      }
+    }
+    if (mounted) {
+      setState(() {});
+      _message('Deleted $deleted saved APK copy/copies. Installed apps were not uninstalled.');
+    }
+  }
+
+  Future<void> _showAppActions(String packageName, String appName) async {
+    if (!Platform.isAndroid) return;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('App settings'),
+            subtitle: const Text('Open Android settings for this app'),
+            onTap: () => Navigator.pop(sheetContext, 'settings'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_forever_outlined),
+            title: const Text('Uninstall app'),
+            subtitle: Text('Open Android uninstall confirmation for $appName'),
+            onTap: () => Navigator.pop(sheetContext, 'uninstall'),
+          ),
+        ]),
+      ),
+    );
+    if (action != null) await _manageInstalledApp(packageName, appName, action);
+  }
+
   Future<void> _manageInstalledApp(String packageName, String appName, String action) async {
     if (action == 'deleteSaved') {
       final directory = Directory(_library!.path + Platform.pathSeparator + packageName);
@@ -306,13 +368,16 @@ class _AppsScreenState extends State<AppsScreen> {
       } catch (error) {
         if (mounted) _message('Could not delete saved APK copy: $error');
       }
-    } else if (action == 'settings') {
+    } else if (action == 'settings' || action == 'uninstall') {
       try {
         await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
-          'openAppSettings', {'packageName': packageName},
+          action == 'settings' ? 'openAppSettings' : 'uninstallApp',
+          {'packageName': packageName},
         );
       } catch (error) {
-        if (mounted) _message('Could not open Android app settings: $error');
+        if (mounted) _message(action == 'settings'
+            ? 'Could not open Android app settings: $error'
+            : 'Could not open Android uninstall confirmation: $error');
       }
     }
   }
@@ -936,6 +1001,7 @@ class _AppsScreenState extends State<AppsScreen> {
     _manifestSubscription?.cancel();
     _service.roomFiles.removeListener(_syncRoomFiles);
     if (AppsScreen.sendSelected == _send) AppsScreen.sendSelected = null;
+    AppsScreen.deleteSelected = null;
     AppsScreen.selectedCount.value = 0;
     super.dispose();
   }
@@ -1127,6 +1193,7 @@ class _AppsScreenState extends State<AppsScreen> {
                     Positioned.fill(
                       child: InkWell(
                         onTap: pkg == null || _busy ? null : () => _toggleAppSelection(pkg, app.appName ?? pkg),
+                        onLongPress: pkg == null || _busy ? null : () => _showAppActions(pkg, app.appName ?? pkg),
                         child: Padding(
                           padding: const EdgeInsets.all(4),
                           child: Column(
@@ -1148,15 +1215,7 @@ class _AppsScreenState extends State<AppsScreen> {
                     if (pkg != null)
                       Positioned(
                         top: 0, right: 0,
-                        child: PopupMenuButton<String>(
-                          tooltip: 'Manage app', padding: EdgeInsets.zero, iconSize: 16,
-                          onSelected: (action) => _manageInstalledApp(pkg, app.appName ?? pkg, action),
-                          itemBuilder: (_) => [
-                            if (_saved.containsKey(pkg))
-                              const PopupMenuItem(value: 'deleteSaved', child: Text('Delete saved APK copy')),
-                            const PopupMenuItem(value: 'settings', child: Text('App settings / uninstall')),
-                          ],
-                        ),
+                        child: Icon(Icons.more_vert, size: 16, color: theme.colorScheme.onSurfaceVariant),
                       ),
                   ],
                 ),
