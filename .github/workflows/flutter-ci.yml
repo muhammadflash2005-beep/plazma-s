@@ -670,13 +670,10 @@ jobs:
                                       try {
                                           // Launch the system package uninstall confirmation.
                                           packageManager.getApplicationInfo(targetPackage, 0)
-                                          val intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
+                                          val intent = Intent(Intent.ACTION_DELETE).apply {
                                               data = Uri.parse("package:$targetPackage")
                                               putExtra(Intent.EXTRA_RETURN_RESULT, true)
                                               addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                          }
-                                          if (intent.resolveActivity(packageManager) == null) {
-                                              throw IllegalStateException("Android has no package uninstaller available.")
                                           }
                                           startActivity(intent)
                                           result.success(null)
