@@ -184,11 +184,14 @@ class XenderLocalTransferService {
 
     final checkedFiles = <File>[];
     final checkedPaths = <String>[];
+    final seenPaths = <String>{};
     for (var i = 0; i < files.length; i++) {
       final stat = await files[i].stat();
       if (stat.type != FileSystemEntityType.file) continue;
+      final path = _safeRelativePath(relativePaths[i]);
+      if (!seenPaths.add(path)) continue;
       checkedFiles.add(files[i]);
-      checkedPaths.add(_safeRelativePath(relativePaths[i]));
+      checkedPaths.add(path);
     }
     if (checkedFiles.isEmpty) throw ArgumentError('No readable files were selected.');
 
@@ -275,11 +278,14 @@ class XenderLocalTransferService {
     }
     final nextFiles = <File>[];
     final nextPaths = <String>[];
+    final seenPaths = _manifest
+        .map((entry) => entry['relativePath'] as String)
+        .toSet();
     for (var i = 0; i < files.length; i++) {
       final stat = await files[i].stat();
       if (stat.type != FileSystemEntityType.file) continue;
       final path = _safeRelativePath(relativePaths[i]);
-      if (_manifest.any((entry) => entry['relativePath'] == path)) continue;
+      if (!seenPaths.add(path)) continue;
       nextFiles.add(files[i]);
       nextPaths.add(path);
     }
@@ -971,7 +977,9 @@ class XenderLocalTransferService {
   }
   String _displayName(String path) => path.split('/').last;
 
-  Future<void> stopSharing() async {
+  Future<void> stopSharing() => _serializeRoomMutation(_stopSharingInternal);
+
+  Future<void> _stopSharingInternal() async {
     final server = _server;
     _server = null;
     _invite = null;
