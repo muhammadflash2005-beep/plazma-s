@@ -1068,6 +1068,8 @@ jobs:
               "private fun exportApks",
               "source.name",
               "private fun installApkSet",
+              "if (index == 0)",
+              "PackageInstaller validates the complete set",
               "PackageInstaller.SessionParams.MODE_FULL_INSTALL",
               "packageManager.canRequestPackageInstalls()",
               "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES",
