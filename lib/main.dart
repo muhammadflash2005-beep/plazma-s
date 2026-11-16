@@ -244,7 +244,7 @@ class _ElectricTransferProgressState extends State<_ElectricTransferProgress>
 
   @override
   Widget build(BuildContext context) {
-    final progress = widget.value.clamp(0.0, 1.0);
+    final progress = widget.value.clamp(0.0, 1.0).toDouble();
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.height),
       child: SizedBox(
@@ -296,12 +296,12 @@ class _ElectricBoltPainter extends CustomPainter {
       final x = size.width * i / segments;
       final wave = ((i * 17) % 11 - 5) * size.height * .075;
       final spark = (i / segments - phase).abs() < .045 ? -size.height * .28 : 0.0;
-      path.lineTo(x, (mid + wave + spark).clamp(1.0, size.height - 1.0));
+      path.lineTo(x, (mid + wave + spark).clamp(1.0, size.height - 1.0).toDouble());
     }
     final boltGlow = Paint()
       ..color = const Color(0xFFB9FFE8)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = (size.height * .36).clamp(1.0, 3.0)
+      ..strokeWidth = (size.height * .36).clamp(1.0, 3.0).toDouble()
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
@@ -309,7 +309,7 @@ class _ElectricBoltPainter extends CustomPainter {
     final boltCore = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
-      ..strokeWidth = (size.height * .13).clamp(.8, 1.5)
+      ..strokeWidth = (size.height * .13).clamp(.8, 1.5).toDouble()
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, boltCore);
@@ -535,7 +535,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           final item = items[index];
                           final fraction = item.size <= 0
                               ? (item.status == 'done' ? 1.0 : 0.0)
-                              : (item.bytesTransferred / item.size).clamp(0.0, 1.0);
+                              : (item.bytesTransferred / item.size).clamp(0.0, 1.0).toDouble();
                           final status = isReceiver
                               ? (item.status == 'sending' ? 'receiving' : item.status == 'done' ? 'saved' : item.status)
                               : (item.status == 'done' ? 'sent' : item.status);
