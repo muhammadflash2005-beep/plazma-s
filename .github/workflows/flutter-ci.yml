@@ -225,6 +225,21 @@ jobs:
                       }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
                       .setMethodCallHandler { call, result ->
+                          if (call.method == "releaseSaveFolder") {
+                              val rawUri = call.argument<String>("uri")
+                              if (!rawUri.isNullOrBlank()) {
+                                  try {
+                                      contentResolver.releasePersistableUriPermission(
+                                          Uri.parse(rawUri),
+                                          Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                      )
+                                  } catch (_: SecurityException) {
+                                      // The provider may already have revoked this grant.
+                                  }
+                              }
+                              result.success(null)
+                              return@setMethodCallHandler
+                          }
                           if (call.method == "selectSaveFolder") {
                               if (pendingFolderPickerResult != null) {
                                   result.error("FOLDER_PICKER_BUSY", "A folder picker is already open.", null)
