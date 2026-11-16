@@ -261,7 +261,7 @@ class _MusicScreenState extends State<MusicScreen> {
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) {
-      _message('Music transfer failed: $e');
+      _message('Transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

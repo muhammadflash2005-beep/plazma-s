@@ -260,7 +260,7 @@ class _VideosScreenState extends State<VideosScreen> {
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) {
-      _message('Image transfer failed: $e');
+      _message('Transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }

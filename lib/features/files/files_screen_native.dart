@@ -515,7 +515,7 @@ class _FilesScreenState extends State<FilesScreen> {
         fileCount: _availableFiles.length,
         label: 'Transfer interrupted',
       ));
-      _message('Transfer failed: $error');
+      _message('Transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.');
       if (mounted) setState(() => _status = 'Transfer failed');
     } finally {
       if (mounted) setState(() => _downloading = false);

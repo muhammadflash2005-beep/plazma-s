@@ -703,7 +703,7 @@ class _AppsScreenState extends State<AppsScreen> {
       }
       TransferOverlayController.clear();
       await _service.stopForegroundService();
-    } catch (e) { _message('App transfer failed: ' + e.toString()); }
+    } catch (e) { _message('App transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.'); }
     finally { if (mounted) setState(() => _busy = false); }
   }
 
