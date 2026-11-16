@@ -373,6 +373,36 @@ class XenderLocalTransferService {
         // every connected receiver. A single fast receiver cannot mark the
         // shared item done while another device is still downloading it.
         _refreshAggregateQueueStatus(id);
+        if (status == 'done' && deviceId is String) {
+          final itemType = _manifest[id]['type'] as String? ?? 'file';
+          final relative = _manifest[id]['relativePath'] as String? ?? '';
+          final isApp = itemType == 'app';
+          final package = isApp ? relative.split('/').first : '';
+          final packageIds = isApp
+              ? List<int>.generate(_manifest.length, (index) => index).where((index) =>
+                  (_manifest[index]['type'] as String? ?? '') == 'app' &&
+                  ((_manifest[index]['relativePath'] as String? ?? '').startsWith('$package/'))).toList()
+              : <int>[id];
+          final packageDone = packageIds.every((index) =>
+              _receiverQueueStatuses.statusFor(deviceId, index)?.status == 'done');
+          final historyKey = isApp ? '$deviceId:app:$package' : '$deviceId:item:$id';
+          if (packageDone && _recordedSentHistory.add(historyKey)) {
+            try {
+              final member = _room!.members.firstWhere((value) => value.deviceId == deviceId);
+              final firstIndex = packageIds.first;
+              await TransferHistoryStore.add(
+                name: isApp ? package : (_manifest[id]['name'] as String),
+                type: itemType,
+                direction: 'sent',
+                path: isApp ? _files[firstIndex].parent.path : _files[id].path,
+                bytes: packageIds.fold<int>(0, (sum, index) => sum + (_manifest[index]['size'] as int)),
+                peer: member.deviceName,
+              );
+            } catch (error) {
+              debugPrint('Plazma history: sent item could not be recorded: $error');
+            }
+          }
+        }
         request.response.headers.contentType = ContentType.json;
         request.response.write(jsonEncode({'status': status}));
         await request.response.close();
