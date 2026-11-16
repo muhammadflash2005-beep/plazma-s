@@ -1048,6 +1048,41 @@ jobs:
           }
           ''')
           PY
+      - name: Verify Android app export and PackageInstaller wiring
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml").read_text()
+          source = Path("android/app/src/main/kotlin/com/plazma/plazma_s/MainActivity.kt").read_text()
+          required_manifest = [
+              "android.permission.QUERY_ALL_PACKAGES",
+              "android.permission.REQUEST_INSTALL_PACKAGES",
+          ]
+          required_source = [
+              "appInfo.sourceDir",
+              "appInfo.splitSourceDirs",
+              "private fun inspectApk",
+              "private fun exportApks",
+              "source.name",
+              "private fun installApkSet",
+              "PackageInstaller.SessionParams.MODE_FULL_INSTALL",
+              "packageManager.canRequestPackageInstalls()",
+              "Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES",
+              "val entryName = apk.name",
+              "session.commit(callback.intentSender)",
+              "setIntent(intent)",
+              "STATUS_PENDING_USER_ACTION",
+              "STATUS_FAILURE_CONFLICT",
+              "STATUS_FAILURE_STORAGE",
+              "FLAG_MUTABLE",
+          ]
+          missing = [item for item in required_manifest if item not in manifest]
+          missing += [item for item in required_source if item not in source]
+          if missing:
+              raise SystemExit("Android app/install wiring is incomplete: " + ", ".join(missing))
+          print("Verified: app visibility, base/split export, APK inspection, unknown-source permission, split session commit, and installer result callbacks.")
+          PY
       - name: Configure permanent Android release signing
         if: github.event_name != 'pull_request'
         env:
