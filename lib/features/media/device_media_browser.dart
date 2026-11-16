@@ -195,8 +195,12 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   void _handleParentScroll() {
     final controller = widget.parentScrollController;
     if (!widget.enabled || _loading || _loadingMore || !_hasMore ||
-        controller == null || !controller.hasClients) return;
-    if (controller.position.extentAfter < 420) unawaited(_loadMore());
+        controller == null || !controller.hasClients) {
+      return;
+    }
+    if (controller.position.extentAfter < 420) {
+      unawaited(_loadMore());
+    }
   }
 
   Future<void> _loadMore() async {
