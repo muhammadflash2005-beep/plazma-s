@@ -124,6 +124,7 @@ class XenderLocalTransferService {
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
   final Set<String> _recordedSentHistory = <String>{};
+  final Set<int> _recordedReceivedHistory = <int>{};
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -248,6 +249,7 @@ class XenderLocalTransferService {
       _invite = invite;
       _room = RoomRegistry(roomId: roomId);
       _recordedSentHistory.clear();
+      _recordedReceivedHistory.clear();
       _onTransferCompleted = onTransferCompleted;
       _server = server;
       _publishRoomFiles();
@@ -373,22 +375,31 @@ class XenderLocalTransferService {
         return;
       }
       if (request.method == 'POST' && request.uri.path == '/complete') {
-        // Do not acknowledge a receiver while new room items are still waiting.
-        // The receiver will refresh the manifest and drain those additions.
-        final waitingCount = _manifest.where(
-          (item) => item['status'] == 'waiting',
-        ).length;
-        if (waitingCount > 0) {
+        // Completion is acknowledged independently for each receiver. A
+        // slower second phone must not hold the first phone at 100%.
+        final deviceId = request.uri.queryParameters['deviceId'];
+        final isMember = deviceId != null &&
+            (_room?.members.any((member) => member.deviceId == deviceId) ?? false);
+        if (!isMember) {
+          request.response.statusCode = HttpStatus.forbidden;
+          await request.response.close();
+          return;
+        }
+        final pendingCount = List<int>.generate(_manifest.length, (index) => index)
+            .where((id) {
+              final status = _receiverQueueStatuses.statusFor(deviceId, id)?.status ?? 'waiting';
+              return status != 'done' && status != 'cancelled';
+            }).length;
+        if (pendingCount > 0) {
           request.response.statusCode = HttpStatus.conflict;
           request.response.headers.contentType = ContentType.json;
           request.response.write(jsonEncode({
-            'pendingCount': waitingCount,
+            'pendingCount': pendingCount,
             'revision': _manifestRevision,
           }));
           await request.response.close();
           return;
         }
-        final deviceId = request.uri.queryParameters['deviceId'];
         final wasFirst = (_room?.completedCount ?? 0) == 0;
         final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
         request.response.statusCode = HttpStatus.ok;
@@ -718,7 +729,7 @@ class XenderLocalTransferService {
     for (var attempt = 0; attempt < 5; attempt++) {
       final result = await _postQueueStatus(invite, id, status, bytes, client: client);
       if (result == status) {
-        if (status == 'done') {
+        if (status == 'done' && _recordedReceivedHistory.add(id)) {
           final matches = _joinedManifest.where((item) => item.id == id);
           if (matches.isNotEmpty && _lastDownloadDestination != null) {
             final item = matches.first;
