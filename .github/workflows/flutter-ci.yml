@@ -182,6 +182,26 @@ jobs:
                   super.configureFlutterEngine(flutterEngine)
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
                       .setMethodCallHandler { call, result ->
+                          if (call.method == "openSavedFile") {
+                              val rawUri = call.argument<String>("uri")
+                              if (rawUri.isNullOrBlank()) {
+                                  result.error("INVALID_URI", "No saved file URI was supplied.", null)
+                                  return@setMethodCallHandler
+                              }
+                              try {
+                                  val uri = android.net.Uri.parse(rawUri)
+                                  val mime = contentResolver.getType(uri) ?: "*/*"
+                                  val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                      setDataAndType(uri, mime)
+                                      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                  }
+                                  startActivity(openIntent)
+                                  result.success(null)
+                              } catch (error: Exception) {
+                                  result.error("OPEN_FAILED", error.message, null)
+                              }
+                              return@setMethodCallHandler
+                          }
                           if (call.method != "saveReceivedFile") {
                               result.notImplemented()
                               return@setMethodCallHandler
