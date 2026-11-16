@@ -98,6 +98,8 @@ class XenderLocalTransferService {
   HttpServer? _server;
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
+  List<SharedLocalFile> _joinedManifest = const [];
+  final ValueNotifier<List<SharedLocalFile>> roomFiles = ValueNotifier(const []);
   int _manifestRevision = 0;
   Completer<void>? _manifestChanged;
   PlazmaConnectionInvite? _invite;
@@ -113,6 +115,15 @@ class XenderLocalTransferService {
   PlazmaConnectionInvite? get invite => _invite;
   PlazmaConnectionInvite? get joinedInvite => _joinedInvite;
   bool get isSharing => _server != null;
+
+  void _publishRoomFiles() {
+    if (_server != null) {
+      roomFiles.value = List.unmodifiable(_manifest.map((entry) =>
+        SharedLocalFile.fromJson(Map<String, dynamic>.from(entry))).toList());
+    } else {
+      roomFiles.value = List.unmodifiable(_joinedManifest);
+    }
+  }
 
   Future<PlazmaConnectionInvite> startSharing({
     required List<File> files,
@@ -177,6 +188,7 @@ class XenderLocalTransferService {
       _room = RoomRegistry(roomId: roomId);
       _onTransferCompleted = onTransferCompleted;
       _server = server;
+      _publishRoomFiles();
       server.listen(
         _handleRequest,
         onError: (Object error, StackTrace stack) {
@@ -228,6 +240,7 @@ class XenderLocalTransferService {
       _files = [..._files, ...nextFiles];
       _manifest = [..._manifest, ...additions];
       _manifestRevision++;
+      _publishRoomFiles();
       final changed = _manifestChanged;
       if (changed != null && !changed.isCompleted) changed.complete();
       _manifestChanged = Completer<void>();
@@ -431,10 +444,12 @@ class XenderLocalTransferService {
           decoded['files'] is! List) {
         throw const FormatException('The sender returned an unsupported file list.');
       }
-      return (decoded['files'] as List)
+      _joinedManifest = (decoded['files'] as List)
           .whereType<Map>()
           .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
           .toList();
+      _publishRoomFiles();
+      return _joinedManifest;
     } finally {
       client.close(force: true);
     }
@@ -442,6 +457,8 @@ class XenderLocalTransferService {
 
   Future<List<SharedLocalFile>> refreshManifest(PlazmaConnectionInvite invite) async {
     final snapshot = await _fetchManifest(invite);
+    _joinedManifest = snapshot.files;
+    _publishRoomFiles();
     return snapshot.files;
   }
 
@@ -454,6 +471,8 @@ class XenderLocalTransferService {
       final snapshot = await _fetchManifest(invite, since: revision);
       if (snapshot.revision != revision) {
         revision = snapshot.revision;
+        _joinedManifest = snapshot.files;
+        _publishRoomFiles();
         yield snapshot.files;
       }
     }
@@ -683,7 +702,9 @@ class XenderLocalTransferService {
     _onTransferCompleted = null;
     _files = const [];
     _manifest = const [];
+    _joinedManifest = const [];
     _manifestRevision = 0;
+    _publishRoomFiles();
     final changed = _manifestChanged;
     if (changed != null && !changed.isCompleted) changed.complete();
     _manifestChanged = null;
@@ -698,6 +719,8 @@ class XenderLocalTransferService {
     final deviceId = _joinedDeviceId;
     _joinedInvite = null;
     _joinedDeviceId = null;
+    _joinedManifest = const [];
+    _publishRoomFiles();
     if (invite != null && deviceId != null) {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
       try {
