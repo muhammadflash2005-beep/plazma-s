@@ -614,13 +614,15 @@ class _AppsScreenState extends State<AppsScreen> {
         final pkg = item.relativePath.split('/').first;
         if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
       }
-      if (groups.isEmpty) throw StateError('This QR code does not contain Android apps.');
+      
       if (!mounted) return;
       setState(() { _receiver = invite; _incoming..clear()..addAll(groups); _status = 'Apps ready to receive.'; });
       _watchIncomingApps(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
-        direction: TransferOverlayDirection.receiving, fileCount: groups.length,
-        label: 'Ready to receive apps', isAppTransfer: true));
+        direction: TransferOverlayDirection.receiving, fileCount: manifest.length,
+        label: 'Receiving files', isAppTransfer: groups.isNotEmpty));
+      if (mounted) setState(() => _busy = false);
+      await _download(automatic: true);
     } catch (e) { await _service.disconnect(); _message('Could not connect: ' + e.toString()); }
     finally { if (mounted) setState(() => _busy = false); }
   }
@@ -643,8 +645,11 @@ class _AppsScreenState extends State<AppsScreen> {
   }
 
   Future<void> _installReceivedApp(String packageName) async {
-    if (!Platform.isAndroid || _library == null) return;
-    final folder = Directory(_library!.path + Platform.pathSeparator + packageName);
+    if (!Platform.isAndroid) return;
+    final root = await getApplicationDocumentsDirectory();
+    final folder = Directory(root.path + Platform.pathSeparator + 'Plazma S Received' +
+        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S' +
+        Platform.pathSeparator + packageName);
     if (!await folder.exists()) {
       _message('This app has not been saved on this device yet.');
       return;
@@ -671,21 +676,23 @@ class _AppsScreenState extends State<AppsScreen> {
     }
   }
 
-  Future<void> _download() async {
-    if (_receiver == null || _library == null || _busy) return;
+  Future<void> _download({bool automatic = false}) async {
+    if (_receiver == null || _library == null || (_busy && !automatic)) return;
     setState(() { _busy = true; _progress = 0; _status = 'Receiving apps…'; });
     try {
-      final all = _incoming.values.expand((v) => v).toList();
-      await _service.downloadAll(invite: _receiver!, files: all, destination: _library!,
+      final all = _service.roomFiles.value;
+      final Directory receiveRoot;
+      if (Platform.isAndroid) {
+        final root = await getApplicationDocumentsDirectory();
+        receiveRoot = Directory(root.path + Platform.pathSeparator + 'Plazma S Received');
+      } else {
+        receiveRoot = _library!;
+      }
+      await _service.downloadAll(invite: _receiver!, files: all, destination: receiveRoot,
         onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); });
       if (!Platform.isAndroid) {
-        for (final item in all) {
-          await TransferHistoryStore.add(name: item.name, type: 'app-installer', direction: 'received',
-            path: _library!.path + Platform.pathSeparator + item.relativePath,
-            bytes: item.size, peer: 'Nearby Plazma S device');
-        }
         if (!mounted) return;
-        setState(() => _status = 'Received ' + all.length.toString() + ' application package(s). Saved in ' + _library!.path);
+        setState(() => _status = 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path);
       } else {
         for (final entry in _incoming.entries) {
           final bytes = entry.value.fold<int>(0, (sum,item) => sum + item.size);
