@@ -769,9 +769,6 @@ jobs:
           - os: windows-latest
             target: windows
             output: build/windows/x64/runner/Release
-          - os: macos-latest
-            target: macos
-            output: build/macos/Build/Products/Release
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
