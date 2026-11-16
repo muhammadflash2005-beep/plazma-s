@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 // Flutter stable 3.50 marks Material's umbrella library and legacy RadioListTile
 // selection parameters deprecated while transitioning to the new Material API.
 // Keep the UI compatible with the current stable SDK during that migration.
@@ -8,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_device_apps/flutter_device_apps.dart';
 
 import 'updates/app_update_card.dart';
 
@@ -218,6 +220,148 @@ class _PlazmaAppState extends State<PlazmaApp> {
       );
 }
 
+
+class _ElectricTransferProgress extends StatefulWidget {
+  const _ElectricTransferProgress({required this.value, this.height = 8, super.key});
+  final double value;
+  final double height;
+
+  @override
+  State<_ElectricTransferProgress> createState() => _ElectricTransferProgressState();
+}
+
+class _ElectricTransferProgressState extends State<_ElectricTransferProgress>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 1250),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = widget.value.clamp(0.0, 1.0);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(widget.height),
+      child: SizedBox(
+        height: widget.height,
+        child: LayoutBuilder(builder: (context, constraints) {
+          final fillWidth = constraints.maxWidth * progress;
+          return Stack(children: [
+            Positioned.fill(child: ColoredBox(color: const Color(0xFF12382F))),
+            if (fillWidth > 0)
+              AnimatedBuilder(
+                animation: _pulse,
+                builder: (context, _) => CustomPaint(
+                  size: Size(fillWidth, widget.height),
+                  painter: _ElectricBoltPainter(phase: _pulse.value),
+                ),
+              ),
+          ]);
+        }),
+      ),
+    );
+  }
+}
+
+class _ElectricBoltPainter extends CustomPainter {
+  const _ElectricBoltPainter({required this.phase});
+  final double phase;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final glow = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF00F5A0), Color(0xFF10B981), Color(0xFF00D9A0)],
+      ).createShader(rect)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(size.height)), glow);
+    final fill = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.centerLeft, end: Alignment.centerRight,
+        colors: [Color(0xFF00F5A0), Color(0xFF10B981), Color(0xFF047857)],
+      ).createShader(rect);
+    canvas.drawRRect(RRect.fromRectAndRadius(rect, Radius.circular(size.height)), fill);
+
+    final path = Path();
+    final mid = size.height / 2;
+    path.moveTo(0, mid);
+    final segments = (size.width / 13).ceil().clamp(1, 180);
+    for (var i = 1; i <= segments; i++) {
+      final x = size.width * i / segments;
+      final wave = ((i * 17) % 11 - 5) * size.height * .075;
+      final spark = (i / segments - phase).abs() < .045 ? -size.height * .28 : 0.0;
+      path.lineTo(x, (mid + wave + spark).clamp(1.0, size.height - 1.0));
+    }
+    final boltGlow = Paint()
+      ..color = const Color(0xFFB9FFE8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (size.height * .36).clamp(1.0, 3.0)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawPath(path, boltGlow);
+    final boltCore = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = (size.height * .13).clamp(.8, 1.5)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(path, boltCore);
+    final sparkPaint = Paint()
+      ..color = Colors.white
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    canvas.drawCircle(Offset(size.width * phase, mid), size.height * .38, sparkPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ElectricBoltPainter oldDelegate) => oldDelegate.phase != phase;
+}
+
+class _TransferSpeedLabel extends StatefulWidget {
+  const _TransferSpeedLabel({required this.bytesTransferred, super.key});
+  final int bytesTransferred;
+
+  @override
+  State<_TransferSpeedLabel> createState() => _TransferSpeedLabelState();
+}
+
+class _TransferSpeedLabelState extends State<_TransferSpeedLabel> {
+  DateTime _sampledAt = DateTime.now();
+  int _sampledBytes = 0;
+  double _bytesPerSecond = 0;
+
+  @override
+  void didUpdateWidget(covariant _TransferSpeedLabel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final now = DateTime.now();
+    final elapsed = now.difference(_sampledAt).inMicroseconds / 1000000;
+    final delta = widget.bytesTransferred - _sampledBytes;
+    if (elapsed > 0 && delta >= 0) {
+      _bytesPerSecond = delta / elapsed;
+      _sampledAt = now;
+      _sampledBytes = widget.bytesTransferred;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mb = _bytesPerSecond / (1024 * 1024);
+    return Text(
+      '${mb.toStringAsFixed(1)} MB/s',
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({required this.themes, super.key});
   final ThemeController themes;
@@ -235,6 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'image': 'Images', 'video': 'Videos', 'music': 'Music', 'file': 'Files', 'app': 'Apps',
   };
   final ScrollController _contentScrollController = ScrollController();
+  final Map<String, Future<Uint8List?>> _transferAppIcons = {};
 
   @override
   void initState() {
@@ -306,6 +451,41 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+
+  Future<Uint8List?> _transferAppIcon(String packageName) =>
+      _transferAppIcons.putIfAbsent(packageName, () => FlutterDeviceApps.getAppIcon(packageName));
+
+  String? _packageFromTransferPath(SharedLocalFile item) {
+    if (item.type != 'app') return null;
+    final parts = item.relativePath.replaceAll('\\\\', '/').split('/');
+    if (parts.length > 1 && parts.first.toLowerCase() == 'apps') return parts[1];
+    return null;
+  }
+
+  Widget _transferItemIcon(SharedLocalFile item) {
+    final packageName = _packageFromTransferPath(item);
+    if (packageName == null || !Platform.isAndroid) {
+      return Icon(switch (item.type) {
+        'app' => Icons.android_rounded,
+        'image' => Icons.image_outlined,
+        'video' => Icons.movie_outlined,
+        'music' => Icons.music_note_rounded,
+        _ => Icons.insert_drive_file_outlined,
+      }, size: 34);
+    }
+    return FutureBuilder<Uint8List?>(
+      future: _transferAppIcon(packageName),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) return const Icon(Icons.android_rounded, size: 34);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: Image.memory(bytes, width: 42, height: 42, fit: BoxFit.contain),
+        );
+      },
+    );
+  }
+
   void _showTransferQueue() {
     final service = XenderLocalTransferService();
     showModalBottomSheet<void>(
@@ -341,9 +521,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ]),
                   ],
                   if (totalBytes > 0) ...[
-                    Text('Overall progress · ${(transferredBytes / totalBytes * 100).clamp(0, 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12)),
-                    const SizedBox(height: 4),
-                    LinearProgressIndicator(value: (transferredBytes / totalBytes).clamp(0.0, 1.0)),
+                    Text('Overall progress · ${(transferredBytes / totalBytes * 100).clamp(0, 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    _ElectricTransferProgress(value: transferredBytes / totalBytes, height: 7),
                   ],
                   const SizedBox(height: 10),
                   Expanded(child: items.isEmpty
@@ -353,19 +533,42 @@ class _HomeScreenState extends State<HomeScreen> {
                         separatorBuilder: (_, __) => const Divider(height: 1),
                         itemBuilder: (context, index) {
                           final item = items[index];
-                          return ListTile(
-                            leading: Icon(switch (item.type) { 'app' => Icons.apps_rounded, 'image' => Icons.image_outlined, 'video' => Icons.movie_outlined, 'music' => Icons.music_note_rounded, _ => Icons.insert_drive_file_outlined }),
-                            title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                            subtitle: Text(item.relativePath),
-                            trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              Text(isReceiver ? (item.status == 'sending' ? 'receiving' : item.status == 'done' ? 'saved' : item.status) : (item.status == 'done' ? 'sent' : item.status), style: const TextStyle(fontSize: 10)),
-                              const SizedBox(height: 4),
-                              LinearProgressIndicator(value: item.size <= 0 ? 0 : (item.bytesTransferred / item.size).clamp(0.0, 1.0)),
-                              if (item.status == 'waiting' || item.status == 'sending')
-                                IconButton(visualDensity: VisualDensity.compact, tooltip: isReceiver ? 'Cancel receiving item' : 'Cancel sending item',
+                          final fraction = item.size <= 0
+                              ? (item.status == 'done' ? 1.0 : 0.0)
+                              : (item.bytesTransferred / item.size).clamp(0.0, 1.0);
+                          final status = isReceiver
+                              ? (item.status == 'sending' ? 'receiving' : item.status == 'done' ? 'saved' : item.status)
+                              : (item.status == 'done' ? 'sent' : item.status);
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                              SizedBox(width: 48, height: 48, child: Center(child: _transferItemIcon(item))),
+                              const SizedBox(width: 12),
+                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Row(children: [
+                                  Expanded(child: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w700))),
+                                  Text('${(fraction * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                                ]),
+                                Text(item.relativePath, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                const SizedBox(height: 7),
+                                _ElectricTransferProgress(value: fraction, height: 9),
+                                const SizedBox(height: 4),
+                                Row(children: [
+                                  Text(status, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                                  const Spacer(),
+                                  _TransferSpeedLabel(key: ValueKey('speed-${item.id}'), bytesTransferred: item.bytesTransferred),
+                                ]),
+                              ])),
+                              if (item.status == 'waiting' || item.status == 'sending') ...[
+                                const SizedBox(width: 4),
+                                IconButton(visualDensity: VisualDensity.compact,
+                                  tooltip: isReceiver ? 'Cancel receiving item' : 'Cancel sending item',
                                   onPressed: () => service.cancelQueuedItem(item.id),
-                                  icon: const Icon(Icons.close_rounded, size: 17)),
-                            ])),
+                                  icon: const Icon(Icons.close_rounded, size: 18)),
+                              ],
+                            ]),
                           );
                         },
                       )),
