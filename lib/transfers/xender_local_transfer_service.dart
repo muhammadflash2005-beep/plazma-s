@@ -873,6 +873,7 @@ class XenderLocalTransferService {
           .map((item) {
             final local = Map<String, dynamic>.from(item);
             local['status'] = 'waiting';
+            local['bytesTransferred'] = 0;
             return SharedLocalFile.fromJson(local);
           })
           .toList();
