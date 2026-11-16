@@ -16,6 +16,7 @@ import 'features/images/images_screen.dart';
 import 'features/music/music_screen.dart';
 import 'features/videos/videos_screen.dart';
 import 'transfers/transfer_overlay_controller.dart';
+import 'transfers/xender_local_transfer_service.dart';
 import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
@@ -233,6 +234,53 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  void _showTransferQueue() {
+    final service = XenderLocalTransferService();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ValueListenableBuilder<List<SharedLocalFile>>(
+          valueListenable: service.roomFiles,
+          builder: (context, items, _) {
+            final roomId = service.invite?.roomId ?? service.joinedInvite?.roomId;
+            return SizedBox(
+              height: MediaQuery.sizeOf(context).height * 0.65,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Expanded(child: Text(roomId == null ? 'Transfer queue' : 'Room $roomId',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+                    IconButton(onPressed: () => Navigator.of(sheetContext).pop(), icon: const Icon(Icons.close)),
+                  ]),
+                  Text('${items.length} item(s) in this room',
+                    style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: 10),
+                  Expanded(child: items.isEmpty
+                    ? const Center(child: Text('No items in this room yet. Add files from any category.'))
+                    : ListView.separated(
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return ListTile(
+                            leading: const Icon(Icons.insert_drive_file_outlined),
+                            title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(item.relativePath),
+                            trailing: Text('${item.size} B', style: const TextStyle(fontSize: 11)),
+                          );
+                        },
+                      )),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
@@ -376,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
-                    onTap: () => setState(() => _tab = transfer.isAppTransfer ? 0 : 1),
+                    onTap: _showTransferQueue,
                     child: SizedBox(
                       width: 58,
                       height: 58,
@@ -412,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               alignment: Alignment.center,
                               child: Text(
-                                '${transfer.fileCount}',
+                                '${XenderLocalTransferService().roomFiles.value.length}',
                                 style: TextStyle(
                                   color: colors.onPrimary,
                                   fontSize: 10,
