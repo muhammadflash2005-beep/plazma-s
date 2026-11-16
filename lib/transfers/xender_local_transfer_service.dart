@@ -770,12 +770,12 @@ class XenderLocalTransferService {
                 path: finalPath, bytes: item.size, peer: 'Nearby Plazma S device',
               );
             }
-            debugPrint('Plazma receiver completion confirmed for item ' + id.toString());
+            debugPrint('Plazma receiver completion confirmed for item $id');
           }
         }
         return result;
       }
-      debugPrint('Plazma completion acknowledgement retry: ' + (attempt + 1).toString());
+      debugPrint('Plazma completion acknowledgement retry: ${attempt + 1}');
       await Future<void>.delayed(Duration(milliseconds: 300 * (1 << attempt)));
     }
     throw TimeoutException('The sender did not acknowledge the saved file.', const Duration(seconds: 9));

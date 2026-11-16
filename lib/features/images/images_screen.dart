@@ -13,7 +13,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../media/device_media_browser.dart';
 
 import '../../network/android_wifi_session_service.dart';
-import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
