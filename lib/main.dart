@@ -307,6 +307,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _stickySendButton({required VoidCallback? onPressed}) {
+    final addToRoom = XenderLocalTransferService().isSharing;
+    final colors = Theme.of(context).colorScheme;
+    final label = addToRoom ? 'Add to room' : 'Send';
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: colors.primary,
+        elevation: 7,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(28),
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 17),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text(label, style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13,
+                )),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
@@ -370,22 +401,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 valueListenable: AppsScreen.selectedCount,
                 builder: (context, count, _) => count == 0
                     ? const SizedBox.shrink()
-                    : Tooltip(
-                        message: 'Send selected apps',
-                        child: Material(
-                          color: Theme.of(context).colorScheme.primary,
-                          elevation: 7,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            customBorder: const CircleBorder(),
-                            onTap: AppsScreen.sendSelected,
-                            child: const SizedBox(
-                              width: 52,
-                              height: 52,
-                              child: Icon(Icons.send_rounded, color: Colors.white, size: 25),
-                            ),
-                          ),
-                        ),
+                    : Align(
+                        alignment: Alignment.centerRight,
+                        child: _stickySendButton(onPressed: AppsScreen.sendSelected),
                       ),
               ),
             ),
@@ -394,10 +412,9 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 16, bottom: wide ? 92 : 158,
               child: ValueListenableBuilder<int>(
                 valueListenable: ImagesScreen.selectedCount,
-                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
-                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
-                        child: InkWell(customBorder: const CircleBorder(), onTap: ImagesScreen.sendSelected,
-                          child: const SizedBox(width: 52, height: 52, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : _stickySendButton(onPressed: ImagesScreen.sendSelected),
               ),
             ),
           if (_tab == 0 && _category == 2)
@@ -405,10 +422,9 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 16, bottom: wide ? 92 : 158,
               child: ValueListenableBuilder<int>(
                 valueListenable: MusicScreen.selectedCount,
-                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
-                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
-                        child: InkWell(customBorder: const CircleBorder(), onTap: MusicScreen.sendSelected,
-                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : _stickySendButton(onPressed: MusicScreen.sendSelected),
               ),
             ),
           if (_tab == 0 && _category == 3)
@@ -416,10 +432,9 @@ class _HomeScreenState extends State<HomeScreen> {
               right: 16, bottom: wide ? 92 : 158,
               child: ValueListenableBuilder<int>(
                 valueListenable: VideosScreen.selectedCount,
-                builder: (context, count, _) => count == 0 ? const SizedBox.shrink()
-                    : Material(color: Theme.of(context).colorScheme.primary, elevation: 7, shape: const CircleBorder(),
-                        child: InkWell(customBorder: const CircleBorder(), onTap: VideosScreen.sendSelected,
-                          child: const SizedBox(width: 58, height: 58, child: Icon(Icons.send_rounded, color: Colors.white, size: 25)))),
+                builder: (context, count, _) => count == 0
+                    ? const SizedBox.shrink()
+                    : _stickySendButton(onPressed: VideosScreen.sendSelected),
               ),
             ),
           AnimatedBuilder(
