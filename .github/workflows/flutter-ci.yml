@@ -642,13 +642,13 @@ jobs:
                       message.contains("VERSION_DOWNGRADE", ignoreCase = true) ->
                           "Android blocked this older app version. Install a newer or matching version instead."
                       status == android.content.pm.PackageInstaller.STATUS_SUCCESS -> "Installation completed."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_INVALID -> "The APK is invalid or corrupted."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_BLOCKED -> "Android or the device administrator blocked this installation."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED -> "The installation was cancelled."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_TIMEOUT -> "Android timed out while installing this app. Try again."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_INVALID -> "The APK is invalid or corrupted."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_BLOCKED -> "Android or the device administrator blocked this installation."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED -> "The installation was cancelled."
+                      status == android.content.pm.PackageInstaller.STATUS_FAILURE_TIMEOUT -> "Android timed out while installing this app. Try again."
                       else -> message.ifBlank { "Android could not install this app (status $status)." }
                   }
                   flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
