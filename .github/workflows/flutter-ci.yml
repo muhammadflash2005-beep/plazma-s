@@ -643,7 +643,7 @@ jobs:
                       android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
-                      android.content.pm.PackageInstaller.STATUS_FAILURE_VERSION_DOWNGRADE -> "Android blocked installation of an older app version."
+                      else -> message.ifBlank { "Android could not install this app (status $status)." }
                       else -> message.ifBlank { "Android could not install this app (status $status)." }
                   }
                   flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
