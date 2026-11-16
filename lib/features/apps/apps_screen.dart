@@ -700,17 +700,18 @@ class _AppsScreenState extends State<AppsScreen> {
       await _service.downloadAll(invite: _receiver!, files: all, destination: receiveRoot,
         onProgress: (p) { if (mounted) setState(() => _progress = p.fraction.clamp(0.0,1.0)); },
         onSaved: (item, path, uri) => _savedMessage(path, uri));
-      if (!Platform.isAndroid) {
-        if (!mounted) return;
-        setState(() => _status = 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path);
-      } else {
+      if (Platform.isAndroid) {
         for (final entry in _incoming.entries) {
           _saved[entry.key] = entry.key;
         }
-        if (!mounted) return;
-        setState(() => _status = 'Received and saved ' + _incoming.length.toString() + ' app(s).');
       }
-      _receivedRoom = true;
+      if (!mounted) return;
+      setState(() {
+        _receivedRoom = true;
+        _status = Platform.isAndroid
+            ? 'Received and saved ' + _incoming.length.toString() + ' app(s).'
+            : 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path;
+      });
       TransferOverlayController.clear();
       await _service.stopForegroundService();
     } catch (e) { _message('App transfer interrupted. Check Wi-Fi, then tap Retry failed in the room queue.'); }
