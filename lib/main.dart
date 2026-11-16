@@ -315,14 +315,14 @@ class _ElectricBoltPainter extends CustomPainter {
       final spark = (i / segments - phase).abs() < .045 ? -size.height * .28 : 0.0;
       path.lineTo(x, (mid + wave + spark).clamp(1.0, size.height - 1.0).toDouble());
     }
-    final boltGlow = Paint()
+    final boltGlowPaint = Paint()
       ..color = boltGlow
       ..style = PaintingStyle.stroke
       ..strokeWidth = (size.height * .36).clamp(1.0, 3.0).toDouble()
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-    canvas.drawPath(path, boltGlow);
+    canvas.drawPath(path, boltGlowPaint);
     final boltCore = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
