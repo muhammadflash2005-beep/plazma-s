@@ -180,6 +180,21 @@ jobs:
 
               override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
                   super.configureFlutterEngine(flutterEngine)
+                  MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/device")
+                      .setMethodCallHandler { call, result ->
+                          if (call.method != "getDeviceName") {
+                              result.notImplemented()
+                              return@setMethodCallHandler
+                          }
+                          val manufacturer = Build.MANUFACTURER.orEmpty().trim()
+                          val model = Build.MODEL.orEmpty().trim()
+                          val displayName = listOf(manufacturer, model)
+                              .filter { it.isNotBlank() }
+                              .distinct()
+                              .joinToString(" ")
+                              .ifBlank { "Android device" }
+                          result.success(displayName)
+                      }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
                       .setMethodCallHandler { call, result ->
                           if (call.method == "openSavedFile") {
