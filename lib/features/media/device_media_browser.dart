@@ -1,6 +1,7 @@
 // Flutter 3.50 currently reports the Material library import as deprecated.
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -17,6 +18,7 @@ class DeviceMediaBrowser extends StatefulWidget {
     required this.onSelect,
     this.enabled = true,
     this.selectedPaths = const <String>{},
+    this.parentScrollController,
     super.key,
   });
 
@@ -24,6 +26,7 @@ class DeviceMediaBrowser extends StatefulWidget {
   final ValueChanged<File> onSelect;
   final bool enabled;
   final Set<String> selectedPaths;
+  final ScrollController? parentScrollController;
 
   @override
   State<DeviceMediaBrowser> createState() => _DeviceMediaBrowserState();
@@ -74,6 +77,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.parentScrollController?.addListener(_handleParentScroll);
     if (widget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.enabled) _load();
@@ -84,6 +88,10 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   @override
   void didUpdateWidget(covariant DeviceMediaBrowser oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.parentScrollController != widget.parentScrollController) {
+      oldWidget.parentScrollController?.removeListener(_handleParentScroll);
+      widget.parentScrollController?.addListener(_handleParentScroll);
+    }
     if (!oldWidget.enabled && widget.enabled && (!_loaded || _needsRefresh)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.enabled) _load();
@@ -102,6 +110,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
 
   @override
   void dispose() {
+    widget.parentScrollController?.removeListener(_handleParentScroll);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -181,6 +190,13 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _handleParentScroll() {
+    final controller = widget.parentScrollController;
+    if (!widget.enabled || _loading || _loadingMore || !_hasMore ||
+        controller == null || !controller.hasClients) return;
+    if (controller.position.extentAfter < 420) unawaited(_loadMore());
   }
 
   Future<void> _loadMore() async {

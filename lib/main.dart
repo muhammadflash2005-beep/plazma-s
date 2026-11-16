@@ -228,9 +228,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   int _category = 0;
+  final ScrollController _contentScrollController = ScrollController();
 
   @override
   void dispose() {
+    _contentScrollController.dispose();
     super.dispose();
   }
 
@@ -325,6 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1180),
                         child: SingleChildScrollView(
+                          controller: _contentScrollController,
                           physics: const ClampingScrollPhysics(),
                           padding: EdgeInsets.fromLTRB(16, 10, 16, _tab == 0 ? 112 : 18),
                           child: IndexedStack(
@@ -540,9 +543,9 @@ class _HomeScreenState extends State<HomeScreen> {
     index: _category,
     children: [
       const AppsScreen(),
-      ImagesScreen(enabled: _category == 1),
-      MusicScreen(enabled: _category == 2),
-      VideosScreen(enabled: _category == 3),
+      ImagesScreen(enabled: _category == 1, scrollController: _contentScrollController),
+      MusicScreen(enabled: _category == 2, scrollController: _contentScrollController),
+      VideosScreen(enabled: _category == 3, scrollController: _contentScrollController),
       const FilesScreen(),
     ],
   );

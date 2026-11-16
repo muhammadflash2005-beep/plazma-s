@@ -20,8 +20,9 @@ import '../../transfers/xender_local_transfer_service.dart';
 class MusicScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static VoidCallback? sendSelected;
-  const MusicScreen({this.enabled = true, super.key});
+  const MusicScreen({this.enabled = true, this.scrollController, super.key});
   final bool enabled;
+  final ScrollController? scrollController;
 
   @override
   State<MusicScreen> createState() => _MusicScreenState();
@@ -352,6 +353,7 @@ class _MusicScreenState extends State<MusicScreen> {
       if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
+          parentScrollController: widget.scrollController,
           kind: MediaKind.music,
           selectedPaths: _selected.map((file) => file.path).toSet(),
           onSelect: (file) {

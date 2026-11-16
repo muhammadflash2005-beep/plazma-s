@@ -20,8 +20,9 @@ import '../../transfers/xender_local_transfer_service.dart';
 class VideosScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static VoidCallback? sendSelected;
-  const VideosScreen({this.enabled = true, super.key});
+  const VideosScreen({this.enabled = true, this.scrollController, super.key});
   final bool enabled;
+  final ScrollController? scrollController;
 
   @override
   State<VideosScreen> createState() => _VideosScreenState();
@@ -339,6 +340,7 @@ class _VideosScreenState extends State<VideosScreen> {
       if (_receiver == null) ...[
         DeviceMediaBrowser(
           enabled: widget.enabled,
+          parentScrollController: widget.scrollController,
           kind: MediaKind.videos,
           selectedPaths: _selected.map((file) => file.path).toSet(),
           onSelect: (file) {
