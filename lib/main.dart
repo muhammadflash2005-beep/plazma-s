@@ -276,9 +276,11 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Folder selection is unavailable on this device.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Folder selection is unavailable on this device.')),
+        );
+      }
     }
   }
 
