@@ -23,13 +23,20 @@ Run on two Android phones connected to the same Wi-Fi network. Use a fresh room 
    - Add another item while the first batch is transferring.
    - Confirm the receiver picks up the live manifest update without rejoining and saves each type to its matching folder.
 
-5. **Wi-Fi interruption and retry**
+5. **Per-type custom save folders**
+   - On Phone B, open Me → Settings → Save locations.
+   - Choose a different folder for Images, Videos, Music, Files, and Apps. Confirm each selected folder name remains visible after closing and reopening the app.
+   - Transfer at least one item of each type. Confirm every item is saved into its own selected folder, the saved notification opens the received item, and transfer history records the custom destination.
+   - Reset one type to its default folder and confirm only that type returns to its default Plazma S folder.
+   - Repeat after force-closing and reopening Plazma S to confirm persisted folder access still works.
+
+6. **Wi-Fi interruption and retry**
    - Start a multi-file transfer, then turn Wi-Fi off on Phone B mid-transfer.
    - Confirm completed items remain saved, unfinished items become retryable, and the UI does not stay stuck at 100%.
    - Turn Wi-Fi back on and tap **Retry failed**.
    - Confirm only failed items resume, already-saved items are not downloaded again, and both phones reach their terminal states.
 
-6. **History and room stability**
+7. **History and room stability**
    - Check Sent and Received counts for Files, Apps, Images, Videos, and Music; names and timestamps should match the completed items.
    - Leave the room open for at least one minute. Confirm a missed poll does not briefly show Disconnected or drop the connected-device count.
    - Confirm the receiver is shown by its actual Android manufacturer/model, not localhost.
