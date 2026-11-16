@@ -657,6 +657,9 @@ class XenderLocalTransferService {
     finally { if (ownsClient) httpClient.close(force: true); }
   }
   Future<List<SharedLocalFile>> joinAndList(PlazmaConnectionInvite invite) async {
+    // A new room must never inherit a retry destination from an older room.
+    _lastDownloadDestination = null;
+    _lastDownloadProgress = null;
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final deviceId = List.generate(
@@ -1074,6 +1077,9 @@ class XenderLocalTransferService {
     _joinedInvite = null;
     _joinedDeviceId = null;
     _joinedManifest = const [];
+    _lastDownloadDestination = null;
+    _lastDownloadProgress = null;
+    _retryingFailedQueue = false;
     _publishRoomFiles();
     if (invite != null && deviceId != null) {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
