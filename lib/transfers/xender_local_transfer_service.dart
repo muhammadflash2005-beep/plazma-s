@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import '../network/android_wifi_session_service.dart';
 import '../rooms/room_id.dart';
 import '../rooms/room_registry.dart';
+import 'transfer_history.dart';
 import 'transfer_overlay_controller.dart';
 import 'transfer_queue.dart';
 
@@ -122,6 +123,7 @@ class XenderLocalTransferService {
   Directory? _lastDownloadDestination;
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
+  final Set<String> _recordedSentHistory = <String>{};
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -244,6 +246,7 @@ class XenderLocalTransferService {
       _manifestChanged = Completer<void>();
       _invite = invite;
       _room = RoomRegistry(roomId: roomId);
+      _recordedSentHistory.clear();
       _onTransferCompleted = onTransferCompleted;
       _server = server;
       _publishRoomFiles();
@@ -324,6 +327,17 @@ class XenderLocalTransferService {
       return;
     }
     try {
+      if (request.method == 'POST' && request.uri.path == '/heartbeat') {
+        final body = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(body);
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        final touched = deviceId is String && (_room?.heartbeat(deviceId) ?? false);
+        request.response.statusCode = touched ? HttpStatus.ok : HttpStatus.forbidden;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({'alive': touched}));
+        await request.response.close();
+        return;
+      }
       if (request.method == 'POST' && request.uri.path == '/queue-status') {
         final body = await utf8.decoder.bind(request).join();
         final decoded = jsonDecode(body);
@@ -456,24 +470,33 @@ class XenderLocalTransferService {
         // Receivers can long-poll the room revision. A sender adding items
         // wakes every waiting receiver without requiring a room rejoin.
         final since = int.tryParse(request.uri.queryParameters['since'] ?? '');
+        final response = request.response;
+        response.bufferOutput = false;
+        response.persistentConnection = true;
+        response.headers.contentType = ContentType.json;
+        response.headers.set('Cache-Control', 'no-store');
+        response.headers.set('Connection', 'keep-alive');
+        await response.flush();
         if (since != null && since == _manifestRevision) {
           final changed = _manifestChanged;
           if (changed != null && !changed.isCompleted) {
             try {
               await changed.future.timeout(const Duration(seconds: 20));
             } on TimeoutException {
-              // A timeout is a heartbeat; the client simply rechecks.
+              // A quiet room is a normal heartbeat.
             }
           }
         }
-        request.response.headers.contentType = ContentType.json;
-        request.response.headers.set('Cache-Control', 'no-store');
-        request.response.write(jsonEncode({
-          'version': 1,
-          'revision': _manifestRevision,
-          'files': _manifest,
-        }));
-        await request.response.close();
+        try {
+          response.write(jsonEncode({
+            'version': 1,
+            'revision': _manifestRevision,
+            'files': _manifest,
+          }));
+          await response.close();
+        } on HttpException catch (error) {
+          debugPrint('Plazma manifest client disconnected: $error');
+        }
         return;
       }
       if (request.uri.path == '/download') {
@@ -685,6 +708,18 @@ class XenderLocalTransferService {
     }
   }
 
+  Future<String?> _postQueueStatusReliable(
+    PlazmaConnectionInvite invite, int id, String status, int bytes, {HttpClient? client}
+  ) async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final result = await _postQueueStatus(invite, id, status, bytes, client: client);
+      if (result == status) return result;
+      debugPrint('Plazma completion acknowledgement retry: ' + (attempt + 1).toString());
+      await Future<void>.delayed(Duration(milliseconds: 300 * (1 << attempt)));
+    }
+    throw TimeoutException('The sender did not acknowledge the saved file.', const Duration(seconds: 9));
+  }
+
   Future<String?> _postQueueStatus(PlazmaConnectionInvite invite, int id, String status, int bytes, {String? error, HttpClient? client}) async {
     final ownsClient = client == null;
     final httpClient = client ?? (HttpClient()..connectionTimeout = const Duration(seconds: 5));
@@ -716,7 +751,7 @@ class XenderLocalTransferService {
       joinRequest.headers.contentType = ContentType.json;
       joinRequest.write(jsonEncode({
         'deviceId': deviceId,
-        'deviceName': Platform.localHostname,
+        'deviceName': await _deviceDisplayName(),
         'platform': Platform.operatingSystem,
       }));
       final joinResponse = await joinRequest.close().timeout(const Duration(seconds: 15));
@@ -761,13 +796,22 @@ class XenderLocalTransferService {
   /// receivers stay current without repeatedly downloading the whole list.
   Stream<List<SharedLocalFile>> watchManifest(PlazmaConnectionInvite invite) async* {
     var revision = -1;
+    var failures = 0;
     while (_joinedInvite == invite && _joinedDeviceId != null) {
-      final snapshot = await _fetchManifest(invite, since: revision);
-      if (snapshot.revision != revision) {
-        revision = snapshot.revision;
-        _joinedManifest = snapshot.files;
-        _publishRoomFiles();
-        yield snapshot.files;
+      try {
+        await _sendHeartbeat(invite);
+        final snapshot = await _fetchManifest(invite, since: revision);
+        failures = 0;
+        if (snapshot.revision != revision) {
+          revision = snapshot.revision;
+          _joinedManifest = snapshot.files;
+          _publishRoomFiles();
+          yield snapshot.files;
+        }
+      } catch (error) {
+        failures++;
+        debugPrint('Plazma manifest poll failed; retrying: $error');
+        await Future<void>.delayed(Duration(seconds: min(15, 1 << min(failures - 1, 4))));
       }
     }
   }
@@ -792,9 +836,30 @@ class XenderLocalTransferService {
       final revision = decoded['revision'] as int? ?? 0;
       final files = (decoded['files'] as List)
           .whereType<Map>()
-          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .map((item) {
+            final local = Map<String, dynamic>.from(item);
+            local['status'] = 'waiting';
+            return SharedLocalFile.fromJson(local);
+          })
           .toList();
       return (revision: revision, files: files);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> _sendHeartbeat(PlazmaConnectionInvite invite) async {
+    final deviceId = _joinedDeviceId;
+    if (deviceId == null) return;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    try {
+      final request = await client.postUrl(_endpoint(invite, '/heartbeat'));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode({'deviceId': deviceId}));
+      final response = await request.close().timeout(const Duration(seconds: 6));
+      await response.drain<void>();
+    } catch (error) {
+      debugPrint('Plazma heartbeat missed; grace period remains active: $error');
     } finally {
       client.close(force: true);
     }
@@ -827,6 +892,7 @@ class XenderLocalTransferService {
           continue;
         }
         var fileBytes = item.bytesTransferred;
+        _updateJoinedQueueStatus(item.id, 'receiving', fileBytes);
         try {
           final initialStatus = await _postQueueStatus(
             invite, item.id, 'sending', fileBytes, client: client,
@@ -845,7 +911,7 @@ class XenderLocalTransferService {
             final existingDigest = await sha256.bind(target.openRead()).first;
             if (existingSize == item.size && existingDigest.toString() == item.sha256) {
               totalBytes += item.size;
-              final finalStatus = await _postQueueStatus(
+              final finalStatus = await _postQueueStatusReliable(
                 invite, item.id, 'done', item.size, client: client,
               );
               if (finalStatus == 'cancelled') {
@@ -947,9 +1013,10 @@ class XenderLocalTransferService {
             );
           }
           await partial.rename(target.path);
-          final finalStatus = await _postQueueStatus(
+          final finalStatus = await _postQueueStatusReliable(
             invite, item.id, 'done', item.size, client: client,
           );
+          if (finalStatus == 'done') _updateJoinedQueueStatus(item.id, 'saved', item.size);
           if (finalStatus == 'cancelled') {
             wasCancelled = true;
             continue;
@@ -1009,6 +1076,22 @@ class XenderLocalTransferService {
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<String> _deviceDisplayName() async {
+    if (Platform.isAndroid) {
+      try {
+        final name = await const MethodChannel('com.plazma.s/device')
+            .invokeMethod<String>('getDeviceName')
+            .timeout(const Duration(seconds: 2));
+        if (name != null && name.trim().isNotEmpty) return name.trim();
+      } catch (error) {
+        debugPrint('Plazma device name lookup unavailable: $error');
+      }
+    }
+    final hostname = Platform.localHostname.trim();
+    return hostname.isEmpty || hostname.toLowerCase() == 'localhost'
+        ? 'Android device' : hostname;
   }
 
   Future<String> _localIpv4Address() async {
