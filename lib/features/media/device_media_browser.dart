@@ -275,10 +275,25 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     }
   }
 
-  void _clearVisibleSelection() {
+  Future<void> _clearVisibleSelection() async {
+    // Resolve paths for the visible page as well as assets selected before a
+    // refresh. The in-memory cache can be empty after the browser reloads.
     for (final asset in _filteredAssets) {
-      final path = _assetPaths[asset.id];
-      if (path != null && widget.selectedPaths.contains(path)) widget.onSelect(File(path));
+      var path = _assetPaths[asset.id];
+      if (path == null) {
+        try {
+          final file = await asset.file;
+          if (file != null) {
+            path = file.path;
+            _assetPaths[asset.id] = path;
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+      if (path != null && widget.selectedPaths.contains(path)) {
+        widget.onSelect(File(path));
+      }
     }
   }
   Future<void> _select(AssetEntity asset) async {
