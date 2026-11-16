@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use, prefer_interpolation_to_compose_strings
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -18,6 +19,42 @@ import '../../transfers/transfer_history.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
 
+class DesktopInstalledApp {
+  const DesktopInstalledApp({required this.name, required this.version, required this.publisher, required this.installLocation});
+  final String name;
+  final String version;
+  final String publisher;
+  final String? installLocation;
+  bool get canBundle => installLocation != null;
+
+  factory DesktopInstalledApp.fromRegistry(Map<String, dynamic> value) {
+    String read(String key) => (value[key] ?? '').toString().trim();
+    var location = read('InstallLocation');
+    if (location.isEmpty) {
+      var icon = read('DisplayIcon');
+      if (icon.startsWith('"')) {
+        final end = icon.indexOf('"', 1);
+        if (end > 1) icon = icon.substring(1, end);
+      } else {
+        icon = icon.replaceFirst(RegExp(r',-?\d+$'), '');
+      }
+      if (icon.isNotEmpty && File(icon).existsSync()) location = File(icon).parent.path;
+    }
+    if (location.isNotEmpty) {
+      final normalized = location.replaceAll('"', '').trim();
+      final lower = normalized.toLowerCase();
+      if (!Directory(normalized).existsSync() || lower.contains(r'\windowsapps') ||
+          lower.startsWith(r'c:\windows') || lower.startsWith(r'c:\programdata\microsoft\windows')) {
+        location = '';
+      } else {
+        location = normalized;
+      }
+    }
+    return DesktopInstalledApp(name: read('DisplayName'), version: read('DisplayVersion'),
+      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location);
+  }
+}
+
 class AppsScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
   static VoidCallback? sendSelected;
@@ -35,6 +72,9 @@ class _AppsScreenState extends State<AppsScreen> {
   final Map<String, String> _saved = {};
   final Map<String, Future<void>> _saveTasks = {};
   final Map<String, Future<Uint8List?>> _iconFutures = {};
+  final List<DesktopInstalledApp> _desktopApps = [];
+  final Set<String> _desktopSelected = {};
+  String _desktopSearchQuery = '';
   static const int _appPageSize = 60;
   int _visibleAppCount = _appPageSize;
   String _appSearchQuery = '';
@@ -103,10 +143,12 @@ class _AppsScreenState extends State<AppsScreen> {
         final library = Directory(root.path + Platform.pathSeparator + 'received_installers');
         await library.create(recursive: true);
         if (!mounted) return;
-        setState(() {
-          _library = library;
-          _error = 'On this computer, send complete app installers or portable bundles (.exe, .msi, .dmg, .pkg, .AppImage, .deb, .rpm or .zip). Received packages are saved for you to install.';
-        });
+        setState(() => _library = library);
+        if (Platform.isWindows) {
+          await _loadWindowsApps();
+        } else if (mounted) {
+          setState(() => _error = 'Send complete installers or portable bundles (.exe, .msi, .dmg, .pkg, .AppImage, .deb, .rpm or .zip).');
+        }
       } catch (e) {
         if (mounted) setState(() => _error = 'Could not prepare the installer library: ' + e.toString());
       } finally {
@@ -247,7 +289,11 @@ class _AppsScreenState extends State<AppsScreen> {
 
   Future<void> _send() async {
     if (!Platform.isAndroid) {
-      await _sendDesktopInstallers();
+      if (Platform.isWindows && _desktopSelected.isNotEmpty) {
+        await _sendSelectedDesktopApps();
+      } else {
+        await _sendDesktopInstallers();
+      }
       return;
     }
     if (_selected.isEmpty || _busy || _preparing) return;
@@ -299,6 +345,7 @@ class _AppsScreenState extends State<AppsScreen> {
       if (!mounted) return;
       setState(() { _invite = invite; _selected.removeAll(packages); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
       _updateSelectionCount();
+      _updateDesktopSelectionCount();
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
@@ -308,6 +355,134 @@ class _AppsScreenState extends State<AppsScreen> {
         label: 'Sharing apps', isAppTransfer: true));
     } catch (e) { _message('Could not start app sharing: ' + e.toString()); }
     finally { if (mounted) setState(() { _busy = false; _preparing = false; _preparingAppName = null; }); }
+  }
+
+  List<DesktopInstalledApp> get _filteredDesktopApps {
+    final query = _desktopSearchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _desktopApps;
+    return _desktopApps.where((app) => app.name.toLowerCase().contains(query) ||
+      app.publisher.toLowerCase().contains(query)).toList();
+  }
+
+  String _encodePowerShell(String script) => base64.encode(
+    script.codeUnits.expand((unit) => [unit & 0xff, (unit >> 8) & 0xff]).toList());
+
+  Future<void> _loadWindowsApps() async {
+    if (!Platform.isWindows) return;
+    setState(() { _loading = true; _error = null; });
+    const script = r'''
+      $ErrorActionPreference = 'SilentlyContinue'
+      $roots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+      )
+      $apps = @(Get-ItemProperty -Path $roots |
+        Where-Object { $_.DisplayName -and -not $_.SystemComponent -and $_.ReleaseType -notin @('Update','Hotfix','Security Update') } |
+        Sort-Object DisplayName -Unique |
+        Select-Object DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon)
+      ConvertTo-Json -InputObject $apps -Depth 3 -Compress
+    ''';
+    try {
+      final result = await Process.run('powershell.exe',
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', _encodePowerShell(script)]);
+      if (result.exitCode != 0) throw ProcessException('powershell.exe', [], result.stderr.toString(), result.exitCode);
+      final output = result.stdout.toString().trim();
+      final decoded = output.isEmpty ? <dynamic>[] : jsonDecode(output);
+      final values = decoded is List ? decoded : [decoded];
+      final apps = values.whereType<Map>().map((entry) =>
+        DesktopInstalledApp.fromRegistry(Map<String, dynamic>.from(entry)))
+        .where((app) => app.name.isNotEmpty).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      if (!mounted) return;
+      setState(() {
+        _desktopApps..clear()..addAll(apps);
+        _desktopSelected.removeWhere((name) => !apps.any((app) => app.name == name && app.canBundle));
+        _error = apps.isEmpty ? 'No installed desktop applications were found in the Windows app registry.' : null;
+      });
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not read installed Windows apps: $error');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _updateDesktopSelectionCount() => AppsScreen.selectedCount.value = _desktopSelected.length;
+
+  void _toggleDesktopApp(DesktopInstalledApp app) {
+    if (!app.canBundle) {
+      _message('No accessible install folder was found for ${app.name}. Use Choose installer to share its setup file.');
+      return;
+    }
+    setState(() {
+      if (!_desktopSelected.add(app.name)) _desktopSelected.remove(app.name);
+    });
+    _updateDesktopSelectionCount();
+  }
+
+  Future<File> _bundleDesktopApp(DesktopInstalledApp app, Directory output) async {
+    final source = app.installLocation;
+    if (source == null) throw StateError('No accessible installation folder for ${app.name}.');
+    final safeName = app.name.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_').trim();
+    final destination = '${output.path}${Platform.pathSeparator}${safeName.isEmpty ? 'Application' : safeName}.zip';
+    String quote(String value) => "'" + value.replaceAll("'", "''") + "'";
+    final script = r'''
+      $ErrorActionPreference = 'Stop'
+      $source = __SOURCE__
+      $destination = __DESTINATION__
+      if (!(Test-Path -LiteralPath $source -PathType Container)) { throw 'Application folder is no longer available.' }
+      $items = @(Get-ChildItem -LiteralPath $source -Force | Select-Object -ExpandProperty FullName)
+      if ($items.Count -eq 0) { throw 'Application folder is empty.' }
+      if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Force }
+      Compress-Archive -Path (Join-Path $source '*') -DestinationPath $destination -CompressionLevel Fastest -Force
+      if (!(Test-Path -LiteralPath $destination -PathType Leaf)) { throw 'Bundle archive was not created.' }
+    '''
+      .replaceAll('__SOURCE__', quote(source))
+      .replaceAll('__DESTINATION__', quote(destination));
+    final result = await Process.run('powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', _encodePowerShell(script)]);
+    if (result.exitCode != 0 || !await File(destination).exists()) {
+      throw StateError('Could not bundle ${app.name}: ${result.stderr}');
+    }
+    return File(destination);
+  }
+
+  Future<void> _sendSelectedDesktopApps() async {
+    if (_busy || _desktopSelected.isEmpty || _library == null) return;
+    setState(() { _busy = true; _status = 'Preparing selected Windows applications…'; });
+    try {
+      final selected = _desktopApps.where((app) => _desktopSelected.contains(app.name) && app.canBundle).toList();
+      if (selected.isEmpty) throw StateError('None of the selected apps has an accessible install folder.');
+      final output = Directory('${_library!.path}${Platform.pathSeparator}desktop_app_bundles');
+      await output.create(recursive: true);
+      final files = <File>[];
+      final paths = <String>[];
+      for (var i = 0; i < selected.length; i++) {
+        final app = selected[i];
+        if (mounted) setState(() => _status = 'Packaging ${app.name} · ${i + 1}/${selected.length}');
+        final bundle = await _bundleDesktopApp(app, output);
+        files.add(bundle);
+        paths.add('Applications/${bundle.uri.pathSegments.last}');
+      }
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
+          : _service.startSharing(files: files, relativePaths: paths));
+      if (!mounted) return;
+      setState(() {
+        _invite = invite;
+        _desktopSelected.clear();
+        _status = 'Packaged ${files.length} app(s). Room ${invite.roomId} is open; recipients receive ZIP bundles.';
+      });
+      _roomRefreshTimer?.cancel();
+      _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); });
+      TransferOverlayController.show(TransferOverlaySnapshot(
+        direction: TransferOverlayDirection.sending, fileCount: files.length,
+        label: 'Sharing Windows apps', isAppTransfer: true));
+    } catch (error) {
+      _message('Could not package Windows apps: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _sendDesktopInstallers() async {
@@ -327,9 +502,11 @@ class _AppsScreenState extends State<AppsScreen> {
         paths.add('Applications/' + picked.name);
       }
       if (files.isEmpty) throw StateError('The selected packages are not accessible as files.');
-      final invite = await _service.startSharing(files: files, relativePaths: paths);
+      final invite = await (_service.isSharing
+          ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
+          : _service.startSharing(files: files, relativePaths: paths));
       if (!mounted) return;
-      setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for computers.'; });
+      setState(() { _invite = invite; _status = 'Room ' + invite.roomId + ' is open. Waiting for devices.'; });
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); });
     } catch (e) {
@@ -581,16 +758,65 @@ class _AppsScreenState extends State<AppsScreen> {
             icon: const Icon(Icons.qr_code_scanner), label: const Text('Receive apps'))),
           const SizedBox(width: 10),
           Expanded(child: OutlinedButton.icon(onPressed: _busy || _preparing || (Platform.isAndroid && _selected.isEmpty) ? null : _send,
-            icon: const Icon(Icons.send), label: Text(_service.isSharing ? 'Add to room' : (Platform.isAndroid ? 'Send selected' : 'Send installers')))),
+            icon: const Icon(Icons.send), label: Text(_service.isSharing ? 'Add to room' : (Platform.isAndroid ? 'Send selected' : (Platform.isWindows && _desktopSelected.isNotEmpty ? 'Send selected' : 'Choose installer'))))),
         ]),
         const SizedBox(height: 18),
-        if (!Platform.isAndroid) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Computer application packages', style: TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 6),
-          const Text('Send complete installers or portable bundles. Recipients can join from another PC or Android device and save the package locally.'),
-          const SizedBox(height: 6),
-          const Text('Supported formats: EXE, MSI, MSIX, AppImage, DEB, RPM, DMG, PKG and ZIP.'),
-        ]))),
+        if (!Platform.isAndroid) ...[
+          if (Platform.isWindows) ...[
+            Row(children: [
+              Expanded(child: Text('Installed Windows apps (${_filteredDesktopApps.length})',
+                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
+              IconButton(onPressed: _loading ? null : _loadWindowsApps, icon: const Icon(Icons.refresh)),
+            ]),
+            TextField(
+              decoration: const InputDecoration(hintText: 'Search installed Windows apps', prefixIcon: Icon(Icons.search_rounded), isDense: true, border: OutlineInputBorder()),
+              onChanged: (value) => setState(() => _desktopSearchQuery = value),
+            ),
+            Row(children: [
+              TextButton(onPressed: () {
+                setState(() {
+                  _desktopSelected.addAll(_filteredDesktopApps.where((app) => app.canBundle).map((app) => app.name));
+                });
+                _updateDesktopSelectionCount();
+              }, child: const Text('Select all')),
+              TextButton(onPressed: () {
+                setState(() => _desktopSelected.clear());
+                _updateDesktopSelectionCount();
+              }, child: const Text('Clear selection')),
+              const Spacer(),
+              Text('${_desktopSelected.length} selected', style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
+            ]),
+            if (_desktopApps.isEmpty && !_loading)
+              const Padding(padding: EdgeInsets.all(12), child: Text('No installed apps found. You can still choose an EXE or MSI installer below.')),
+            ..._filteredDesktopApps.map((app) {
+              final selected = _desktopSelected.contains(app.name);
+              return Card(
+                margin: const EdgeInsets.only(bottom: 6),
+                child: CheckboxListTile(
+                  value: selected,
+                  onChanged: app.canBundle && !_busy ? (_) => _toggleDesktopApp(app) : null,
+                  secondary: Icon(app.canBundle ? Icons.desktop_windows : Icons.install_desktop_outlined),
+                  title: Text(app.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Text([
+                    if (app.version.isNotEmpty) 'Version ${app.version}',
+                    if (app.publisher.isNotEmpty) app.publisher,
+                    app.canBundle ? 'Install folder can be bundled' : 'Installer file required',
+                  ].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  controlAffinity: ListTileControlAffinity.trailing,
+                  dense: true,
+                ),
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+          Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Share an installer instead', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            const Text('Choose an EXE, MSI, MSIX or portable ZIP when an app cannot be safely bundled from its install folder. Installers remain the most reliable way to reproduce an app on another PC.'),
+            const SizedBox(height: 6),
+            const Text('Received ZIP bundles may need extracting. Some apps also require dependencies, services, registry settings or a separate installer and may not run by copying files alone.'),
+          ]))),
+        ],
         if (Platform.isAndroid) ...[
         Row(children: [Expanded(child: Text('Installed apps (' + _filteredApps.length.toString() + ')',
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900))),
