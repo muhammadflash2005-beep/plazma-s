@@ -76,7 +76,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
       _message('Installing Android apps is available on Android devices.');
       return;
     }
-    final folder = Directory(entry.path);
+    final folder = Directory(entry.installPath ?? entry.path);
     if (!await folder.exists()) {
       _message('This saved app is no longer available on this device.');
       return;

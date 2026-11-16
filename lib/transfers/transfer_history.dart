@@ -9,6 +9,7 @@ class TransferHistoryEntry {
     required this.type,
     required this.direction,
     required this.path,
+    this.installPath,
     required this.bytes,
     required this.peer,
     required this.completedAt,
@@ -19,6 +20,7 @@ class TransferHistoryEntry {
   final String type; // file or app
   final String direction; // sent or received
   final String path;
+  final String? installPath;
   final int bytes;
   final String peer;
   final DateTime completedAt;
@@ -29,6 +31,7 @@ class TransferHistoryEntry {
         'type': type,
         'direction': direction,
         'path': path,
+        'installPath': installPath,
         'bytes': bytes,
         'peer': peer,
         'completedAt': completedAt.toIso8601String(),
@@ -41,6 +44,7 @@ class TransferHistoryEntry {
         type: json['type'] as String? ?? 'file',
         direction: json['direction'] as String? ?? 'received',
         path: json['path'] as String? ?? '',
+        installPath: json['installPath'] as String?,
         bytes: (json['bytes'] as num?)?.toInt() ?? 0,
         peer: json['peer'] as String? ?? 'Nearby device',
         completedAt: DateTime.tryParse(json['completedAt'] as String? ?? '') ??
@@ -76,6 +80,7 @@ class TransferHistoryStore {
     required String type,
     required String direction,
     required String path,
+    String? installPath,
     required int bytes,
     required String peer,
   }) async {
@@ -90,6 +95,7 @@ class TransferHistoryStore {
         type: type,
         direction: direction,
         path: path,
+        installPath: installPath,
         bytes: bytes,
         peer: peer,
         completedAt: now,
