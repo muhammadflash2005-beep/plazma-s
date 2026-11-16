@@ -636,7 +636,7 @@ class _AppsScreenState extends State<AppsScreen> {
     final filename = segments.last;
     final isBundle = filename.toLowerCase().endsWith('.plazmaapp');
     final packageName = isBundle && segments.length >= 2 ? segments[1] : segments.first;
-    if (!RegExp(r'^[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$').hasMatch(packageName)) {
+    if (!RegExp(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$').hasMatch(packageName)) {
       return null;
     }
     return packageName;
@@ -977,12 +977,14 @@ class _AppsScreenState extends State<AppsScreen> {
           final iconData = details?['iconBase64'];
           final appName = (details?['appName'] ?? e.key).toString();
           final version = (details?['versionName'] ?? '').toString();
+          final isGroupedBundle = e.value.any((item) => item.relativePath.toLowerCase().endsWith('.plazmaapp'));
+          final partCount = _bundleMetadata[e.key]?.apkPaths.length ?? e.value.length;
           return ListTile(
           leading: iconData is String
               ? Image.memory(base64Decode(iconData), width: 40, height: 40, fit: BoxFit.contain)
               : const Icon(Icons.android),
           title: Text(appName),
-          subtitle: Text([e.key, if (version.isNotEmpty) 'Version ' + version, e.value.length.toString() + ' APK part(s)'].join(' · ')),
+          subtitle: Text([e.key, if (version.isNotEmpty) 'Version ' + version, isGroupedBundle ? '1 grouped transfer · $partCount APK part(s)' : e.value.length.toString() + ' APK part(s)'].join(' · ')),
           trailing: _saved.containsKey(e.key)
               ? TextButton.icon(onPressed: _busy ? null : () => _installReceivedApp(e.key),
                   icon: const Icon(Icons.install_mobile_rounded), label: const Text('Install'))
