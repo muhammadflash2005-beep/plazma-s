@@ -259,7 +259,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
                     IconButton(onPressed: () => Navigator.of(sheetContext).pop(), icon: const Icon(Icons.close)),
                   ]),
-                  Text('${items.length} item(s) in this room',
+                  Text(isReceiver ? 'Receiving ${items.length} file(s)' : 'Sending ${items.length} file(s)',
                     style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   if (items.isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -464,7 +464,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (!hasRoom && transfer == null) return const SizedBox.shrink();
                       final colors = Theme.of(context).colorScheme;
                       final sending = transfer?.direction == TransferOverlayDirection.sending || (transfer == null && service.isSharing);
-                      final directionLabel = sending ? 'Sending ${items.length} file(s)' : 'Receiving ${items.length} file(s)';
                       return Positioned(
                         right: 16,
                         bottom: wide ? 24 : 92,
