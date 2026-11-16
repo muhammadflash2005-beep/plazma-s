@@ -417,9 +417,7 @@ class XenderLocalTransferService {
         throw HttpException(reason.isEmpty ? 'Could not join room.' : reason);
       }
       await joinResponse.drain<void>();
-      final request = await client.getUrl(_endpoint(invite, '/manifest', {
-        if (since != null && since >= 0) 'since': since.toString(),
-      }));
+      final request = await client.getUrl(_endpoint(invite, '/manifest'));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 60));
       if (response.statusCode != HttpStatus.ok) {
@@ -465,7 +463,9 @@ class XenderLocalTransferService {
   ) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
-      final request = await client.getUrl(_endpoint(invite, '/manifest'));
+      final request = await client.getUrl(_endpoint(invite, '/manifest', {
+        if (since != null && since >= 0) 'since': since.toString(),
+      }));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 30));
       if (response.statusCode != HttpStatus.ok) {
