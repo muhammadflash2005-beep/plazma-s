@@ -689,13 +689,14 @@ class XenderLocalTransferService {
     required void Function(LocalTransferProgress progress) onProgress,
   }) async {
     await destination.create(recursive: true);
-    final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
+    var totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
     var hadFailure = false;
     var wasCancelled = false;
     var queueRefreshAttempts = 0;
     var pendingFiles = List<SharedLocalFile>.from(files);
     final processedIds = <int>{};
+    final knownIds = files.map((item) => item.id).toSet();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       while (true) {
@@ -874,6 +875,7 @@ class XenderLocalTransferService {
         }
         for (final item in pendingFiles) {
           processedIds.remove(item.id);
+          if (knownIds.add(item.id)) totalSize += item.size;
         }
         continue;
       }
