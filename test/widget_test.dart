@@ -30,7 +30,7 @@ void main() {
     expect(find.text('Join room'), findsNothing);
   });
 
-  testWidgets('Me tab labels all nine theme swatches and their brightness', (tester) async {
+  testWidgets('Me tab labels all eleven theme swatches and their brightness', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
@@ -47,12 +47,14 @@ void main() {
       'Crimson',
       'Midnight',
       'Obsidian',
+      'Black & White',
+      'Black & Gold',
     ];
     // Each swatch visibly identifies its palette and whether it is light or dark.
     for (final name in themeNames) {
       expect(find.text(name), findsOneWidget);
     }
     expect(find.text('Light'), findsNWidgets(6));
-    expect(find.text('Dark'), findsNWidgets(3));
+    expect(find.text('Dark'), findsNWidgets(5));
   });
 }
