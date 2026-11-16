@@ -110,6 +110,7 @@ class AppBundle {
   }) async {
     final input = await bundle.open(mode: FileMode.read);
     final partials = <File>[];
+    final extracted = <File>[];
     try {
       final length = await input.length();
       if (length < 12) throw const FormatException('The app bundle is truncated.');
@@ -171,7 +172,7 @@ class AppBundle {
         var remaining = size;
         try {
           while (remaining > 0) {
-            final chunk = await input.read(min(_chunkSize, remaining));
+            final chunk = await input.read(min(_chunkSize, remaining).toInt());
             if (chunk.isEmpty) throw const FormatException('An APK payload is truncated.');
             sink.add(chunk);
             remaining -= chunk.length;
@@ -188,6 +189,7 @@ class AppBundle {
         }
         if (await target.exists()) await target.delete();
         await partial.rename(target.path);
+        extracted.add(target);
         paths.add(target.path);
       }
       if (await input.position() != length) {
@@ -203,6 +205,9 @@ class AppBundle {
     } catch (_) {
       for (final partial in partials) {
         if (await partial.exists()) await partial.delete();
+      }
+      for (final file in extracted) {
+        if (await file.exists()) await file.delete();
       }
       rethrow;
     } finally {
