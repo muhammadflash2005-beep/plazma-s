@@ -713,7 +713,30 @@ class XenderLocalTransferService {
   ) async {
     for (var attempt = 0; attempt < 5; attempt++) {
       final result = await _postQueueStatus(invite, id, status, bytes, client: client);
-      if (result == status) return result;
+      if (result == status) {
+        if (status == 'done') {
+          final matches = _joinedManifest.where((item) => item.id == id);
+          if (matches.isNotEmpty && _lastDownloadDestination != null) {
+            final item = matches.first;
+            final relative = _safeRelativePath(item.relativePath);
+            final target = File(_lastDownloadDestination!.path + Platform.pathSeparator +
+                relative.replaceAll('/', Platform.pathSeparator));
+            _updateJoinedQueueStatus(id, 'saved', item.size);
+            final historyPath = item.type == 'app' ? target.parent.path : target.path;
+            final historyName = item.type == 'app' ? relative.split('/').first : item.name;
+            await TransferHistoryStore.add(
+              name: historyName,
+              type: item.type,
+              direction: 'received',
+              path: historyPath,
+              bytes: item.size,
+              peer: 'Nearby Plazma S device',
+            );
+            debugPrint('Plazma receiver completion confirmed for item ' + id.toString());
+          }
+        }
+        return result;
+      }
       debugPrint('Plazma completion acknowledgement retry: ' + (attempt + 1).toString());
       await Future<void>.delayed(Duration(milliseconds: 300 * (1 << attempt)));
     }
@@ -775,7 +798,11 @@ class XenderLocalTransferService {
       }
       _joinedManifest = (decoded['files'] as List)
           .whereType<Map>()
-          .map((item) => SharedLocalFile.fromJson(Map<String, dynamic>.from(item)))
+          .map((item) {
+            final local = Map<String, dynamic>.from(item);
+            local['status'] = 'waiting';
+            return SharedLocalFile.fromJson(local);
+          })
           .toList();
       _publishRoomFiles();
       return _joinedManifest;
