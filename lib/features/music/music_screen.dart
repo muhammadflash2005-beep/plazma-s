@@ -215,6 +215,9 @@ class _MusicScreenState extends State<MusicScreen> {
         fileCount: musicFiles.length,
         label: 'Ready to receive music',
       ));
+      // Joining starts the full room queue automatically.
+      if (mounted) setState(() => _busy = false);
+      await _downloadMusic();
     } catch (e) {
       await _service.disconnect();
       _message('Could not connect: $e');
@@ -240,11 +243,11 @@ class _MusicScreenState extends State<MusicScreen> {
     setState(() { _busy = true; _progress = 0; _status = 'Receiving music…'; });
     try {
       final root = await getApplicationDocumentsDirectory();
-      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Music');
+      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Received');
       await destination.create(recursive: true);
       await _service.downloadAll(
         invite: _receiver!,
-        files: _incoming,
+        files: _service.roomFiles.value,
         destination: destination,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
@@ -253,7 +256,7 @@ class _MusicScreenState extends State<MusicScreen> {
       if (!mounted) return;
       setState(() {
         _receivedDirectory = destination;
-        _status = 'Received ${_incoming.length} song(s). Saved in Plazma S Music.';
+        _status = 'Received all ${_service.roomFiles.value.length} item(s) in this room.';
       });
       TransferOverlayController.clear();
       await _service.stopForegroundService();
@@ -325,8 +328,8 @@ class _MusicScreenState extends State<MusicScreen> {
           TextButton(onPressed: _busy ? null : _refreshMusic, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy ? null : _downloadMusic,
-          icon: const Icon(Icons.download), label: const Text('Receive music')),
+        FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadMusic,
+          icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive music')),
       ]))),
       if (_receiver == null) ...[
         DeviceMediaBrowser(

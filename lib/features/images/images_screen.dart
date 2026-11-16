@@ -214,6 +214,9 @@ class _ImagesScreenState extends State<ImagesScreen> {
         fileCount: images.length,
         label: 'Ready to receive images',
       ));
+      // Joining starts the full room queue automatically.
+      if (mounted) setState(() => _busy = false);
+      await _downloadImages();
     } catch (e) {
       await _service.disconnect();
       _message('Could not connect: $e');
@@ -239,11 +242,11 @@ class _ImagesScreenState extends State<ImagesScreen> {
     setState(() { _busy = true; _progress = 0; _status = 'Receiving images…'; });
     try {
       final root = await getApplicationDocumentsDirectory();
-      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Images');
+      final destination = Directory('${root.path}${Platform.pathSeparator}Plazma S Received');
       await destination.create(recursive: true);
       await _service.downloadAll(
         invite: _receiver!,
-        files: _incoming,
+        files: _service.roomFiles.value,
         destination: destination,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
@@ -252,7 +255,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
       if (!mounted) return;
       setState(() {
         _receivedDirectory = destination;
-        _status = 'Received ${_incoming.length} image(s). Saved in Plazma S Images.';
+        _status = 'Received all ${_service.roomFiles.value.length} item(s) in this room.';
       });
       TransferOverlayController.clear();
       await _service.stopForegroundService();
@@ -324,8 +327,8 @@ class _ImagesScreenState extends State<ImagesScreen> {
           TextButton(onPressed: _busy ? null : _refreshImages, child: const Text('Refresh')),
           TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
         if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        FilledButton.icon(onPressed: _busy ? null : _downloadImages,
-          icon: const Icon(Icons.download), label: const Text('Receive images')),
+        FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadImages,
+          icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive images')),
       ]))),
       if (_receiver == null) ...[
         DeviceMediaBrowser(
