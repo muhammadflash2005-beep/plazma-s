@@ -45,7 +45,14 @@ class _AppsScreenState extends State<AppsScreen> {
   String? _status, _error;
 
   @override
-  void initState() { super.initState(); AppsScreen.sendSelected = _send; _load(); }
+  void initState() {
+    super.initState();
+    AppsScreen.sendSelected = _send;
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingApps(_receiver!);
+    _load();
+  }
 
   void _updateSelectionCount() => AppsScreen.selectedCount.value = _selected.length;
 

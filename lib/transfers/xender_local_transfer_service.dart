@@ -111,6 +111,7 @@ class XenderLocalTransferService {
   int get completedDeviceCount => _room?.completedCount ?? 0;
 
   PlazmaConnectionInvite? get invite => _invite;
+  PlazmaConnectionInvite? get joinedInvite => _joinedInvite;
   bool get isSharing => _server != null;
 
   Future<PlazmaConnectionInvite> startSharing({

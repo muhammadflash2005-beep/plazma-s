@@ -46,6 +46,9 @@ class _FilesScreenState extends State<FilesScreen> {
   @override
   void initState() {
     super.initState();
+    _invite = _service.invite;
+    _receiverInvite = _service.joinedInvite;
+    if (_receiverInvite != null) _watchIncomingFiles(_receiverInvite!);
     _addInitialPaths(widget.initialPaths);
   }
 

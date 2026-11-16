@@ -41,7 +41,13 @@ class _ImagesScreenState extends State<ImagesScreen> {
   StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
-  void initState() { super.initState(); ImagesScreen.sendSelected = _sendImages; }
+  void initState() {
+    super.initState();
+    ImagesScreen.sendSelected = _sendImages;
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingImages(_receiver!);
+  }
 
   void _updateSelectionCount() => ImagesScreen.selectedCount.value = _selected.length;
 

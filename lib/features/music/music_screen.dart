@@ -44,6 +44,9 @@ class _MusicScreenState extends State<MusicScreen> {
   void initState() {
     super.initState();
     MusicScreen.sendSelected = _sendMusic;
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingMusic(_receiver!);
   }
 
   @override

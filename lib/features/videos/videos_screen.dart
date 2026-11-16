@@ -41,7 +41,13 @@ class _VideosScreenState extends State<VideosScreen> {
   StreamSubscription<List<SharedLocalFile>>? _manifestSubscription;
 
   @override
-  void initState() { super.initState(); VideosScreen.sendSelected = _sendVideos; }
+  void initState() {
+    super.initState();
+    VideosScreen.sendSelected = _sendVideos;
+    _invite = _service.invite;
+    _receiver = _service.joinedInvite;
+    if (_receiver != null) _watchIncomingVideos(_receiver!);
+  }
 
   void _updateSelectionCount() => VideosScreen.selectedCount.value = _selected.length;
 
