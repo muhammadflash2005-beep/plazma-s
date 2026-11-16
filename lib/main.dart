@@ -244,6 +244,8 @@ class _HomeScreenState extends State<HomeScreen> {
           valueListenable: service.roomFiles,
           builder: (context, items, _) {
             final roomId = service.invite?.roomId ?? service.joinedInvite?.roomId;
+            final totalBytes = items.fold<int>(0, (sum, item) => sum + item.size);
+            final transferredBytes = items.fold<int>(0, (sum, item) => sum + item.bytesTransferred);
             return SizedBox(
               height: MediaQuery.sizeOf(context).height * 0.65,
               child: Padding(
@@ -265,6 +267,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry failed')),
                     ]),
                   ],
+                  if (totalBytes > 0) ...[
+                    Text('Overall progress · ${(transferredBytes / totalBytes * 100).clamp(0, 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12)),
+                    const SizedBox(height: 4),
+                    LinearProgressIndicator(value: (transferredBytes / totalBytes).clamp(0.0, 1.0)),
+                  ],
                   const SizedBox(height: 10),
                   Expanded(child: items.isEmpty
                     ? const Center(child: Text('No items in this room yet. Add files from any category.'))
@@ -274,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (context, index) {
                           final item = items[index];
                           return ListTile(
-                            leading: const Icon(Icons.insert_drive_file_outlined),
+                            leading: Icon(switch (item.type) { 'app' => Icons.apps_rounded, 'image' => Icons.image_outlined, 'video' => Icons.movie_outlined, 'music' => Icons.music_note_rounded, _ => Icons.insert_drive_file_outlined }),
                             title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(item.relativePath),
                             trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -535,8 +542,6 @@ class _HomeScreenState extends State<HomeScreen> {
   );
 
   Widget _meContent() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text('Me', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
-    const SizedBox(height: 16),
     _settingsContent(),
     const SizedBox(height: 22),
     _secondaryContent(),

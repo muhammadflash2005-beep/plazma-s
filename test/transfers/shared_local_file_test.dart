@@ -13,11 +13,13 @@ void main() {
       'sha256': digest,
       'status': 'sending',
       'bytesTransferred': 1024,
+      'type': 'video',
     });
 
     expect(item.status, 'sending');
     expect(item.bytesTransferred, 1024);
     expect(item.size, 2048);
+    expect(item.type, 'video');
   });
 
   test('older room manifests default to waiting with zero progress', () {

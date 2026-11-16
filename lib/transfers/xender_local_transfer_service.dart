@@ -21,6 +21,7 @@ class SharedLocalFile {
     required this.sha256,
     this.status = 'waiting',
     this.bytesTransferred = 0,
+    this.type = 'file',
   });
 
   final int id;
@@ -30,6 +31,7 @@ class SharedLocalFile {
   final String sha256;
   final String status;
   final int bytesTransferred;
+  final String type;
 
   factory SharedLocalFile.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
@@ -54,6 +56,7 @@ class SharedLocalFile {
       sha256: digest,
       status: json['status'] as String? ?? 'waiting',
       bytesTransferred: json['bytesTransferred'] as int? ?? 0,
+      type: json['type'] as String? ?? 'file',
     );
   }
 }
@@ -173,6 +176,7 @@ class XenderLocalTransferService {
         'sha256': digest.toString(),
         'status': 'waiting',
         'bytesTransferred': 0,
+        'type': _itemTypeForPath(checkedPaths[index]),
       });
     }
 
@@ -252,6 +256,7 @@ class XenderLocalTransferService {
         'sha256': digest.toString(),
         'status': 'waiting',
         'bytesTransferred': 0,
+        'type': _itemTypeForPath(nextPaths[i]),
       });
     }
     if (additions.isNotEmpty) {
@@ -459,6 +464,7 @@ class XenderLocalTransferService {
     final updated = Map<String, Object>.from(current);
     updated['status'] = status;
     updated['bytesTransferred'] = bytesTransferred.clamp(0, updated['size'] as int).toInt();
+    if (status == 'waiting') updated.remove('error');
     if (error != null) updated['error'] = error;
     _manifest = [..._manifest]..[id] = updated;
     _bumpManifestRevision();
@@ -630,12 +636,13 @@ class XenderLocalTransferService {
     await destination.create(recursive: true);
     final totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
+    var wasCancelled = false;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       for (final item in files) {
-        if (item.status == 'cancelled') continue;
+        if (item.status == 'cancelled') { wasCancelled = true; continue; }
         final initialStatus = await _postQueueStatus(invite, item.id, 'sending', 0);
-        if (initialStatus == 'cancelled') continue;
+        if (initialStatus == 'cancelled') { wasCancelled = true; continue; }
         final relative = _safeRelativePath(item.relativePath);
         final target = File('${destination.path}${Platform.pathSeparator}${relative.replaceAll('/', Platform.pathSeparator)}');
         await target.parent.create(recursive: true);
@@ -654,6 +661,7 @@ class XenderLocalTransferService {
             ));
             continue;
           }
+          await _postQueueStatus(invite, item.id, 'failed', 0, 'A different file with this name already exists.');
           throw FileSystemException('A different file with this name already exists.', target.path);
         }
         final partial = File('${target.path}.plazma-partial');
@@ -687,6 +695,7 @@ class XenderLocalTransferService {
         final response = await request.close().timeout(const Duration(seconds: 30));
         final expectedStatus = offset > 0 ? HttpStatus.partialContent : HttpStatus.ok;
         if (response.statusCode != expectedStatus) {
+          await _postQueueStatus(invite, item.id, 'failed', offset, 'Download could not resume (HTTP ${response.statusCode}).');
           throw HttpException(
             'Download could not resume for ${item.name} (HTTP ${response.statusCode}).',
           );
@@ -739,6 +748,7 @@ class XenderLocalTransferService {
           rethrow;
         }
       }
+      if (wasCancelled) throw StateError('One or more items were cancelled.');
       final completeRequest = await client.postUrl(_endpoint(invite, '/complete', {
         if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId!,
       }));
@@ -822,6 +832,155 @@ class XenderLocalTransferService {
     return normalized;
   }
 
+  String _itemTypeForPath(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.apk') || lower.endsWith('.aab') || lower.endsWith('.exe') ||
+        lower.endsWith('.msi') || lower.endsWith('.msix') || lower.endsWith('.appimage') ||
+        lower.endsWith('.deb') || lower.endsWith('.rpm') || lower.endsWith('.dmg') ||
+        lower.endsWith('.pkg')) return 'app';
+    if (RegExp(r'\.(jpg|jpeg|png|webp|gif|bmp|heic|heif)
+
+  Future<void> stopSharing() async {
+    final server = _server;
+    _server = null;
+    _invite = null;
+    _onTransferCompleted = null;
+    _files = const [];
+    _manifest = const [];
+    _joinedManifest = const [];
+    _manifestRevision = 0;
+    _publishRoomFiles();
+    final changed = _manifestChanged;
+    if (changed != null && !changed.isCompleted) changed.complete();
+    _manifestChanged = null;
+    _room = null;
+    await server?.close(force: true);
+    TransferOverlayController.clear();
+    await stopForegroundService();
+  }
+
+  Future<void> disconnect() async {
+    final invite = _joinedInvite;
+    final deviceId = _joinedDeviceId;
+    _joinedInvite = null;
+    _joinedDeviceId = null;
+    _joinedManifest = const [];
+    _publishRoomFiles();
+    if (invite != null && deviceId != null) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.postUrl(_endpoint(invite, '/leave'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'deviceId': deviceId}));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+      } catch (_) {
+        // The room may already have been closed by its host.
+      } finally {
+        client.close(force: true);
+      }
+    }
+    // Plazma S never changes the device's Wi-Fi connection.
+    await stopForegroundService();
+  }
+}
+).hasMatch(lower)) return 'image';
+    if (RegExp(r'\.(mp4|m4v|mov|mkv|webm|avi|3gp)
+
+  Future<void> stopSharing() async {
+    final server = _server;
+    _server = null;
+    _invite = null;
+    _onTransferCompleted = null;
+    _files = const [];
+    _manifest = const [];
+    _joinedManifest = const [];
+    _manifestRevision = 0;
+    _publishRoomFiles();
+    final changed = _manifestChanged;
+    if (changed != null && !changed.isCompleted) changed.complete();
+    _manifestChanged = null;
+    _room = null;
+    await server?.close(force: true);
+    TransferOverlayController.clear();
+    await stopForegroundService();
+  }
+
+  Future<void> disconnect() async {
+    final invite = _joinedInvite;
+    final deviceId = _joinedDeviceId;
+    _joinedInvite = null;
+    _joinedDeviceId = null;
+    _joinedManifest = const [];
+    _publishRoomFiles();
+    if (invite != null && deviceId != null) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.postUrl(_endpoint(invite, '/leave'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'deviceId': deviceId}));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+      } catch (_) {
+        // The room may already have been closed by its host.
+      } finally {
+        client.close(force: true);
+      }
+    }
+    // Plazma S never changes the device's Wi-Fi connection.
+    await stopForegroundService();
+  }
+}
+).hasMatch(lower)) return 'video';
+    if (RegExp(r'\.(mp3|m4a|aac|wav|flac|ogg|opus|wma)
+
+  Future<void> stopSharing() async {
+    final server = _server;
+    _server = null;
+    _invite = null;
+    _onTransferCompleted = null;
+    _files = const [];
+    _manifest = const [];
+    _joinedManifest = const [];
+    _manifestRevision = 0;
+    _publishRoomFiles();
+    final changed = _manifestChanged;
+    if (changed != null && !changed.isCompleted) changed.complete();
+    _manifestChanged = null;
+    _room = null;
+    await server?.close(force: true);
+    TransferOverlayController.clear();
+    await stopForegroundService();
+  }
+
+  Future<void> disconnect() async {
+    final invite = _joinedInvite;
+    final deviceId = _joinedDeviceId;
+    _joinedInvite = null;
+    _joinedDeviceId = null;
+    _joinedManifest = const [];
+    _publishRoomFiles();
+    if (invite != null && deviceId != null) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+      try {
+        final request = await client.postUrl(_endpoint(invite, '/leave'));
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode({'deviceId': deviceId}));
+        final response = await request.close().timeout(const Duration(seconds: 5));
+        await response.drain<void>();
+      } catch (_) {
+        // The room may already have been closed by its host.
+      } finally {
+        client.close(force: true);
+      }
+    }
+    // Plazma S never changes the device's Wi-Fi connection.
+    await stopForegroundService();
+  }
+}
+).hasMatch(lower)) return 'music';
+    return 'file';
+  }
   String _displayName(String path) => path.split('/').last;
 
   Future<void> stopSharing() async {

@@ -625,7 +625,9 @@ class _FilesScreenState extends State<FilesScreen> {
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Column(children: [
-            const Text('Scan this code on the receiving device', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+            Text('Room ${_invite!.roomId}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+            const SizedBox(height: 4),
+            const Text('Scan this code on the receiving device', style: TextStyle(fontSize: 13)),
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
