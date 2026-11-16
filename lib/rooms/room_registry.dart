@@ -71,13 +71,5 @@ class RoomRegistry {
     return true;
   }
 
-  void markPending() {
-    for (final entry in _members.entries.toList()) {
-      if (entry.value.completed) {
-        _members[entry.key] = entry.value.copyWith(completed: false);
-      }
-    }
-  }
-
   bool leave(String deviceId) => _members.remove(deviceId) != null;
 }

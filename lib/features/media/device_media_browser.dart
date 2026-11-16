@@ -299,6 +299,115 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       }
     }
   }
+  Future<void> _manageAsset(AssetEntity asset, String action) async {
+    try {
+      final source = await asset.file;
+      if (source == null || !await source.exists()) {
+        throw StateError('This media file is no longer available.');
+      }
+      final oldPath = source.path;
+      final name = oldPath.split(Platform.pathSeparator).last;
+      if (action == 'delete') {
+        final confirmed = await confirmPermanentDelete(
+          context, itemDescription: name,
+        );
+        if (!confirmed) return;
+        final deleted = await PhotoManager.editor.deleteWithIds([asset.id]);
+        if (!deleted.contains(asset.id)) return;
+        if (widget.selectedPaths.contains(oldPath)) widget.onSelect(source);
+        _assetPaths.remove(asset.id);
+        _thumbnailFutures.remove(asset.id);
+        await _load();
+        return;
+      }
+      if (action == 'rename') {
+        final controller = TextEditingController(
+          text: name.contains('.') ? name.substring(0, name.lastIndexOf('.')) : name,
+        );
+        final nextName = await showDialog<String>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Rename media'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'New file name'),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Rename')),
+            ],
+          ),
+        );
+        controller.dispose();
+        if (nextName == null || nextName.isEmpty) return;
+        final extension = name.contains('.') ? name.substring(name.lastIndexOf('.')) : '';
+        final targetName = nextName.endsWith(extension) ? nextName : '$nextName$extension';
+        final target = File('${source.parent.path}${Platform.pathSeparator}$targetName');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists.', target.path);
+        final renamed = await source.rename(target.path);
+        if (widget.selectedPaths.contains(oldPath)) {
+          widget.onSelect(source);
+          widget.onSelect(renamed);
+        }
+        _assetPaths[asset.id] = renamed.path;
+        _thumbnailFutures.remove(asset.id);
+        await _load();
+        return;
+      }
+      if (action == 'copy' || action == 'move') {
+        final directory = await FilePicker.getDirectoryPath();
+        if (directory == null) return;
+        if (action == 'move') {
+          final confirmed = await confirmPermanentDelete(
+            context,
+            itemDescription: 'the original $name after it is copied to the selected folder',
+          );
+          if (!confirmed) return;
+        }
+        final target = File('$directory${Platform.pathSeparator}$name');
+        if (await target.exists()) throw FileSystemException('A file with that name already exists in the selected folder.', target.path);
+        await source.copy(target.path);
+        if (action == 'move') {
+          final deleted = await PhotoManager.editor.deleteWithIds([asset.id]);
+          if (!deleted.contains(asset.id)) {
+            await target.delete();
+            throw StateError('Android did not approve removing the original media item.');
+          }
+          if (widget.selectedPaths.contains(oldPath)) widget.onSelect(source);
+          _assetPaths.remove(asset.id);
+          _thumbnailFutures.remove(asset.id);
+          await _load();
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(action == 'move' ? 'Media moved to selected folder.' : 'Media copied to selected folder.')),
+          );
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not $action media: $error')),
+        );
+      }
+    }
+  }
+
+  PopupMenuButton<String> _assetMenu(AssetEntity asset) => PopupMenuButton<String>(
+    tooltip: 'Manage media',
+    icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 18),
+    color: Theme.of(context).colorScheme.surface,
+    onSelected: (action) => _manageAsset(asset, action),
+    itemBuilder: (_) => const [
+      PopupMenuItem(value: 'rename', child: Text('Rename')),
+      PopupMenuItem(value: 'copy', child: Text('Copy to folder')),
+      PopupMenuItem(value: 'move', child: Text('Move to folder')),
+      PopupMenuDivider(),
+      PopupMenuItem(value: 'delete', child: Text('Delete permanently')),
+    ],
+  );
+
   Future<void> _deleteSelectedVisible() async {
     final selected = _filteredAssets.where((asset) {
       final path = _assetPaths[asset.id];
@@ -535,9 +644,15 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                           leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
                           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          trailing: Icon(
-                            selected ? Icons.check_circle : Icons.circle_outlined,
-                            color: selected ? colors.primary : colors.onSurfaceVariant,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                selected ? Icons.check_circle : Icons.circle_outlined,
+                                color: selected ? colors.primary : colors.onSurfaceVariant,
+                              ),
+                              _assetMenu(asset),
+                            ],
                           ),
                           onTap: () => _select(asset),
                         );
@@ -601,6 +716,17 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                             }
                             return Image.memory(bytes, fit: BoxFit.cover);
                           },
+                        ),
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: _assetMenu(asset),
+                          ),
                         ),
                         if (widget.kind == MediaKind.videos)
                           const Center(

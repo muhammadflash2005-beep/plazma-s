@@ -360,7 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: SingleChildScrollView(
                           controller: _contentScrollController,
                           physics: const ClampingScrollPhysics(),
-                          padding: EdgeInsets.fromLTRB(16, 10, 16, _tab == 0 ? 160 : 18),
+                          padding: EdgeInsets.fromLTRB(16, 10, 16, _tab == 0 ? 112 : 18),
                           child: IndexedStack(
                             index: _tab,
                             children: [

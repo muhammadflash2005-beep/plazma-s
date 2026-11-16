@@ -29,19 +29,6 @@ void main() {
       expect(room.joinedCount, 2);
     });
 
-    test('adding more queue items marks previously completed receivers pending again', () {
-      final room = RoomRegistry(roomId: 'ABC234');
-      const first = '0123456789abcdef0123456789abcdef';
-      const second = 'abcdef0123456789abcdef0123456789';
-      room.join(deviceId: first, deviceName: 'Phone', platform: 'android');
-      room.join(deviceId: second, deviceName: 'PC', platform: 'windows');
-      room.markCompleted(first);
-      expect(room.completedCount, 1);
-      room.markPending();
-      expect(room.completedCount, 0);
-      expect(room.members.every((member) => !member.completed), isTrue);
-    });
-
     test('tracks completion independently and supports leaving', () {
       final room = RoomRegistry(roomId: 'ABC234');
       const first = '0123456789abcdef0123456789abcdef';
