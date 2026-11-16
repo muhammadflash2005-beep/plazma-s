@@ -281,9 +281,11 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       } catch (_) {}
     }
     await _loadDesktopMedia();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Deleted $deleted selected $_label item(s).')),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $deleted selected $_label item(s).')),
+      );
+    }
   }
 
   Widget _buildDesktopMedia(ColorScheme colors) {
@@ -655,8 +657,10 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     if (Platform.isWindows || Platform.isLinux) {
-      if (!widget.enabled && !_loaded) return Text('Open this tab to load device $_label.',
-        style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12));
+      if (!widget.enabled && !_loaded) {
+        return Text('Open this tab to load device $_label.',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12));
+      }
       return _buildDesktopMedia(colors);
     }
     if (!widget.enabled && !_loaded) {
