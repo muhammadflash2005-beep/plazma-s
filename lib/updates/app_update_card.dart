@@ -233,7 +233,7 @@ try {
 }
 ''';
         final directory = await getTemporaryDirectory();
-        final scriptFile = File('\${directory.path}\${Platform.pathSeparator}plazma-s-update.ps1');
+        final scriptFile = File('${directory.path}${Platform.pathSeparator}plazma-s-update.ps1');
         await scriptFile.writeAsString(script);
         await Process.start('powershell.exe', [
           '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptFile.path,
