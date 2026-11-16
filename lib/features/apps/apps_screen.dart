@@ -60,7 +60,7 @@ class DesktopInstalledApp {
 
 class AppsScreen extends StatefulWidget {
   static final ValueNotifier<int> selectedCount = ValueNotifier<int>(0);
-  static VoidCallback? sendSelected;
+  static Future<void> Function()? sendSelected;
 
   const AppsScreen({super.key});
   @override
