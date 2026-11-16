@@ -224,15 +224,15 @@ class _FilesScreenState extends State<FilesScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('On the sending device, copy the Plazma S room code and paste it below. Both devices must already be connected to the same Wi-Fi.'),
+                const Text('On the sending device, open More room actions → Copy connection link, then paste that link below. The short room code is for identifying the room; it does not contain the connection details. Both devices must already be connected to the same Wi-Fi.'),
                 const SizedBox(height: 12),
                 TextField(
                   controller: controller,
                   minLines: 2,
                   maxLines: 4,
                   decoration: const InputDecoration(
-                    labelText: 'Plazma S connection code',
-                    hintText: 'plazmas://connect?...',
+                    labelText: 'Plazma S connection link',
+                    hintText: 'Paste the copied connection link',
                     border: OutlineInputBorder(),
                   ),
                 ),
