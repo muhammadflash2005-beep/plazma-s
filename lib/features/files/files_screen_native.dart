@@ -609,10 +609,35 @@ class _FilesScreenState extends State<FilesScreen> {
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)),
-              icon: const Icon(Icons.copy_rounded, size: 16),
-              label: const Text('Copy room code'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)),
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: const Text('Copy room code'),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'More connection options',
+                  onSelected: (value) {
+                    if (value == 'copy_link') {
+                      Clipboard.setData(ClipboardData(text: _invite!.toQrValue()));
+                      _message('Connection link copied');
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem<String>(
+                      value: 'copy_link',
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(Icons.link_rounded),
+                        title: Text('Copy connection link'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 10),
             Row(children: [
