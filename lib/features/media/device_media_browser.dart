@@ -8,6 +8,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:photo_manager/photo_manager.dart';
+
+import 'permanent_delete_confirmation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MediaKind { images, videos, music }
@@ -381,13 +383,21 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
           Row(children: [
             TextButton(onPressed: _selectAllVisible, child: const Text('Select all')),
             TextButton(onPressed: _clearVisibleSelection, child: const Text('Clear selection')),
+            if (widget.selectedPaths.isNotEmpty)
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: _deleteSelectedVisible,
+                child: const Text('Delete'),
+              ),
             const Spacer(),
             Text('${widget.selectedPaths.length} selected',
               style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
           ]),
 
           Text(
-            'Showing ${_filteredAssets.length} of $_totalCount',
+            _searchQuery.trim().isEmpty
+                ? 'Showing ${_assets.length} of $_totalCount'
+                : 'Showing ${_filteredAssets.length} matching items · ${_assets.length} loaded of $_totalCount',
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 12,
