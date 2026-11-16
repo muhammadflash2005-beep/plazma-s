@@ -6,10 +6,11 @@ concurrency:
 
 on:
   push:
-    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms]
+    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms, phase1/shared-room-live-queue]
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
