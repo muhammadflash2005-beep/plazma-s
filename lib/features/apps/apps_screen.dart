@@ -69,6 +69,7 @@ class _AppsScreenState extends State<AppsScreen> {
   final Set<String> _selected = {};
   final Map<String, List<SharedLocalFile>> _incoming = {};
   final Map<String, String> _saved = {};
+  final Map<String, int> _appSizes = {};
   final Map<String, Future<void>> _saveTasks = {};
   final Map<String, Future<Uint8List?>> _iconFutures = {};
   final List<DesktopInstalledApp> _desktopApps = [];
@@ -165,6 +166,15 @@ class _AppsScreenState extends State<AppsScreen> {
         includeSystem: false, onlyLaunchable: true, includeIcons: false);
       apps.removeWhere((app) => (app.packageName ?? '').startsWith('org.chromium.webapk.'));
       apps.sort((a,b) => (a.appName ?? '').toLowerCase().compareTo((b.appName ?? '').toLowerCase()));
+      final nativeDetails = await const MethodChannel('com.plazma.s/apps')
+          .invokeListMethod<dynamic>('listInstalledApps') ?? const <dynamic>[];
+      final appSizes = <String, int>{};
+      for (final value in nativeDetails.whereType<Map>()) {
+        final detail = Map<String, dynamic>.from(value);
+        final packageName = detail['packageName'];
+        final size = detail['sizeBytes'];
+        if (packageName is String && size is num) appSizes[packageName] = size.toInt();
+      }
       final saved = <String,String>{};
       await for (final entity in library.list(followLinks: false)) {
         if (entity is Directory) {
@@ -179,6 +189,7 @@ class _AppsScreenState extends State<AppsScreen> {
       setState(() {
         _library = library;
         _apps..clear()..addAll(apps);
+        _appSizes..clear()..addAll(appSizes);
         _visibleAppCount = _appPageSize;
         _iconFutures.clear();
         _saved..clear()..addAll(saved);
@@ -187,6 +198,17 @@ class _AppsScreenState extends State<AppsScreen> {
       });
     } catch (e) { if (mounted) setState(() => _error = 'Could not load apps: ' + e.toString()); }
     finally { if (mounted) setState(() => _loading = false); }
+  }
+
+  String _formatAppSize(int bytes) {
+    const units = ['B', 'KB', 'MB', 'GB'];
+    var value = bytes.toDouble();
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return '${value.toStringAsFixed(unit == 0 ? 0 : 1)} ${units[unit]}';
   }
 
   Future<Uint8List?> _appIcon(String packageName) {
@@ -946,6 +968,9 @@ class _AppsScreenState extends State<AppsScreen> {
                               Text(app.appName ?? pkg ?? 'App', textAlign: TextAlign.center,
                                 maxLines: 2, overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700)),
+                              if (pkg != null && _appSizes.containsKey(pkg))
+                                Text(_formatAppSize(_appSizes[pkg]!), textAlign: TextAlign.center,
+                                  maxLines: 1, style: TextStyle(fontSize: 8, color: theme.colorScheme.onSurfaceVariant)),
                             ],
                           ),
                         ),
