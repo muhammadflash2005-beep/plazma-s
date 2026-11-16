@@ -789,7 +789,7 @@ class XenderLocalTransferService {
                 final isBundle = relative.toLowerCase().endsWith('.plazmaapp');
                 final publicFolder = finalPath.substring(0, finalPath.lastIndexOf(Platform.pathSeparator));
                 final installPath = isBundle
-                    ? target.parent.parent.path + Platform.pathSeparator + package
+                    ? target.parent.parent.parent.path + Platform.pathSeparator + package
                     : target.parent.path;
                 await TransferHistoryStore.add(
                   name: package, type: 'app', direction: 'received',
