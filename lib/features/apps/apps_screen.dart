@@ -536,7 +536,9 @@ class _AppsScreenState extends State<AppsScreen> {
             }
             final name = values['Name']?.trim() ?? '';
             if (name.isEmpty || values['NoDisplay'] == 'true' || values['Hidden'] == 'true' ||
-                values['Type'] != 'Application' || !seen.add(name.toLowerCase())) continue;
+                values['Type'] != 'Application' || !seen.add(name.toLowerCase())) {
+              continue;
+            }
             final icon = await _resolveLinuxIcon(values['Icon']?.trim() ?? '');
             apps.add(DesktopInstalledApp(name: name, version: '', publisher: '',
               installLocation: null, iconPath: icon));
