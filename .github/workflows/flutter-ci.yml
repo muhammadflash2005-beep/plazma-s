@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms]
+    branches: [main, feature/xender-style-connection, feature/unified-same-wifi-multi-device-rooms, feature/send-apps]
     tags: ['v*']
   pull_request:
     branches: [main]
@@ -96,14 +96,27 @@ jobs:
           s = s.replace("</application>", service + "\n" + provider + "\n    </application>", 1)
           manifest.write_text(s)
           gradle_kts = Path("android/app/build.gradle.kts")
-          if gradle_kts.exists():
-              gradle_text = gradle_kts.read_text()
-              gradle_text = gradle_text.replace(
-                  "dependencies {",
-                  'dependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")',
-                  1,
-              )
-              gradle_kts.write_text(gradle_text)
+          gradle_groovy = Path("android/app/build.gradle")
+          gradle_file = gradle_kts if gradle_kts.exists() else gradle_groovy
+          if gradle_file.exists():
+              gradle_text = gradle_file.read_text()
+              if "androidx.documentfile:documentfile" not in gradle_text:
+                  if "dependencies {" in gradle_text:
+                      gradle_text = gradle_text.replace(
+                          "dependencies {",
+                          'dependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")',
+                          1,
+                      ) if gradle_file == gradle_kts else gradle_text.replace(
+                          "dependencies {",
+                          "dependencies {\n    implementation 'androidx.core:core:1.15.0'\n    implementation 'androidx.documentfile:documentfile:1.0.1'",
+                          1,
+                      )
+                  else:
+                      block = ('\ndependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")\n}\n'
+                               if gradle_file == gradle_kts else
+                               "\ndependencies {\n    implementation 'androidx.core:core:1.15.0'\n    implementation 'androidx.documentfile:documentfile:1.0.1'\n}\n")
+                      gradle_text += block
+                  gradle_file.write_text(gradle_text)
           file_paths = Path("android/app/src/main/res/xml/plazma_file_paths.xml")
           file_paths.parent.mkdir(parents=True, exist_ok=True)
           file_paths.write_text("""<?xml version="1.0" encoding="utf-8"?>
@@ -379,7 +392,7 @@ jobs:
                                       else -> android.provider.MediaStore.Files.getContentUri("external")
                                   }
                                   if (transferKey.isNotBlank()) {
-                                      val selection = "${android.provider.MediaStore.MediaColumns.DESCRIPTION}=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
+                                      val selection = "${"description"}=? AND ${android.provider.MediaStore.MediaColumns.RELATIVE_PATH}=?"
                                       contentResolver.query(collection,
                                           arrayOf(android.provider.MediaStore.MediaColumns._ID,
                                               android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
@@ -417,7 +430,7 @@ jobs:
                                       put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
                                       put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
                                       put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "$relativeFolder/")
-                                      if (transferKey.isNotBlank()) put(android.provider.MediaStore.MediaColumns.DESCRIPTION, "plazma:$transferKey")
+                                      if (transferKey.isNotBlank()) put("description", "plazma:$transferKey")
                                       put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
                                   }
                                   val uri = contentResolver.insert(collection, values)
