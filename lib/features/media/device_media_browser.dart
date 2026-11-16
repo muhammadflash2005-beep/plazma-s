@@ -232,9 +232,12 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       if (!await folder.exists()) continue;
       try {
         await for (final entity in folder.list(recursive: true, followLinks: false)) {
-          if (entity is File && extensions.contains(
-              entity.path.substring(entity.path.lastIndexOf('.')).toLowerCase())) {
-            found.add(entity);
+          if (entity is File) {
+            final filename = entity.uri.pathSegments.last;
+            final dot = filename.lastIndexOf('.');
+            if (dot >= 0 && extensions.contains(filename.substring(dot).toLowerCase())) {
+              found.add(entity);
+            }
           }
           if (found.length >= 20000) break;
         }
