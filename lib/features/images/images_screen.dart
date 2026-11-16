@@ -296,11 +296,10 @@ class _ImagesScreenState extends State<ImagesScreen> {
           child: QrImageView(data: _invite!.toQrValue(), size: 220)),
         const SizedBox(height: 8),
         Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
-        SelectableText(_invite!.toQrValue(), textAlign: TextAlign.center),
-        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.toQrValue())), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
+        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
         Row(children: [
           const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
-          Text('${_service.joinedDeviceCount}/8'),
+          Text('${_service.joinedDeviceCount}/7'),
         ]),
         ..._service.roomMembers.map((member) => ListTile(
           dense: true,
