@@ -232,6 +232,21 @@ jobs:
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
+                              "openAppSettings" -> {
+                                  val packageName = call.argument<String>("packageName") ?: ""
+                                  if (packageName.isBlank()) {
+                                      result.error("INVALID_PACKAGE", "An app package name is required.", null)
+                                  } else {
+                                      try {
+                                          val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                              Uri.parse("package:$packageName"))
+                                          startActivity(intent)
+                                          result.success(null)
+                                      } catch (error: Exception) {
+                                          result.error("APP_SETTINGS_FAILED", error.message, null)
+                                      }
+                                  }
+                              }
                               "exportApks" -> {
                                   val packageNames = call.argument<List<String>>("packageNames") ?: emptyList()
                                   try {
