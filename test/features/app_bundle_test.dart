@@ -54,10 +54,9 @@ void main() {
       versionCode: 1,
       apks: [base],
     );
-    final file = await bundle.open(mode: FileMode.append);
-    await file.setPosition(await file.length() - 1);
-    await file.writeByte(99);
-    await file.close();
+    final bytes = await bundle.readAsBytes();
+    bytes[bytes.length - 1] = 99;
+    await bundle.writeAsBytes(bytes, flush: true);
 
     await expectLater(
       AppBundle.extract(bundle: bundle, outputDirectory: Directory('${root.path}/out')),
