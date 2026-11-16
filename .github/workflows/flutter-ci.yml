@@ -235,7 +235,8 @@ jobs:
                                       "image" -> android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                                       "video" -> android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                                       "music" -> android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                                      else -> android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                                      "app" -> android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                                      else -> android.provider.MediaStore.Files.getContentUri("external")
                                   }
                                   var finalName = requestedName
                                   var suffix = 1
@@ -267,6 +268,12 @@ jobs:
                                           put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
                                       }, null, null)
                                       if (type != "app") source.delete()
+                                      if (Build.VERSION.SDK_INT >= 33 &&
+                                          androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                                          !getSharedPreferences("plazma_permissions", MODE_PRIVATE).getBoolean("notification_prompted", false)) {
+                                          getSharedPreferences("plazma_permissions", MODE_PRIVATE).edit().putBoolean("notification_prompted", true).apply()
+                                          androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7043)
+                                      }
                                       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                           val channel = android.app.NotificationChannel("plazma_saved", "Saved files", android.app.NotificationManager.IMPORTANCE_DEFAULT)
                                           getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
