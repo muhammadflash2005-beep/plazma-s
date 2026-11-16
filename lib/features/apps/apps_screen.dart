@@ -695,7 +695,6 @@ class _AppsScreenState extends State<AppsScreen> {
         setState(() => _status = 'Received ' + all.length.toString() + ' item(s). Saved in ' + receiveRoot.path);
       } else {
         for (final entry in _incoming.entries) {
-          final bytes = entry.value.fold<int>(0, (sum,item) => sum + item.size);
           _saved[entry.key] = entry.key;
         }
         if (!mounted) return;

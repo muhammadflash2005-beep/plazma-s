@@ -124,7 +124,7 @@ class XenderLocalTransferService {
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
   final Set<String> _recordedSentHistory = <String>{};
-  final Set<int> _recordedReceivedHistory = <int>{};
+  final Set<String> _recordedReceivedHistory = <String>{};
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -728,24 +728,40 @@ class XenderLocalTransferService {
     for (var attempt = 0; attempt < 5; attempt++) {
       final result = await _postQueueStatus(invite, id, status, bytes, client: client);
       if (result == status) {
-        if (status == 'done' && _recordedReceivedHistory.add(id)) {
+        if (status == 'done') {
           final matches = _joinedManifest.where((item) => item.id == id);
           if (matches.isNotEmpty && _lastDownloadDestination != null) {
             final item = matches.first;
             final relative = _safeRelativePath(item.relativePath);
+            final categoryFolder = switch (item.type) {
+              'image' => 'Pictures/Plazma S',
+              'video' => 'Movies/Plazma S',
+              'music' => 'Music/Plazma S',
+              'app' => 'Download/Plazma S',
+              _ => 'Documents/Plazma S',
+            };
             final target = File(_lastDownloadDestination!.path + Platform.pathSeparator +
+                categoryFolder.replaceAll('/', Platform.pathSeparator) + Platform.pathSeparator +
                 relative.replaceAll('/', Platform.pathSeparator));
             _updateJoinedQueueStatus(id, 'saved', item.size);
-            final historyPath = item.type == 'app' ? target.parent.path : target.path;
-            final historyName = item.type == 'app' ? relative.split('/').first : item.name;
-            await TransferHistoryStore.add(
-              name: historyName,
-              type: item.type,
-              direction: 'received',
-              path: historyPath,
-              bytes: item.size,
-              peer: 'Nearby Plazma S device',
-            );
+            if (item.type == 'app') {
+              final package = relative.split('/').first;
+              final packageItems = _joinedManifest.where((value) =>
+                  value.type == 'app' && value.relativePath.startsWith('$package/')).toList();
+              if (packageItems.isNotEmpty && packageItems.every((value) => value.status == 'saved') &&
+                  _recordedReceivedHistory.add('app:$package')) {
+                await TransferHistoryStore.add(
+                  name: package, type: 'app', direction: 'received',
+                  path: target.parent.path, bytes: packageItems.fold<int>(0, (sum, value) => sum + value.size),
+                  peer: 'Nearby Plazma S device',
+                );
+              }
+            } else if (_recordedReceivedHistory.add('item:$id')) {
+              await TransferHistoryStore.add(
+                name: item.name, type: item.type, direction: 'received',
+                path: target.path, bytes: item.size, peer: 'Nearby Plazma S device',
+              );
+            }
             debugPrint('Plazma receiver completion confirmed for item ' + id.toString());
           }
         }
