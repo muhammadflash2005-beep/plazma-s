@@ -127,6 +127,8 @@ class XenderLocalTransferService {
   final Set<String> _recordedSentHistory = <String>{};
   final Set<String> _recordedReceivedHistory = <String>{};
   final Map<int, String> _finalSavedPaths = <int, String>{};
+  final Map<int, String> _finalSavedUris = <int, String>{};
+  void Function(SharedLocalFile item, String path, String? uri)? _lastDownloadSaved;
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -715,6 +717,7 @@ class XenderLocalTransferService {
           files: retryItems,
           destination: destination,
           onProgress: onProgress,
+          onSaved: _lastDownloadSaved,
         );
       }
     } catch (error) {
@@ -797,6 +800,8 @@ class XenderLocalTransferService {
     _lastDownloadProgress = null;
     _recordedReceivedHistory.clear();
     _finalSavedPaths.clear();
+    _finalSavedUris.clear();
+    _lastDownloadSaved = null;
     // Receivers must already be connected to the same Wi-Fi/LAN.
     await _startForegroundService();
     final deviceId = List.generate(
@@ -973,6 +978,8 @@ class XenderLocalTransferService {
         'type': item.type,
       }).timeout(const Duration(seconds: 30));
       final path = saved?['path'];
+      final uri = saved?['uri'];
+      if (uri is String && uri.isNotEmpty) _finalSavedUris[item.id] = uri;
       if (path is! String || path.isEmpty) {
         throw StateError('Android did not return the saved file location.');
       }
@@ -989,9 +996,11 @@ class XenderLocalTransferService {
     required List<SharedLocalFile> files,
     required Directory destination,
     required void Function(LocalTransferProgress progress) onProgress,
+    void Function(SharedLocalFile item, String path, String? uri)? onSaved,
   }) async {
     _lastDownloadDestination = destination;
     _lastDownloadProgress = onProgress;
+    _lastDownloadSaved = onSaved;
     await destination.create(recursive: true);
     var totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
@@ -1046,6 +1055,7 @@ class XenderLocalTransferService {
                 wasCancelled = true;
                 continue;
               }
+              onSaved?.call(item, _finalSavedPaths[item.id] ?? target.path, _finalSavedUris[item.id]);
               onProgress(LocalTransferProgress(
                 fileName: item.name, fileBytes: item.size, fileSize: item.size,
                 totalBytes: totalBytes, totalSize: totalSize,
@@ -1075,6 +1085,7 @@ class XenderLocalTransferService {
                 wasCancelled = true;
                 continue;
               }
+              onSaved?.call(item, _finalSavedPaths[item.id] ?? target.path, _finalSavedUris[item.id]);
               onProgress(LocalTransferProgress(
                 fileName: item.name, fileBytes: item.size, fileSize: item.size,
                 totalBytes: totalBytes, totalSize: totalSize,
@@ -1146,7 +1157,10 @@ class XenderLocalTransferService {
           final finalStatus = await _postQueueStatusReliable(
             invite, item.id, 'done', item.size, client: client,
           );
-          if (finalStatus == 'done') _updateJoinedQueueStatus(item.id, 'saved', item.size);
+          if (finalStatus == 'done') {
+            _updateJoinedQueueStatus(item.id, 'saved', item.size);
+            onSaved?.call(item, _finalSavedPaths[item.id] ?? target.path, _finalSavedUris[item.id]);
+          }
           if (finalStatus == 'cancelled') {
             wasCancelled = true;
             continue;
@@ -1346,6 +1360,7 @@ class XenderLocalTransferService {
     _joinedManifest = const [];
     _lastDownloadDestination = null;
     _lastDownloadProgress = null;
+    _lastDownloadSaved = null;
     _retryingFailedQueue = false;
     _publishRoomFiles();
     if (invite != null && deviceId != null) {
