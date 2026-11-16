@@ -275,20 +275,7 @@ class _FilesScreenState extends State<FilesScreen> {
             ).then((_) => _service.invite!)
           : await _service.startSharing(
         files: List<File>.from(_files),
-        relativePaths: List<String>.from(_relativePaths),
-        onTransferCompleted: () async {
-          for (var index = 0; index < _files.length; index++) {
-            final file = _files[index];
-            await TransferHistoryStore.add(
-              name: _relativePaths[index].split('/').last,
-              type: 'file',
-              direction: 'sent',
-              path: file.path,
-              bytes: await file.length(),
-              peer: 'Nearby Plazma S device',
-            );
-          }
-        },
+        relativePaths: List<String>.from(_relativePaths)
       );
       if (!mounted) return;
       setState(() {
@@ -494,16 +481,6 @@ class _FilesScreenState extends State<FilesScreen> {
           ));
         },
       );
-      for (final item in _availableFiles) {
-        await TransferHistoryStore.add(
-          name: item.name,
-          type: 'file',
-          direction: 'received',
-          path: '$destination/${item.relativePath}',
-          bytes: item.size,
-          peer: 'Nearby Plazma S device',
-        );
-      }
       if (!mounted) return;
       setState(() {
         _progress = 1;

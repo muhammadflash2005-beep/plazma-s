@@ -118,19 +118,7 @@ class _MusicScreenState extends State<MusicScreen> {
               .then((_) => _service.invite!)
           : _service.startSharing(
               files: List<File>.from(_selected),
-              relativePaths: names,
-              onTransferCompleted: () async {
-                for (final file in _selected) {
-                  await TransferHistoryStore.add(
-                    name: file.uri.pathSegments.last,
-                    type: 'music',
-                    direction: 'sent',
-                    path: file.path,
-                    bytes: await file.length(),
-                    peer: 'Nearby Plazma S device',
-                  );
-                }
-              },
+              relativePaths: names
             ));
       if (!mounted) return;
       setState(() { _invite = invite; _selected.clear(); _status = 'Room ${_invite!.roomId} · waiting for devices'; });
@@ -262,16 +250,6 @@ class _MusicScreenState extends State<MusicScreen> {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
         },
       );
-      for (final item in _incoming) {
-        await TransferHistoryStore.add(
-          name: item.name,
-          type: 'music',
-          direction: 'received',
-          path: '${destination.path}${Platform.pathSeparator}${item.relativePath}',
-          bytes: item.size,
-          peer: 'Nearby Plazma S device',
-        );
-      }
       if (!mounted) return;
       setState(() {
         _receivedDirectory = destination;

@@ -690,9 +690,6 @@ class _AppsScreenState extends State<AppsScreen> {
         for (final entry in _incoming.entries) {
           final bytes = entry.value.fold<int>(0, (sum,item) => sum + item.size);
           _saved[entry.key] = entry.key;
-          await TransferHistoryStore.add(name: entry.key, type: 'app', direction: 'received',
-            path: _library!.path + Platform.pathSeparator + entry.key,
-            bytes: bytes, peer: 'Nearby Plazma S device');
         }
         if (!mounted) return;
         setState(() => _status = 'Received and saved ' + _incoming.length.toString() + ' app(s).');

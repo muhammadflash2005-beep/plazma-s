@@ -249,16 +249,6 @@ class _VideosScreenState extends State<VideosScreen> {
           if (mounted) setState(() => _progress = p.fraction.clamp(0.0, 1.0));
         },
       );
-      for (final item in _incoming) {
-        await TransferHistoryStore.add(
-          name: item.name,
-          type: 'video',
-          direction: 'received',
-          path: '${destination.path}${Platform.pathSeparator}${item.relativePath}',
-          bytes: item.size,
-          peer: 'Nearby Plazma S device',
-        );
-      }
       if (!mounted) return;
       setState(() {
         _receivedDirectory = destination;
