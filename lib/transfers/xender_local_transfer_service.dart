@@ -312,6 +312,7 @@ class XenderLocalTransferService {
     if (additions.isNotEmpty) {
       _files = [..._files, ...nextFiles];
       _manifest = [..._manifest, ...additions];
+      _room?.markPending();
       _bumpManifestRevision();
     }
   }
@@ -358,11 +359,24 @@ class XenderLocalTransferService {
         return;
       }
       if (request.method == 'POST' && request.uri.path == '/complete') {
-        // Do not acknowledge a receiver while new room items are still waiting.
-        // The receiver will refresh the manifest and drain those additions.
-        final waitingCount = _manifest.where(
-          (item) => item['status'] == 'waiting',
-        ).length;
+        // Completion is tracked per receiver. One receiver may finish or
+        // cancel locally while another is still downloading the same queue.
+        final deviceId = request.uri.queryParameters['deviceId'];
+        final isJoinedReceiver = deviceId != null &&
+            (_room?.members.any((member) => member.deviceId == deviceId) ?? false);
+        if (!isJoinedReceiver) {
+          request.response.statusCode = HttpStatus.forbidden;
+          await request.response.close();
+          return;
+        }
+        final waitingCount = _manifest.where((item) {
+          if (item['status'] == 'cancelled') return false;
+          final id = item['id'] as int;
+          final receiverStatus = _receiverQueueStatuses.statusFor(deviceId, id)?.status;
+          return receiverStatus == null ||
+              receiverStatus == 'waiting' ||
+              receiverStatus == 'sending';
+        }).length;
         if (waitingCount > 0) {
           request.response.statusCode = HttpStatus.conflict;
           request.response.headers.contentType = ContentType.json;
@@ -373,7 +387,6 @@ class XenderLocalTransferService {
           await request.response.close();
           return;
         }
-        final deviceId = request.uri.queryParameters['deviceId'];
         final wasFirst = (_room?.completedCount ?? 0) == 0;
         final marked = deviceId != null && (_room?.markCompleted(deviceId) ?? false);
         request.response.statusCode = HttpStatus.ok;
