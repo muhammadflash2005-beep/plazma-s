@@ -53,4 +53,23 @@ void main() {
     expect(queue.items.first.bytesTransferred, 75);
     expect(queue.items.last.type, TransferItemType.music);
   });
+
+
+  test('one receiver cancelling an item does not cancel it for another', () {
+    final statuses = ReceiverQueueStatusRegistry();
+    expect(statuses.update('phone-a', 7, 'cancelled'), isTrue);
+    expect(statuses.statusFor('phone-a', 7), 'cancelled');
+    expect(statuses.statusFor('phone-b', 7), isNull);
+    expect(statuses.update('phone-a', 7, 'sending'), isFalse);
+    expect(statuses.update('phone-b', 7, 'sending'), isTrue);
+    expect(statuses.statusFor('phone-b', 7), 'sending');
+  });
+
+  test('receiver cancellation state is removed when that device leaves', () {
+    final statuses = ReceiverQueueStatusRegistry();
+    statuses.update('phone-a', 2, 'cancelled');
+    statuses.removeDevice('phone-a');
+    expect(statuses.statusFor('phone-a', 2), isNull);
+  });
+
 }

@@ -117,3 +117,24 @@ class TransferQueue {
     }
   }
 }
+
+
+/// Tracks cancellation independently for each receiver. One recipient leaving
+/// an item must not cancel that item for every other device in the room.
+class ReceiverQueueStatusRegistry {
+  final Map<String, Map<int, String>> _statuses = {};
+
+  String? statusFor(String deviceId, int itemId) => _statuses[deviceId]?[itemId];
+
+  bool update(String deviceId, int itemId, String status) {
+    final receiverItems = _statuses.putIfAbsent(deviceId, () => <int, String>{});
+    if (receiverItems[itemId] == 'cancelled' && status != 'cancelled') {
+      return false;
+    }
+    receiverItems[itemId] = status;
+    return true;
+  }
+
+  void removeDevice(String deviceId) => _statuses.remove(deviceId);
+  void clear() => _statuses.clear();
+}

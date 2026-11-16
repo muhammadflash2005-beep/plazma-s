@@ -11,6 +11,7 @@ import '../network/android_wifi_session_service.dart';
 import '../rooms/room_id.dart';
 import '../rooms/room_registry.dart';
 import 'transfer_overlay_controller.dart';
+import 'transfer_queue.dart';
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -110,6 +111,7 @@ class XenderLocalTransferService {
   List<Map<String, Object>> _manifest = const [];
   List<SharedLocalFile> _joinedManifest = const [];
   final ValueNotifier<List<SharedLocalFile>> roomFiles = ValueNotifier(const []);
+  final ReceiverQueueStatusRegistry _receiverQueueStatuses = ReceiverQueueStatusRegistry();
   int _manifestRevision = 0;
   Completer<void>? _manifestChanged;
   PlazmaConnectionInvite? _invite;
@@ -332,16 +334,23 @@ class XenderLocalTransferService {
           return;
         }
         final currentStatus = _manifest[id]['status'] as String? ?? 'waiting';
-        if (currentStatus == 'cancelled' && status != 'cancelled') {
+        final deviceId = decoded is Map ? decoded['deviceId'] : null;
+        final receiverCanUpdate = deviceId is! String ||
+            _receiverQueueStatuses.update(deviceId, id, status);
+        if (currentStatus == 'cancelled' || !receiverCanUpdate) {
           request.response.statusCode = HttpStatus.ok;
           request.response.headers.contentType = ContentType.json;
           request.response.write(jsonEncode({'status': 'cancelled'}));
           await request.response.close();
           return;
         }
-        _setQueueStatus(id, status, bytes, decoded is Map ? decoded['error'] as String? : null);
+        // A receiver's cancellation is local to that receiver. Host-side
+        // cancellation remains in the shared manifest and stops every receiver.
+        if (status != 'cancelled') {
+          _setQueueStatus(id, status, bytes, decoded is Map ? decoded['error'] as String? : null);
+        }
         request.response.headers.contentType = ContentType.json;
-        request.response.write(jsonEncode({'status': _manifest[id]['status']}));
+        request.response.write(jsonEncode({'status': status}));
         await request.response.close();
         return;
       }
@@ -408,7 +417,7 @@ class XenderLocalTransferService {
         final body = await utf8.decoder.bind(request).join();
         final decoded = jsonDecode(body);
         final deviceId = decoded is Map ? decoded['deviceId'] : null;
-        if (deviceId is String) _room?.leave(deviceId);
+        if (deviceId is String) { _room?.leave(deviceId); _receiverQueueStatuses.removeDevice(deviceId); }
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         return;
@@ -582,7 +591,7 @@ class XenderLocalTransferService {
     try {
       final request = await httpClient.postUrl(_endpoint(invite, '/queue-status'));
       request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({'id': id, 'status': status, 'bytesTransferred': bytes, if (error != null) 'error': error}));
+      request.write(jsonEncode({'id': id, 'status': status, 'bytesTransferred': bytes, if (_joinedDeviceId != null) 'deviceId': _joinedDeviceId, if (error != null) 'error': error}));
       final response = await request.close().timeout(const Duration(seconds: 8));
       final decoded = jsonDecode(await utf8.decoder.bind(response).join());
       return decoded is Map ? decoded['status'] as String? : null;
