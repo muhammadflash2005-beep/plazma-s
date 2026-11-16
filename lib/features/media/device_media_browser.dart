@@ -16,6 +16,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum MediaKind { images, videos, music }
 
 class DeviceMediaBrowser extends StatefulWidget {
+  // Active browser callbacks used by the sticky selection toolbar.
+  static final Map<MediaKind, Future<void> Function()> deleteSelected = {};
   const DeviceMediaBrowser({
     required this.kind,
     required this.onSelect,
@@ -82,6 +84,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DeviceMediaBrowser.deleteSelected[widget.kind] = _deleteSelectedAssets;
     widget.parentScrollController?.addListener(_handleParentScroll);
     if (widget.enabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -116,6 +119,9 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
   @override
   void dispose() {
     widget.parentScrollController?.removeListener(_handleParentScroll);
+    if (DeviceMediaBrowser.deleteSelected[widget.kind] == _deleteSelectedAssets) {
+      DeviceMediaBrowser.deleteSelected.remove(widget.kind);
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -318,6 +324,60 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
       } catch (_) {}
     }
   }
+
+  Future<void> _deleteSelectedAssets() async {
+    if (!mounted || widget.selectedPaths.isEmpty) return;
+    final selectedAssets = _assets.where((asset) {
+      final path = _assetPaths[asset.id];
+      return path != null && widget.selectedPaths.contains(path);
+    }).toList();
+    if (selectedAssets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The selected media items are no longer available. Refresh and select them again.')),
+      );
+      await _load();
+      return;
+    }
+    final names = <String>[];
+    for (final asset in selectedAssets) {
+      final file = await asset.file;
+      names.add(file?.uri.pathSegments.last ?? 'media item');
+    }
+    if (!mounted) return;
+    final confirmed = await confirmPermanentDelete(
+      context,
+      itemDescription: '\${selectedAssets.length} selected \${_label} item(s) (\${names.take(3).join(', ')}\${names.length > 3 ? ', …' : ''})',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      final ids = selectedAssets.map((asset) => asset.id).toList();
+      final deleted = await PhotoManager.editor.deleteWithIds(ids);
+      final deletedSet = deleted.toSet();
+      if (deletedSet.isEmpty) {
+        throw StateError('Android did not approve deleting the selected media.');
+      }
+      for (final asset in selectedAssets.where((asset) => deletedSet.contains(asset.id))) {
+        final path = _assetPaths.remove(asset.id);
+        _thumbnailFutures.remove(asset.id);
+        if (path != null && widget.selectedPaths.contains(path)) {
+          widget.onSelect(File(path));
+        }
+      }
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Deleted \${deletedSet.length} selected \${_label} item(s).')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete selected \${_label}: $error')),
+        );
+      }
+    }
+  }
+
   Future<void> _manageAsset(AssetEntity asset, String action) async {
     try {
       final source = await asset.file;
