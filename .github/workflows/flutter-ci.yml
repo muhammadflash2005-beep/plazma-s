@@ -638,8 +638,10 @@ jobs:
                       }
                       return
                   }
-                  val detail = when (status) {
-                      android.content.pm.PackageInstaller.STATUS_SUCCESS -> "Installation completed."
+                  val detail = when {
+                      message.contains("VERSION_DOWNGRADE", ignoreCase = true) ->
+                          "Android blocked this older app version. Install a newer or matching version instead."
+                      status == android.content.pm.PackageInstaller.STATUS_SUCCESS -> "Installation completed."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_INVALID -> "The APK is invalid or corrupted."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
