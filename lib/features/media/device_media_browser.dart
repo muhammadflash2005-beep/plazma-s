@@ -213,7 +213,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
         ? (Platform.environment['USERPROFILE'] ?? '')
         : (Platform.environment['HOME'] ?? '');
     if (home.isEmpty) {
-      if (mounted) setState(() { _loaded = true; _message = 'Could not locate this user’s media folders.'; });
+      if (mounted) setState(() { _loading = false; _loaded = true; _message = 'Could not locate this user’s media folders.'; });
       return;
     }
     final folderNames = switch (widget.kind) {
@@ -245,6 +245,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     if (!mounted) return;
     setState(() {
       _desktopFiles..clear()..addAll(found);
+      _loading = false;
       _totalCount = found.length;
       _loaded = true;
       _needsRefresh = false;
