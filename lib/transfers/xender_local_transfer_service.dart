@@ -119,6 +119,9 @@ class XenderLocalTransferService {
   RoomRegistry? _room;
   String? _joinedDeviceId;
   PlazmaConnectionInvite? _joinedInvite;
+  Directory? _lastDownloadDestination;
+  void Function(LocalTransferProgress progress)? _lastDownloadProgress;
+  bool _retryingFailedQueue = false;
 
   List<RoomDevice> get roomMembers => _room?.members ?? const [];
   int get joinedDeviceCount => _room?.receiverCount ?? 0;
@@ -600,13 +603,43 @@ class XenderLocalTransferService {
         else { next.add(item); }
       }
       if (changed) { _manifest = next; _bumpManifestRevision(); }
-    } else if (_joinedInvite != null) {
-      for (final item in _joinedManifest) {
-        if (item.status == 'failed') {
-          final status = await _postQueueStatus(_joinedInvite!, item.id, 'waiting', 0);
-          if (status == 'waiting') _updateJoinedQueueStatus(item.id, 'waiting', 0);
-        }
+      return;
+    }
+    final invite = _joinedInvite;
+    final destination = _lastDownloadDestination;
+    final onProgress = _lastDownloadProgress;
+    if (invite == null || _retryingFailedQueue) return;
+
+    for (final item in _joinedManifest) {
+      if (item.status == 'failed') {
+        final status = await _postQueueStatus(invite, item.id, 'waiting', 0);
+        if (status == 'waiting') _updateJoinedQueueStatus(item.id, 'waiting', 0);
       }
+    }
+
+    // A retry must resume the receiver, not merely change the sender's queue
+    // state. Reuse the last destination and progress callback from the active
+    // category screen; if no download has been started on this device yet,
+    // leave the items waiting for the normal Receive action.
+    if (destination == null || onProgress == null) return;
+    _retryingFailedQueue = true;
+    try {
+      final snapshot = await _fetchManifest(invite);
+      _joinedManifest = snapshot.files;
+      _publishRoomFiles();
+      final retryItems = snapshot.files.where((item) => item.status == 'waiting').toList();
+      if (retryItems.isNotEmpty) {
+        await downloadAll(
+          invite: invite,
+          files: retryItems,
+          destination: destination,
+          onProgress: onProgress,
+        );
+      }
+    } catch (error) {
+      debugPrint('Plazma queue retry did not complete: $error');
+    } finally {
+      _retryingFailedQueue = false;
     }
   }
 
@@ -728,6 +761,8 @@ class XenderLocalTransferService {
     required Directory destination,
     required void Function(LocalTransferProgress progress) onProgress,
   }) async {
+    _lastDownloadDestination = destination;
+    _lastDownloadProgress = onProgress;
     await destination.create(recursive: true);
     var totalSize = files.fold<int>(0, (sum, file) => sum + file.size);
     var totalBytes = 0;
