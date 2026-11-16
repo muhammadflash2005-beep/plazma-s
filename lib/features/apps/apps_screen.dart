@@ -56,7 +56,8 @@ class DesktopInstalledApp {
       }
     }
     return DesktopInstalledApp(name: read('DisplayName'), version: read('DisplayVersion'),
-      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location,\n      iconPath: read('IconPath').isEmpty ? null : read('IconPath'));
+      publisher: read('Publisher'), installLocation: location.isEmpty ? null : location,
+      iconPath: read('IconPath').isEmpty ? null : read('IconPath'));
   }
 }
 
