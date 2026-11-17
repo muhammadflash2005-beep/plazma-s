@@ -294,7 +294,7 @@ jobs:
                                           volumes.add(mapOf(
                                               "id" to canonical,
                                               "name" to if (index == 0) "Phone storage" else "SD card",
-                                              "path" to appDirectory.absolutePath,
+                                              "path" to root.absolutePath,
                                               "totalBytes" to total,
                                               "availableBytes" to free,
                                               "isPrimary" to (index == 0),
@@ -673,6 +673,19 @@ jobs:
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
+                              "isPackageInstalled" -> {
+                                  val targetPackage = call.argument<String>("packageName").orEmpty()
+                                  if (targetPackage.isBlank()) {
+                                      result.error("INVALID_PACKAGE", "An app package name is required.", null)
+                                  } else {
+                                      try {
+                                          packageManager.getApplicationInfo(targetPackage, 0)
+                                          result.success(true)
+                                      } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                                          result.success(false)
+                                      }
+                                  }
+                              }
                               "listInstalledApps" -> {
                                   try {
                                       result.success(installedAppDetails())
