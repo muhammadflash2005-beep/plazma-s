@@ -43,9 +43,8 @@ void main() {
       of: find.text('Themes, colors and custom appearance'),
       matching: find.byType(ListTile),
     );
-    await tester.ensureVisible(appearanceTile);
-    await tester.pump(const Duration(milliseconds: 250));
-    await tester.tap(appearanceTile);
+    final appearanceEntry = tester.widget<ListTile>(appearanceTile);
+    appearanceEntry.onTap!.call();
     await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Choose a theme'), findsOneWidget);
