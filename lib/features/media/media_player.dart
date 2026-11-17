@@ -106,7 +106,7 @@ class _LightningBeatPainter extends CustomPainter {
     const segments = 72;
     for (var i = 0; i <= segments; i++) {
       final x = size.width * i / segments;
-      final pulse = (1 - (i / segments - phase).abs() * 1.65).clamp(0.0, 1.0);
+      final pulse = (1 - (i / segments - phase).abs() * 1.65).clamp(0.0, 1.0).toDouble();
       final beat = (i % 9 == 0 || i % 13 == 0) ? 1.0 : .28;
       final jag = (((i * 17) % 11) - 5) / 5;
       final y = center + jag * (5 + pulse * 15) * beat * (0.55 + pulse);
@@ -124,5 +124,5 @@ class _LightningBeatPainter extends CustomPainter {
     }
   }
   @override bool shouldRepaint(covariant _LightningBeatPainter old) =>
-      old.phase != phase || old.primary != primary || old.secondary != secondary;
+      old.phase != phase || old.primary != primary || old.secondary != secondary || old.glow != glow;
 }
