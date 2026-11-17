@@ -1091,14 +1091,7 @@ class _FilesScreenState extends State<FilesScreen> {
                   )),
             ],
             const Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.folder_open_rounded),
-              title: Text(_destination == null ? 'Save folder · Automatic default' : 'Save folder · ${_destination!}'),
-              subtitle: const Text('Files are saved on this phone'),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: _downloading ? null : _chooseDestination,
-            ),
+            // Save destinations are managed centrally in Me > Settings > Save locations.
             if (_downloading) ...[
               const SizedBox(height: 8),
               LinearProgressIndicator(value: _progress),
