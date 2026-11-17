@@ -100,7 +100,16 @@ class LanFileTransfer {
         throw FileSystemException('A file with this name already exists.', target.path);
       }
 
-      final partialDirectory = Directory('${destination.path}${Platform.pathSeparator}.plazma_s_partial');
+      // Keep resume state in the app's private temporary area, not inside the
+      // user-selected SAF folder. Android may deny creation of hidden/internal
+      // directories in a document-tree destination even when normal files are
+      // writable there. Hash the destination so separate receive folders do
+      // not share partial state; the path is stable across app restarts.
+      final destinationKey = sha256.convert(utf8.encode(destination.absolute.path)).toString();
+      final partialDirectory = Directory(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}plazma_s_partial'
+        '${Platform.pathSeparator}$destinationKey',
+      );
       await partialDirectory.create(recursive: true);
       partialFile = File('${partialDirectory.path}${Platform.pathSeparator}$transferId.part');
       metadataFile = File('${partialDirectory.path}${Platform.pathSeparator}$transferId.json');
