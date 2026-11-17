@@ -29,10 +29,36 @@ class FilesScreen extends StatefulWidget {
   State<FilesScreen> createState() => _FilesScreenState();
 }
 
+class _StorageVolume {
+  const _StorageVolume({required this.id, required this.name, required this.path,
+    required this.totalBytes, required this.availableBytes, required this.isPrimary,
+    required this.accessible});
+  final String id;
+  final String name;
+  final String path;
+  final int totalBytes;
+  final int availableBytes;
+  final bool isPrimary;
+  final bool accessible;
+  int get usedBytes => (totalBytes - availableBytes).clamp(0, totalBytes);
+  double get usedFraction => totalBytes <= 0 ? 0 : usedBytes / totalBytes;
+  factory _StorageVolume.fromMap(Map<dynamic, dynamic> value) => _StorageVolume(
+    id: value['id']?.toString() ?? '',
+    name: value['name']?.toString() ?? 'Storage',
+    path: value['path']?.toString() ?? '',
+    totalBytes: (value['totalBytes'] as num?)?.toInt() ?? 0,
+    availableBytes: (value['availableBytes'] as num?)?.toInt() ?? 0,
+    isPrimary: value['isPrimary'] == true,
+    accessible: value['accessible'] == true,
+  );
+}
+
 class _FilesScreenState extends State<FilesScreen> {
   final XenderLocalTransferService _service = XenderLocalTransferService();
   final List<File> _files = [];
   final List<String> _relativePaths = [];
+  List<_StorageVolume> _storageVolumes = const [];
+  bool _storageLoading = false;
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiverInvite;
   List<SharedLocalFile> _availableFiles = [];
@@ -58,6 +84,7 @@ class _FilesScreenState extends State<FilesScreen> {
     if (_receiverInvite != null) _watchIncomingFiles(_receiverInvite!);
     _addInitialPaths(widget.initialPaths);
     unawaited(_loadSavedDestination());
+    if (Platform.isAndroid) unawaited(_loadStorageVolumes());
   }
 
   @override
@@ -657,6 +684,7 @@ class _FilesScreenState extends State<FilesScreen> {
         Text('Connect devices on the same Wi-Fi network. No hotspot switching or internet required.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 18),
+        _storagePanel(theme),
         if (_status != null) _statusCard(theme),
         if (widget.initialAction != 'join') ...[
           if (_invite == null) _senderPanel(theme) else _senderQrPanel(theme),
@@ -670,6 +698,115 @@ class _FilesScreenState extends State<FilesScreen> {
           child: LinearProgressIndicator(),
         ),
       ],
+    );
+  }
+
+  Future<void> _loadStorageVolumes() async {
+    if (!Platform.isAndroid) return;
+    if (mounted) setState(() => _storageLoading = true);
+    try {
+      final values = await const MethodChannel('com.plazma.s/storage')
+          .invokeListMethod<dynamic>('listStorageVolumes');
+      final volumes = (values ?? const <dynamic>[])
+          .whereType<Map<dynamic, dynamic>>()
+          .map(_StorageVolume.fromMap)
+          .where((volume) => volume.totalBytes > 0)
+          .toList();
+      if (mounted) setState(() => _storageVolumes = volumes);
+    } catch (error) {
+      if (mounted) _message('Could not detect phone storage: $error');
+    } finally {
+      if (mounted) setState(() => _storageLoading = false);
+    }
+  }
+
+  Future<void> _browseStorage(_StorageVolume volume) async {
+    if (_busy) return;
+    try {
+      final selected = await FilePicker.getDirectoryPath(
+        initialDirectory: volume.path,
+        dialogTitle: 'Choose a folder in ${volume.name}',
+      );
+      if (selected == null || !mounted) return;
+      final root = Directory(selected);
+      if (!await root.exists()) throw FileSystemException('Selected folder is unavailable.', selected);
+      final prefix = root.path.endsWith(Platform.pathSeparator)
+          ? root.path : '${root.path}${Platform.pathSeparator}';
+      final foundFiles = <File>[];
+      final foundPaths = <String>[];
+      await for (final entity in root.list(recursive: true, followLinks: false)) {
+        if (entity is! File) continue;
+        final stat = await entity.stat();
+        if (stat.type != FileSystemEntityType.file) continue;
+        final relative = entity.path.substring(prefix.length).replaceAll(Platform.pathSeparator, '/');
+        if (relative.isEmpty || relative.startsWith('../') ||
+            _relativePaths.contains(relative) || foundPaths.contains(relative)) continue;
+        foundFiles.add(entity);
+        foundPaths.add(relative);
+      }
+      if (!mounted) return;
+      setState(() {
+        _files.addAll(foundFiles);
+        _relativePaths.addAll(foundPaths);
+        _status = 'Added ${foundFiles.length} file(s) from ${volume.name}';
+      });
+    } catch (error) {
+      if (mounted) _message('Could not browse ${volume.name}: $error');
+    }
+  }
+
+  String _storageSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+  }
+
+  Widget _storagePanel(ThemeData theme) {
+    if (!Platform.isAndroid) return const SizedBox.shrink();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.storage_rounded),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Accessible storage', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
+            IconButton(onPressed: _storageLoading ? null : _loadStorageVolumes,
+              tooltip: 'Refresh storage', icon: const Icon(Icons.refresh_rounded)),
+          ]),
+          if (_storageLoading && _storageVolumes.isEmpty) const LinearProgressIndicator(),
+          if (!_storageLoading && _storageVolumes.isEmpty)
+            const Text('No accessible storage volumes were detected.'),
+          ..._storageVolumes.map((volume) => Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                CircleAvatar(
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(volume.isPrimary ? Icons.phone_android_rounded : Icons.sd_storage_rounded,
+                    color: theme.colorScheme.onPrimaryContainer),
+                ),
+                const SizedBox(width: 10),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(volume.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text('${_storageSize(volume.usedBytes)} used · ${_storageSize(volume.availableBytes)} free / ${_storageSize(volume.totalBytes)}',
+                    style: theme.textTheme.bodySmall),
+                ])),
+                TextButton(onPressed: () => _browseStorage(volume), child: const Text('Browse')),
+              ]),
+              const SizedBox(height: 6),
+              ClipRRect(borderRadius: BorderRadius.circular(8), child: LinearProgressIndicator(
+                value: volume.usedFraction, minHeight: 8,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation<Color>(volume.usedFraction > .9
+                    ? theme.colorScheme.error : theme.colorScheme.primary),
+              )),
+            ]),
+          )),
+          const SizedBox(height: 6),
+          Text('Browse opens Android’s folder picker. Only folders you grant access to can be read.',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ]),
+      ),
     );
   }
 
