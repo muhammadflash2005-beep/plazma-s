@@ -39,10 +39,14 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_rounded).last);
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('Manage your Plazma S experience and device preferences.'), findsOneWidget);
-    await tester.ensureVisible(find.text('Appearance').last);
+    final appearanceTile = find.ancestor(
+      of: find.text('Themes, colors and custom appearance'),
+      matching: find.byType(ListTile),
+    );
+    await tester.ensureVisible(appearanceTile);
     await tester.pump(const Duration(milliseconds: 250));
-    await tester.tap(find.text('Appearance').last);
-    await tester.pump(const Duration(milliseconds: 800));
+    await tester.tap(appearanceTile);
+    await tester.pump(const Duration(seconds: 1));
 
     expect(find.text('Choose a theme'), findsOneWidget);
 
