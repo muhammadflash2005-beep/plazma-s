@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
+import 'package:media_kit/media_kit.dart';
 
 import 'updates/app_update_card.dart';
 import 'widgets/electric_progress_bar.dart';
@@ -23,7 +24,11 @@ import 'transfers/transfer_overlay_controller.dart';
 import 'transfers/xender_local_transfer_service.dart';
 import 'features/history/transfer_history_screen.dart';
 
-void main() => runApp(const PlazmaApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  runApp(const PlazmaApp());
+}
 
 enum PlazmaTheme { light, dark, ocean, sunset, forest, purple, crimson, midnight, obsidian, monochrome, blackGold, abyssalAmethyst }
 
