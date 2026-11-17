@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 
 import '../../transfers/transfer_history.dart';
+import '../apps/apk_bundle.dart';
 import '../apps/install_status_store.dart';
 
 class TransferHistoryScreen extends StatefulWidget {
@@ -129,6 +130,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
         final staged = File('${cache.path}${Platform.pathSeparator}${entry.name}.apk');
         await apks.single.copy(staged.path);
         await ApkBundle.install(staged.path);
+        InstallStatusStore.report(entry.name, true);
       } else {
         await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
           'installApkSet',
