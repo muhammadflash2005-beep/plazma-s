@@ -1509,7 +1509,13 @@ jobs:
           echo "Verified: keystore password, key alias, and private-key password are valid."
 
       - name: Build Android APK
-        run: flutter build apk --release
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ secrets.POSTHOG_PROJECT_TOKEN }}
+          POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+        run: |
+          flutter build apk --release \
+            --dart-define=POSTHOG_PROJECT_TOKEN="$POSTHOG_PROJECT_TOKEN" \
+            --dart-define=POSTHOG_HOST="$POSTHOG_HOST"
       - name: Verify APK uses permanent release certificate
         if: github.event_name != 'pull_request'
         env:
