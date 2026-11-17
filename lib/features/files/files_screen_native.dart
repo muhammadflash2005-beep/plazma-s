@@ -482,15 +482,6 @@ class _FilesScreenState extends State<FilesScreen> {
     if (path != null && path.isNotEmpty && mounted) setState(() => _destination = path);
   }
 
-  Future<void> _chooseDestination() async {
-    final path = await FilePicker.getDirectoryPath();
-    if (path != null && mounted) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('plazma_receive_folder_v1', path);
-      setState(() => _destination = path);
-    }
-  }
-
   Future<void> _downloadFiles() async {
     final invite = _receiverInvite;
     if (invite == null || _availableFiles.isEmpty || _downloading) return;
