@@ -275,6 +275,39 @@ jobs:
                       }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
                       .setMethodCallHandler { call, result ->
+                          if (call.method == "listStorageVolumes") {
+                              try {
+                                  val volumes = mutableListOf<Map<String, Any>>()
+                                  val candidates = getExternalFilesDirs(null).filterNotNull()
+                                  val seen = mutableSetOf<String>()
+                                  candidates.forEachIndexed { index, appDirectory ->
+                                      // .../Android/data/<package>/files -> volume root.
+                                      var root = appDirectory
+                                      repeat(4) { root = root.parentFile ?: root }
+                                      val canonical = try { root.canonicalPath } catch (_: Exception) { root.absolutePath }
+                                      if (!root.exists() || !root.canRead() || !seen.add(canonical)) return@forEachIndexed
+                                      try {
+                                          val stats = android.os.StatFs(root.absolutePath)
+                                          val total = stats.totalBytes
+                                          val free = stats.availableBytes
+                                          if (total <= 0L) return@forEachIndexed
+                                          volumes.add(mapOf(
+                                              "id" to canonical,
+                                              "name" to if (index == 0) "Phone storage" else "SD card",
+                                              "path" to appDirectory.absolutePath,
+                                              "totalBytes" to total,
+                                              "availableBytes" to free,
+                                              "isPrimary" to (index == 0),
+                                              "accessible" to appDirectory.canRead()
+                                          ))
+                                      } catch (_: Exception) { }
+                                  }
+                                  result.success(volumes)
+                              } catch (error: Exception) {
+                                  result.error("STORAGE_DETECTION_FAILED", error.message, null)
+                              }
+                              return@setMethodCallHandler
+                          }
                           if (call.method == "releaseSaveFolder") {
                               val rawUri = call.argument<String>("uri")
                               if (!rawUri.isNullOrBlank()) {
