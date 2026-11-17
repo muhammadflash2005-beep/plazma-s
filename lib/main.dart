@@ -431,7 +431,10 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (sheetContext) => SafeArea(
         child: ValueListenableBuilder<List<SharedLocalFile>>(
           valueListenable: service.roomFiles,
-          builder: (context, items, _) {
+          builder: (context, allItems, _) {
+            // Cancelled entries remain in the room manifest for protocol safety,
+            // but should immediately disappear from the visible transfer queue.
+            final items = allItems.where((item) => item.status != 'cancelled').toList(growable: false);
             final roomId = service.invite?.roomId ?? service.joinedInvite?.roomId;
             final isReceiver = service.isReceiving;
             final totalBytes = items.fold<int>(0, (sum, item) => sum + item.size);
