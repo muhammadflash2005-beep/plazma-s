@@ -324,6 +324,7 @@ class _MusicScreenState extends State<MusicScreen> {
 
   Future<void> _convertMp4ToMp3() async {
     if (_converting) return;
+    File? output;
     try {
       final picked = await FilePicker.pickFiles(type: FileType.video, allowMultiple: false);
       if (picked.isEmpty || picked.files.single.path == null) return;
@@ -333,108 +334,14 @@ class _MusicScreenState extends State<MusicScreen> {
       final outputDirectory = Directory('${root.path}${Platform.pathSeparator}Plazma S Converted Audio');
       await outputDirectory.create(recursive: true);
       final originalName = input.uri.pathSegments.isEmpty ? 'audio' : input.uri.pathSegments.last;
-      final stem = originalName.replaceFirst(RegExp(r'\\.[^.]+
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Music', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
-      const SizedBox(height: 6),
-      Text('Browse audio files on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
-        style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-      const SizedBox(height: 14),
-      Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(Icons.audio_file_rounded, color: theme.colorScheme.primary),
-          const SizedBox(width: 8),
-          const Expanded(child: Text('MP4 to MP3 converter', style: TextStyle(fontWeight: FontWeight.w800))),
-          FilledButton.tonalIcon(
-            onPressed: _converting ? null : _convertMp4ToMp3,
-            icon: _converting ? const SizedBox(width: 16,height: 16,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.transform_rounded),
-            label: Text(_converting ? 'Converting…' : 'Choose MP4'),
-          ),
-        ]),
-        const SizedBox(height: 5),
-        Text('Extract the audio track from a video and save it as an MP3 file.',
-          style: TextStyle(color: theme.colorScheme.onSurfaceVariant,fontSize: 12)),
-        if (_conversionStatus != null) ...[
-          const SizedBox(height: 8),
-          Text(_conversionStatus!,style: TextStyle(color: theme.colorScheme.onSurfaceVariant,fontSize: 11)),
-        ],
-        if (_convertedMp3 != null && _convertedMp3!.existsSync())
-          Align(alignment: Alignment.centerLeft,child: TextButton.icon(
-            onPressed: () => showAudioPlayer(context,file:_convertedMp3!,title:_convertedMp3!.uri.pathSegments.last),
-            icon: const Icon(Icons.play_arrow_rounded),label: const Text('Play converted MP3'))),
-      ]))),
-      const SizedBox(height: 12),
-      if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
-      if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
-        Text('Room ${_invite!.roomId}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-        const SizedBox(height: 12),
-        Container(color: Colors.white, padding: const EdgeInsets.all(10),
-          child: QrImageView(data: _invite!.toQrValue(), size: 220)),
-        const SizedBox(height: 8),
-        Text('Same Wi-Fi · ${_invite!.host}:${_invite!.port}'),
-        TextButton.icon(onPressed: () => Clipboard.setData(ClipboardData(text: _invite!.roomId)), icon: const Icon(Icons.copy, size: 16), label: const Text('Copy room code')),
-        PopupMenuButton<String>(
-          tooltip: 'More room actions',
-          onSelected: (value) { if (value == 'link') Clipboard.setData(ClipboardData(text: _invite!.toQrValue())); },
-          itemBuilder: (context) => const [PopupMenuItem(value: 'link', child: Text('Copy connection link'))],
-        ),
-        Row(children: [
-          const Expanded(child: Text('Connected devices', style: TextStyle(fontWeight: FontWeight.w800))),
-          Text('${_service.joinedDeviceCount}/7'),
-        ]),
-        ..._service.roomMembers.map((member) => ListTile(
-          dense: true,
-          leading: Icon(member.platform == 'android' ? Icons.phone_android : Icons.computer),
-          title: Text(member.deviceName),
-          subtitle: Text(member.platform),
-          trailing: Icon(member.completed ? Icons.check_circle : Icons.wifi, color: member.completed ? Colors.green : null),
-        )),
-        OutlinedButton.icon(onPressed: _busy ? null : _stopSharing,
-          icon: const Icon(Icons.stop), label: const Text('Stop sharing')),
-      ]))),
-      if (_receiver != null) Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(children: [
-        Row(children: [Expanded(child: Text('${_incoming.length} song(s) ready', style: const TextStyle(fontWeight: FontWeight.w800))),
-          TextButton(onPressed: _busy ? null : _refreshMusic, child: const Text('Refresh')),
-          TextButton(onPressed: _busy ? null : _disconnect, child: const Text('Disconnect'))]),
-        if (_busy) LinearProgressIndicator(value: _progress > 0 ? _progress : null),
-        if (!_service.isReceiving)
-          FilledButton.icon(onPressed: _busy || _receivedDirectory != null ? null : _downloadMusic,
-            icon: const Icon(Icons.download), label: Text(_busy ? 'Receiving files…' : _receivedDirectory != null ? 'Received' : 'Receive music')),
-      ]))),
-      if (_receiver == null) ...[
-        DeviceMediaBrowser(
-          enabled: widget.enabled,
-          parentScrollController: widget.scrollController,
-          kind: MediaKind.music,
-          selectedPaths: _selected.map((file) => file.path).toSet(),
-          onSelect: (file) {
-            setState(() {
-              if (_selected.any((existing) => existing.path == file.path)) {
-                _selected.removeWhere((existing) => existing.path == file.path);
-              } else {
-                _selected.add(file);
-              }
-              _status = _selected.isEmpty ? null : '${_selected.length} song(s) selected';
-            });
-            MusicScreen.selectedCount.value = _selected.length;
-          },
-        ),
-        const SizedBox(height: 12),
-      ],
-      if (_receivedDirectory != null) Text('Saved to: ${_receivedDirectory!.path}',
-        style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12)),
-      if (_busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
-    ]);
-  }
-}), '');
-      final output = File('${outputDirectory.path}${Platform.pathSeparator}$stem.mp3');
-      if (mounted) setState(() { _converting = true; _conversionStatus = 'Converting video audio to MP3…'; _convertedMp3 = null; });
+      final dot = originalName.lastIndexOf('.');
+      final stem = dot > 0 ? originalName.substring(0, dot) : originalName;
+      output = File('${outputDirectory.path}${Platform.pathSeparator}$stem.mp3');
+      if (mounted) setState(() {
+        _converting = true;
+        _conversionStatus = 'Converting video audio to MP3…';
+        _convertedMp3 = null;
+      });
       final session = await FFmpegKit.executeWithArguments([
         '-y', '-i', input.path, '-vn', '-codec:a', 'libmp3lame', '-q:a', '2', output.path,
       ]);
@@ -444,7 +351,10 @@ class _MusicScreenState extends State<MusicScreen> {
         throw StateError(logs?.trim().isNotEmpty == true ? logs! : 'MP3 conversion failed.');
       }
       if (!mounted) return;
-      setState(() { _convertedMp3 = output; _conversionStatus = 'MP3 saved: ${output.path}'; });
+      setState(() {
+        _convertedMp3 = output;
+        _conversionStatus = 'MP3 saved: ${output!.path}';
+      });
       _message('MP4 audio converted to MP3 successfully.');
     } catch (error) {
       if (mounted) setState(() => _conversionStatus = 'Conversion failed: $error');
