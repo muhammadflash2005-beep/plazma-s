@@ -4,8 +4,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:ffmpeg_kit_flutter_new_audio/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_audio/return_code.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -14,6 +12,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../media/device_media_browser.dart';
 import '../media/media_player.dart';
+import '../media/mp4_to_mp3_converter.dart';
 
 import '../../network/android_wifi_session_service.dart';
 import '../../transfers/transfer_overlay_controller.dart';
@@ -342,14 +341,7 @@ class _MusicScreenState extends State<MusicScreen> {
         _conversionStatus = 'Converting video audio to MP3…';
         _convertedMp3 = null;
       });
-      final session = await FFmpegKit.executeWithArguments([
-        '-y', '-i', input.path, '-vn', '-codec:a', 'libmp3lame', '-q:a', '2', output.path,
-      ]);
-      final returnCode = await session.getReturnCode();
-      if (!ReturnCode.isSuccess(returnCode) || !await output.exists() || await output.length() == 0) {
-        final logs = await session.getOutput();
-        throw StateError(logs?.trim().isNotEmpty == true ? logs! : 'MP3 conversion failed.');
-      }
+      await convertMp4ToMp3(input, output);
       if (!mounted) return;
       setState(() {
         _convertedMp3 = output;
