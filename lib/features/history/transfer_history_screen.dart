@@ -26,6 +26,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   void initState() {
     super.initState();
     InstallStatusStore.installed.addListener(_onInstallStatusChanged);
+    _load();
   }
 
   @override
@@ -47,10 +48,6 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
   };
 
-  @override
-  void initState() {
-    super.initState();
-    _load();
   }
 
   Future<void> _load() async {
