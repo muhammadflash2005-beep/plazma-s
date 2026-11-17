@@ -797,11 +797,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 
-  Widget _meContent() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    _settingsContent(),
-    const SizedBox(height: 22),
-    _secondaryContent(),
-  ]);
+  Widget _meContent() => _settingsContent();
 
   Widget _settingsContent() {
     final selected = widget.themes.selected;
