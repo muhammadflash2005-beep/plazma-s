@@ -139,7 +139,6 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
         final staged = File('${cache.path}${Platform.pathSeparator}${entry.name}.apk');
         await apks.single.copy(staged.path);
         await ApkBundle.install(staged.path);
-        InstallStatusStore.report(entry.name, true);
       } else {
         await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
           'installApkSet',
