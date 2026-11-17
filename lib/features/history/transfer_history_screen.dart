@@ -19,6 +19,7 @@ class TransferHistoryScreen extends StatefulWidget {
 class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   List<TransferHistoryEntry> _entries = [];
   bool _loading = true;
+  String _selectedDirection = 'received';
 
   static const _audioExtensions = {
     'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff',
@@ -186,7 +187,6 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                 trailing: category == 'app' && direction == 'received'
                     ? TextButton.icon(
                         onPressed: () => _installApp(entry),
-                        icon: const Icon(Icons.install_mobile_rounded, size: 18),
                         label: const Text('Install'),
                       )
                     : null,
@@ -265,10 +265,21 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
         Text('Your sent and received files, apps, music and images stay listed here.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 16),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'received', label: Text('Received'), icon: Icon(Icons.download_rounded)),
+            ButtonSegment(value: 'sent', label: Text('Sent'), icon: Icon(Icons.send_rounded)),
+          ],
+          selected: {_selectedDirection},
+          onSelectionChanged: (values) => setState(() => _selectedDirection = values.first),
+        ),
         if (_loading) const LinearProgressIndicator(),
-        _directionCard(title: 'Sent', direction: 'sent', icon: Icons.north_east_rounded),
         const SizedBox(height: 12),
-        _directionCard(title: 'Received', direction: 'received', icon: Icons.south_west_rounded),
+        _directionCard(
+          title: _selectedDirection == 'received' ? 'Received' : 'Sent',
+          direction: _selectedDirection,
+          icon: _selectedDirection == 'received' ? Icons.south_west_rounded : Icons.north_east_rounded,
+        ),
       ],
     );
   }
