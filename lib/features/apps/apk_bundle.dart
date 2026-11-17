@@ -78,10 +78,10 @@ class ApkBundle {
 
     await outputDirectory.create(recursive: true);
     final bundle = File(
-      outputDirectory.path + Platform.pathSeparator + '$packageName.apks',
+      '${outputDirectory.path}${Platform.pathSeparator}$packageName.apks',
     );
     final manifestFile = File(
-      outputDirectory.path + Platform.pathSeparator + '.$packageName.manifest.tmp',
+      '${outputDirectory.path}${Platform.pathSeparator}.$packageName.manifest.tmp',
     );
     await manifestFile.writeAsString(
       jsonEncode({
@@ -202,7 +202,7 @@ class ApkBundle {
 
       await destinationDirectory.create(recursive: true);
       staging = Directory(
-        destinationDirectory.path + Platform.pathSeparator + '.apk-bundle-staging',
+        '${destinationDirectory.path}${Platform.pathSeparator}.apk-bundle-staging',
       );
       if (await staging.exists()) await staging.delete(recursive: true);
       await staging.create(recursive: true);
@@ -212,7 +212,7 @@ class ApkBundle {
         final item = Map<String, dynamic>.from(rawFile as Map);
         final name = item['name'] as String;
         final entry = apkEntries.singleWhere((value) => value.name == name);
-        final outputFile = File(staging.path + Platform.pathSeparator + name);
+        final outputFile = File('${staging.path}${Platform.pathSeparator}$name');
         final output = OutputFileStream(outputFile.path);
         try {
           entry.writeContent(output);
@@ -235,7 +235,7 @@ class ApkBundle {
       final result = <File>[];
       for (final file in extracted) {
         final target = File(
-          destinationDirectory.path + Platform.pathSeparator + file.uri.pathSegments.last,
+          '${destinationDirectory.path}${Platform.pathSeparator}${file.uri.pathSegments.last}',
         );
         result.add(await file.rename(target.path));
       }
