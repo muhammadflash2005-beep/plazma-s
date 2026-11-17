@@ -336,11 +336,13 @@ class _MusicScreenState extends State<MusicScreen> {
       final dot = originalName.lastIndexOf('.');
       final stem = dot > 0 ? originalName.substring(0, dot) : originalName;
       output = File('${outputDirectory.path}${Platform.pathSeparator}$stem.mp3');
-      if (mounted) setState(() {
-        _converting = true;
-        _conversionStatus = 'Converting video audio to MP3…';
-        _convertedMp3 = null;
-      });
+      if (mounted) {
+        setState(() {
+          _converting = true;
+          _conversionStatus = 'Converting video audio to MP3…';
+          _convertedMp3 = null;
+        });
+      }
       await convertMp4ToMp3(input, output);
       if (!mounted) return;
       setState(() {
