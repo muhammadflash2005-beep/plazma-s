@@ -1,0 +1,47 @@
+name: plazma_s
+description: Fast, secure, cross-platform local network file and app sharing.
+publish_to: "none"
+version: 0.2.25+31
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.5.3
+  bonsoir: ^7.1.6
+  file_picker: ^13.3.3
+  flutter_device_apps: ^1.1.0
+  crypto: ^3.0.6
+  http: ^1.5.0
+  package_info_plus: ^10.2.2
+  flutter_local_notifications: ^23.0.2
+  path_provider: ^2.1.5
+  photo_manager: ^3.7.1
+  audio_metadata_reader: ^1.8.1
+  convert: ^3.1.2
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.0.1
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+  ffmpeg_kit_flutter_new_audio: ^2.5.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/plazma_s.jpg
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/plazma_s.jpg
+  adaptive_icon_background: "#05020D"
+  adaptive_icon_foreground: assets/icon/plazma_s.jpg

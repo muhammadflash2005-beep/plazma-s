@@ -1,0 +1,9 @@
+{
+  "name": "Plazma S",
+  "short_name": "Plazma S",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#F4F7FC",
+  "theme_color": "#2563EB",
+  "description": "Local network file and app sharing preview."
+}
