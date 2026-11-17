@@ -5,6 +5,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import 'apk_bundle.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -371,10 +373,17 @@ class _AppsScreenState extends State<AppsScreen> {
         if (savedFiles.isEmpty || savedFiles.first.uri.pathSegments.last != 'base.apk') {
           throw StateError('The saved APK set for $pkg is incomplete.');
         }
-        for (final file in savedFiles) {
-          files.add(file);
-          paths.add(pkg + '/' + file.uri.pathSegments.last);
-        }
+        final bundleDirectory = Directory(
+          _library!.path + Platform.pathSeparator + '.transfer-bundles',
+        );
+        final bundle = await ApkBundle.create(
+          packageName: pkg,
+          apkFiles: savedFiles,
+          outputDirectory: bundleDirectory,
+        );
+        // A whole installed app (base APK + every split) is one transfer item.
+        files.add(bundle);
+        paths.add(pkg + '/' + bundle.uri.pathSegments.last);
       }
 
       final invite = await (_service.isSharing
@@ -599,12 +608,15 @@ class _AppsScreenState extends State<AppsScreen> {
     });
   }
 
+  bool _isAppTransferItem(SharedLocalFile item) =>
+      ApkBundle.isBundlePath(item.relativePath) || ApkBundle.isApkPath(item.relativePath);
+
   void _syncRoomFiles() {
     final invite = _service.joinedInvite;
     final groups = <String, List<SharedLocalFile>>{};
     if (invite != null) {
       for (final item in _service.roomFiles.value) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        if (!_isAppTransferItem(item)) continue;
         final package = item.relativePath.split('/').first;
         if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
       }
@@ -617,7 +629,7 @@ class _AppsScreenState extends State<AppsScreen> {
     _manifestSubscription = _service.watchManifest(invite).listen((manifest) {
       final groups = <String, List<SharedLocalFile>>{};
       for (final item in manifest) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        if (!_isAppTransferItem(item)) continue;
         final package = item.relativePath.split('/').first;
         if (package.isNotEmpty && !package.contains('..')) groups.putIfAbsent(package, () => []).add(item);
       }
@@ -646,7 +658,7 @@ class _AppsScreenState extends State<AppsScreen> {
       }
       final groups = <String,List<SharedLocalFile>>{};
       for (final item in manifest) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        if (!_isAppTransferItem(item)) continue;
         final pkg = item.relativePath.split('/').first;
         if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
       }
@@ -655,7 +667,7 @@ class _AppsScreenState extends State<AppsScreen> {
       setState(() { _receiver = invite; _incoming..clear()..addAll(groups); _status = 'Apps ready to receive.'; });
       _watchIncomingApps(invite);
       TransferOverlayController.show(TransferOverlaySnapshot(
-        direction: TransferOverlayDirection.receiving, fileCount: manifest.length,
+        direction: TransferOverlayDirection.receiving, fileCount: groups.length,
         label: 'Receiving files', isAppTransfer: groups.isNotEmpty));
       if (mounted) setState(() => _busy = false);
       await _download(automatic: true);
@@ -669,7 +681,7 @@ class _AppsScreenState extends State<AppsScreen> {
       final manifest = await _service.refreshManifest(_receiver!);
       final groups = <String,List<SharedLocalFile>>{};
       for (final item in manifest) {
-        if (!item.relativePath.toLowerCase().endsWith('.apk')) continue;
+        if (!_isAppTransferItem(item)) continue;
         final pkg = item.relativePath.split('/').first;
         if (pkg.isNotEmpty && !pkg.contains('..')) groups.putIfAbsent(pkg, () => []).add(item);
       }
@@ -680,9 +692,44 @@ class _AppsScreenState extends State<AppsScreen> {
     } catch (e) { _message('Could not refresh shared apps: $e'); }
   }
 
+  Future<void> _extractIncomingBundles(Directory documentsRoot) async {
+    for (final entry in _incoming.entries) {
+      final bundles = entry.value
+          .where((item) => ApkBundle.isBundlePath(item.relativePath))
+          .toList();
+      if (bundles.isEmpty) continue;
+      if (bundles.length != 1 || entry.value.length != 1) {
+        throw StateError('An app must arrive as exactly one grouped APK bundle.');
+      }
+      if (!ApkBundle.isValidPackageName(entry.key)) {
+        throw FormatException('Invalid Android package folder: ${entry.key}');
+      }
+      final bundleName = bundles.single.relativePath.split('/').last;
+      final folder = Directory(
+        documentsRoot.path + Platform.pathSeparator + 'Plazma S Received' +
+        Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S' +
+        Platform.pathSeparator + entry.key,
+      );
+      final bundleFile = File(folder.path + Platform.pathSeparator + bundleName);
+      if (!await bundleFile.exists()) {
+        throw StateError('The grouped APK bundle for ${entry.key} was not saved.');
+      }
+      final actualDigest = await sha256.bind(bundleFile.openRead()).first;
+      if (actualDigest.toString() != bundles.single.sha256) {
+        throw StateError('The grouped APK bundle checksum is invalid for ${entry.key}.');
+      }
+      await ApkBundle.extract(
+        bundle: bundleFile,
+        expectedPackageName: entry.key,
+        destinationDirectory: folder,
+      );
+    }
+  }
+
   Future<void> _inspectIncomingApps() async {
     if (!Platform.isAndroid || _library == null) return;
     final root = await getApplicationDocumentsDirectory();
+    await _extractIncomingBundles(root);
     for (final entry in _incoming.entries) {
       final baseApk = File(root.path + Platform.pathSeparator + 'Plazma S Received' +
         Platform.pathSeparator + 'Download' + Platform.pathSeparator + 'Plazma S' +
@@ -711,29 +758,62 @@ class _AppsScreenState extends State<AppsScreen> {
       _message('This app has not been saved on this device yet.');
       return;
     }
-    final apks = <File>[];
-    await for (final entry in folder.list(followLinks: false)) {
-      if (entry is File && entry.path.toLowerCase().endsWith('.apk')) apks.add(entry);
-    }
-    apks.sort((a, b) => a.path.contains('base.apk') ? -1 : b.path.contains('base.apk') ? 1 : a.path.compareTo(b.path));
-    if (apks.isEmpty || !apks.first.path.endsWith('base.apk')) {
-      _message('This app package is incomplete and cannot be installed.');
-      return;
-    }
-    try {
-      final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
-      if (manifestParts.length != apks.length) {
+    final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
+    final bundleParts = manifestParts
+        .where((part) => ApkBundle.isBundlePath(part.relativePath))
+        .toList();
+    late final List<File> apks;
+    if (bundleParts.isNotEmpty) {
+      if (bundleParts.length != 1 || manifestParts.length != 1) {
+        throw StateError('The app was not transferred as one complete bundle.');
+      }
+      final bundleFile = File(
+        folder.path + Platform.pathSeparator + bundleParts.single.relativePath.split('/').last,
+      );
+      if (!await bundleFile.exists()) {
+        throw StateError('The grouped APK bundle is missing. Receive the app again.');
+      }
+      final actual = await sha256.bind(bundleFile.openRead()).first;
+      if (actual.toString() != bundleParts.single.sha256) {
+        throw StateError('The grouped APK bundle checksum is invalid. Receive the app again.');
+      }
+      apks = await ApkBundle.extract(
+        bundle: bundleFile,
+        expectedPackageName: packageName,
+        destinationDirectory: folder,
+      );
+    } else {
+      // Compatibility with rooms created by older Plazma S versions.
+      final legacyApks = <File>[];
+      await for (final entry in folder.list(followLinks: false)) {
+        if (entry is File && entry.path.toLowerCase().endsWith('.apk')) {
+          legacyApks.add(entry);
+        }
+      }
+      legacyApks.sort((a, b) => a.path.contains('base.apk')
+          ? -1
+          : b.path.contains('base.apk')
+              ? 1
+              : a.path.compareTo(b.path));
+      if (legacyApks.isEmpty || !legacyApks.first.path.endsWith('base.apk')) {
+        throw StateError('This app package is incomplete and cannot be installed.');
+      }
+      if (manifestParts.length != legacyApks.length) {
         throw StateError('The received app is missing one or more APK split files. Receive the complete app again.');
       }
-      for (final apk in apks) {
+      for (final apk in legacyApks) {
         final filename = apk.uri.pathSegments.last;
         final matches = manifestParts.where((part) => part.relativePath.split('/').last == filename);
-        if (matches.length != 1) throw StateError('No trusted transfer checksum was found for ' + filename + '.');
+        if (matches.length != 1) {
+          throw StateError('No trusted transfer checksum was found for ' + filename + '.');
+        }
         final actual = await sha256.bind(apk.openRead()).first;
         if (actual.toString() != matches.first.sha256) {
           throw StateError('Integrity check failed for ' + filename + '. Receive the app again before installing.');
         }
       }
+      apks = legacyApks;
+    }
       final inspected = await const MethodChannel('com.plazma.s/apps')
         .invokeMapMethod<String, dynamic>('inspectApk', {'path': apks.first.path});
       if (inspected == null || inspected['packageName'] != packageName) {
