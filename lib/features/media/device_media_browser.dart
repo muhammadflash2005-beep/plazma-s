@@ -11,6 +11,7 @@ import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import 'permanent_delete_confirmation.dart';
+import 'media_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MediaKind { images, videos, music }
@@ -326,9 +327,12 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             leading: CircleAvatar(child: Icon(selected ? Icons.check : Icons.music_note_rounded)),
             title: Text(file.uri.pathSegments.last, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: Text(file.parent.path, maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: Icon(selected ? Icons.check_circle : Icons.circle_outlined,
-              color: selected ? colors.primary : colors.onSurfaceVariant),
-            onTap: () => widget.onSelect(file),
+            trailing: Row(mainAxisSize:MainAxisSize.min,children:[
+              IconButton(tooltip:'Play song',onPressed:()=>showAudioPlayer(context,file:file,title:file.uri.pathSegments.last),icon:const Icon(Icons.play_circle_fill_rounded)),
+              IconButton(tooltip:selected?'Deselect song':'Select song',onPressed:()=>widget.onSelect(file),
+                icon:Icon(selected?Icons.check_circle:Icons.circle_outlined,color:selected?colors.primary:colors.onSurfaceVariant)),
+            ]),
+            onTap:()=>showAudioPlayer(context,file:file,title:file.uri.pathSegments.last),
           );
         }).toList())),
       if (widget.kind != MediaKind.music)
@@ -341,7 +345,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
             final file = files[index];
             final selected = widget.selectedPaths.contains(file.path);
             return InkWell(
-              onTap: () => widget.onSelect(file),
+              onTap: () => _openDesktopPreview(files,index),
               child: ClipRRect(borderRadius: BorderRadius.circular(9), child: Stack(fit: StackFit.expand, children: [
                 if (widget.kind == MediaKind.images)
                   Image.file(file, fit: BoxFit.cover,
@@ -355,6 +359,9 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                     border: Border.all(color: colors.primary, width: 2)),
                   child: const Align(alignment: Alignment.topRight,
                     child: Padding(padding: EdgeInsets.all(4), child: Icon(Icons.check_circle))))),
+                Positioned(right:2,bottom:2,child:Material(color:Colors.black54,shape:const CircleBorder(),
+                  child:IconButton(visualDensity:VisualDensity.compact,tooltip:selected?'Deselect item':'Select item',
+                    onPressed:()=>widget.onSelect(file),icon:Icon(selected?Icons.check_circle:Icons.circle_outlined,color:Colors.white,size:19)))),
               ])),
             );
           },
@@ -631,6 +638,38 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     ],
   );
 
+  Future<void> _openDesktopPreview(List<File> files, int index) async {
+    if (files.isEmpty || !mounted) return;
+    await showDialog<void>(context:context,barrierColor:Colors.black,
+      builder:(_) => MediaGalleryViewer(files:files,isVideo:widget.kind==MediaKind.videos,
+        initialIndex:index,selectedPaths:widget.selectedPaths,onToggleSelection:widget.onSelect));
+  }
+
+  Future<void> _openAssetPreview(int index) async {
+    final assets=_filteredAssets;
+    if(index<0 || index>=assets.length) return;
+    final files=<File>[]; var previewIndex=0;
+    for(var i=0;i<assets.length;i++){
+      try {
+        final file=await assets[i].file;
+        if(file==null || !await file.exists()) continue;
+        _assetPaths[assets[i].id]=file.path;
+        if(i==index) previewIndex=files.length;
+        files.add(file);
+      } catch (_) {}
+    }
+    if(!mounted || files.isEmpty) return;
+    await showDialog<void>(context:context,barrierColor:Colors.black,
+      builder:(_) => MediaGalleryViewer(files:files,isVideo:widget.kind==MediaKind.videos,
+        initialIndex:previewIndex,selectedPaths:widget.selectedPaths,onToggleSelection:widget.onSelect));
+  }
+
+  Future<void> _playAsset(AssetEntity asset,String title) async {
+    final file=await asset.file;
+    if(file==null || !await file.exists() || !mounted) return;
+    await showAudioPlayer(context,file:file,title:title);
+  }
+
   Future<void> _select(AssetEntity asset) async {
     try {
       final file = await asset.file;
@@ -778,15 +817,13 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                           leading: const CircleAvatar(child: Icon(Icons.music_note_rounded)),
                           title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(selected ? Icons.check_circle : Icons.circle_outlined,
-                                color: selected ? colors.primary : colors.onSurfaceVariant),
-                              _assetMenu(asset),
-                            ],
-                          ),
-                          onTap: () => _select(asset),
+                          trailing: Row(mainAxisSize:MainAxisSize.min,children:[
+                            IconButton(tooltip:'Play song',onPressed:()=>_playAsset(asset,title),icon:const Icon(Icons.play_circle_fill_rounded)),
+                            IconButton(tooltip:selected?'Deselect song':'Select song',onPressed:()=>_select(asset),
+                              icon:Icon(selected?Icons.check_circle:Icons.circle_outlined,color:selected?colors.primary:colors.onSurfaceVariant)),
+                            _assetMenu(asset),
+                          ]),
+                          onTap:()=>_playAsset(asset,title),
                         );
                       },
                     ),
@@ -807,7 +844,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                 final asset = _filteredAssets[index];
                 final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
                 return InkWell(
-                  onTap: () => _select(asset),
+                  onTap: () => _openAssetPreview(index),
                   borderRadius: BorderRadius.circular(10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
@@ -861,6 +898,9 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                             child: Icon(Icons.play_circle_fill_rounded,
                                 color: Colors.white, size: 32),
                           ),
+                        Positioned(right:2,bottom:2,child:Material(color:Colors.black54,shape:const CircleBorder(),
+                          child:IconButton(visualDensity:VisualDensity.compact,tooltip:selected?'Deselect item':'Select item',
+                            onPressed:()=>_select(asset),icon:Icon(selected?Icons.check_circle:Icons.circle_outlined,color:Colors.white,size:19)))),
                         if (selected)
                           Positioned.fill(
                             child: DecoratedBox(
