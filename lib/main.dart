@@ -1,4 +1,5 @@
 import 'dart:io' as io;
+import 'dart:convert';
 // Flutter stable 3.50 marks Material's umbrella library and legacy RadioListTile
 // selection parameters deprecated while transitioning to the new Material API.
 // Keep the UI compatible with the current stable SDK during that migration.
@@ -185,6 +186,13 @@ class ThemeController extends ChangeNotifier {
   ThemeController();
 
   PlazmaTheme selected = PlazmaTheme.light;
+  final List<CustomPlazmaTheme> customThemes=[];
+  String? selectedCustomId;
+  CustomPlazmaTheme? get activeCustom { for(final t in customThemes){if(t.id==selectedCustomId)return t;} return null; }
+  bool get activeIsDark=>activeCustom?.isDark??selected.isDark;
+  Color get activeBackground=>activeCustom?.color('background')??selected.background;
+  Color get activeSurface=>activeCustom?.color('surface')??selected.surface;
+  ThemeData get activeThemeData=>activeCustom?.toThemeData()??selected.toThemeData();
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -193,15 +201,36 @@ class ThemeController extends ChangeNotifier {
       (theme) => theme.name == saved,
       orElse: () => PlazmaTheme.light,
     );
+    final raw=prefs.getString('plazma_custom_themes');
+    if(raw!=null){try{customThemes..clear()..addAll((jsonDecode(raw) as List).map((e)=>CustomPlazmaTheme.fromJson(Map<String,dynamic>.from(e))));}catch(_){customThemes.clear();}}
+    selectedCustomId=prefs.getString('plazma_selected_custom_theme');
+    if(activeCustom==null)selectedCustomId=null;
     notifyListeners();
   }
+  Future<void> _persistCustom() async {final p=await SharedPreferences.getInstance();await p.setString('plazma_custom_themes',jsonEncode(customThemes.map((e)=>e.toJson()).toList()));if(selectedCustomId==null){await p.remove('plazma_selected_custom_theme');}else{await p.setString('plazma_selected_custom_theme',selectedCustomId!);}}
+  Future<void> saveCustom(CustomPlazmaTheme t,{bool apply=true}) async {final i=customThemes.indexWhere((e)=>e.id==t.id);if(i<0)customThemes.add(t);else customThemes[i]=t;if(apply)selectedCustomId=t.id;await _persistCustom();notifyListeners();}
+  Future<void> applyCustom(String id) async {if(!customThemes.any((e)=>e.id==id))return;selectedCustomId=id;await _persistCustom();notifyListeners();}
+  Future<void> deleteCustom(String id) async {customThemes.removeWhere((e)=>e.id==id);if(selectedCustomId==id)selectedCustomId=null;await _persistCustom();notifyListeners();}
 
   Future<void> setTheme(PlazmaTheme theme) async {
     selected = theme;
+    selectedCustomId = null;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('plazma_theme', theme.name);
   }
+}
+
+
+class CustomPlazmaTheme {
+  CustomPlazmaTheme({required this.id,required this.name,required this.background,required this.surface,required this.primary,required this.accent,required this.foreground,required this.muted,required this.isDark});
+  final String id; String name; int background,surface,primary,accent,foreground,muted; bool isDark;
+  Map<String,dynamic> toJson()=>{'id':id,'name':name,'background':background,'surface':surface,'primary':primary,'accent':accent,'foreground':foreground,'muted':muted,'isDark':isDark};
+  factory CustomPlazmaTheme.fromJson(Map<String,dynamic> j)=>CustomPlazmaTheme(id:j['id'],name:j['name'],background:j['background'],surface:j['surface'],primary:j['primary'],accent:j['accent'],foreground:j['foreground'],muted:j['muted'],isDark:j['isDark']??false);
+  Color color(String k)=>Color(switch(k){'background'=>background,'surface'=>surface,'primary'=>primary,'accent'=>accent,'foreground'=>foreground,_=>muted});
+  void setColor(String k,int v){switch(k){case 'background':background=v;break;case 'surface':surface=v;break;case 'primary':primary=v;break;case 'accent':accent=v;break;case 'foreground':foreground=v;break;case 'muted':muted=v;break;}}
+  CustomPlazmaTheme copy({String? id,String? name})=>CustomPlazmaTheme(id:id??this.id,name:name??this.name,background:background,surface:surface,primary:primary,accent:accent,foreground:foreground,muted:muted,isDark:isDark);
+  ThemeData toThemeData(){final scheme=ColorScheme.fromSeed(seedColor:Color(primary),brightness:isDark?Brightness.dark:Brightness.light,primary:Color(primary),secondary:Color(accent),surface:Color(surface),onSurface:Color(foreground));return ThemeData(useMaterial3:true,brightness:isDark?Brightness.dark:Brightness.light,scaffoldBackgroundColor:Color(background),colorScheme:scheme,cardTheme:CardThemeData(color:Color(surface),elevation:0),appBarTheme:AppBarTheme(backgroundColor:Color(surface),foregroundColor:Color(foreground)),navigationBarTheme:NavigationBarThemeData(backgroundColor:Color(surface),indicatorColor:Color(primary).withValues(alpha:.13)));}
 }
 
 class PlazmaApp extends StatefulWidget {
@@ -232,12 +261,12 @@ class _PlazmaAppState extends State<PlazmaApp> {
         builder: (context, _) => MaterialApp(
           title: 'Plazma S',
           debugShowCheckedModeBanner: false,
-          theme: _themes.selected.toThemeData(),
+          theme: _themes.activeThemeData,
           home: AnnotatedRegion<SystemUiOverlayStyle>(
             value: SystemUiOverlayStyle(
-              statusBarColor: _themes.selected.background,
-              statusBarIconBrightness: _themes.selected.isDark ? Brightness.light : Brightness.dark,
-              systemNavigationBarColor: _themes.selected.surface,
+              statusBarColor: _themes.activeBackground,
+              statusBarIconBrightness: _themes.activeIsDark ? Brightness.light : Brightness.dark,
+              systemNavigationBarColor: _themes.activeSurface,
               systemNavigationBarIconBrightness: _themes.selected.isDark ? Brightness.light : Brightness.dark,
             ),
             child: HomeScreen(themes: _themes),
@@ -845,6 +874,7 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }).toList(),
       ),
+      Card(child: ListTile(leading: const Icon(Icons.palette_outlined),title: const Text('Theme Studio'),subtitle: const Text('Create, preview and manage custom themes'),trailing: const Icon(Icons.chevron_right),onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ThemeStudioScreen(controller: widget.themes))))),
       const SizedBox(height: 20),
       const AppUpdateCard(),
       const SizedBox(height: 12),
@@ -898,6 +928,30 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _secondaryContent() => const TransferHistoryScreen();
+}
+
+
+class ThemeStudioScreen extends StatefulWidget {
+ const ThemeStudioScreen({required this.controller,super.key}); final ThemeController controller;
+ @override State<ThemeStudioScreen> createState()=>_ThemeStudioScreenState();
+}
+class _ThemeStudioScreenState extends State<ThemeStudioScreen>{
+ late CustomPlazmaTheme draft;
+ static const fields={'background':'Background','surface':'Surface','primary':'Primary','accent':'Accent','foreground':'Text','muted':'Muted text'};
+ @override void initState(){super.initState();final a=widget.controller.activeCustom;draft=a?.copy()??CustomPlazmaTheme(id:DateTime.now().microsecondsSinceEpoch.toString(),name:'My Theme',background:0xFF080B14,surface:0xFF151B2B,primary:0xFF8B5CF6,accent:0xFF22D3EE,foreground:0xFFF8FAFC,muted:0xFF94A3B8,isDark:true);}
+ Future<void> editColor(String k)async{final c=TextEditingController(text:draft.color(k).value.toRadixString(16).substring(2).toUpperCase());final s=await showDialog<String>(context:context,builder:(x)=>AlertDialog(title:Text('Set \${fields[k]}'),content:TextField(controller:c,maxLength:6,decoration:const InputDecoration(prefixText:'#',hintText:'RRGGBB')),actions:[TextButton(onPressed:()=>Navigator.pop(x),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,c.text),child:const Text('Apply'))]));if(s==null)return;final v=int.tryParse(s.replaceAll('#',''),radix:16);if(v==null||s.replaceAll('#','').length!=6){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid 6-digit HEX color.')));return;}setState(()=>draft.setColor(k,0xFF000000|v));}
+ Future<void> save()async{final c=TextEditingController(text:draft.name);final n=await showDialog<String>(context:context,builder:(x)=>AlertDialog(title:const Text('Save theme'),content:TextField(controller:c,decoration:const InputDecoration(labelText:'Theme name')),actions:[TextButton(onPressed:()=>Navigator.pop(x),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,c.text.trim()),child:const Text('Save'))]));if(n==null||n.isEmpty)return;draft.name=n;await widget.controller.saveCustom(draft.copy());if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Theme saved and applied.')));}
+ @override Widget build(BuildContext context){final cs=Theme.of(context).colorScheme;return Scaffold(appBar:AppBar(title:const Text('Theme Studio'),actions:[IconButton(onPressed:save,icon:const Icon(Icons.save))]),body:ListView(padding:const EdgeInsets.all(16),children:[
+ Text('Build your look',style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text('Customize six colors and preview your theme live.',style:TextStyle(color:cs.onSurfaceVariant)),const SizedBox(height:16),
+ Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:draft.color('background'),borderRadius:BorderRadius.circular(20)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+ Row(children:[Icon(Icons.bolt,color:draft.color('primary'),size:32),Text('plazma S',style:TextStyle(color:draft.color('foreground'),fontWeight:FontWeight.w900,fontSize:20))]),const SizedBox(height:14),
+ Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:draft.color('surface'),borderRadius:BorderRadius.circular(14)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Transfer preview',style:TextStyle(color:draft.color('foreground'),fontWeight:FontWeight.w800)),Text('Sending your files…',style:TextStyle(color:draft.color('muted'))),const SizedBox(height:12),ClipRRect(borderRadius:BorderRadius.circular(12),child:LinearProgressIndicator(value:.68,minHeight:9,color:draft.color('primary'),backgroundColor:draft.color('muted').withValues(alpha:.25))),const SizedBox(height:8),Text('68% · 12.4 MB/s',style:TextStyle(color:draft.color('accent')))]) )])),
+ SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Dark appearance'),value:draft.isDark,onChanged:(v)=>setState(()=>draft.isDark=v)),
+ Text('Theme colors',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
+ ...fields.entries.map((e)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:draft.color(e.key)),title:Text(e.value),subtitle:Text('#\${draft.color(e.key).value.toRadixString(16).padLeft(8,'0').substring(2).toUpperCase()}'),trailing:const Icon(Icons.colorize),onTap:()=>editColor(e.key)))),
+ FilledButton.icon(onPressed:save,icon:const Icon(Icons.save),label:const Text('Save and apply')),
+ if(widget.controller.customThemes.isNotEmpty)...[const SizedBox(height:20),Text('Saved themes',style:Theme.of(context).textTheme.titleMedium),...widget.controller.customThemes.map((t)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:t.color('primary')),title:Text(t.name),subtitle:Text(t.id==widget.controller.selectedCustomId?'Applied':'Saved'),onTap:()=>setState(()=>draft=t.copy()),trailing:PopupMenuButton<String>(onSelected:(v)async{if(v=='apply')await widget.controller.applyCustom(t.id);if(v=='delete')await widget.controller.deleteCustom(t.id);if(v=='duplicate')await widget.controller.saveCustom(t.copy(id:DateTime.now().microsecondsSinceEpoch.toString(),name:'\${t.name} Copy'),apply:false);if(mounted)setState((){});},itemBuilder:(_)=>const[PopupMenuItem(value:'apply',child:Text('Apply')),PopupMenuItem(value:'duplicate',child:Text('Duplicate')),PopupMenuItem(value:'delete',child:Text('Delete'))]))))]
+ ]));}
 }
 
 class _ThemeSwatch extends StatelessWidget {
