@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 
 import 'app_bundle.dart';
 import 'apk_bundle.dart';
+import 'install_status_store.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -142,6 +143,9 @@ class _AppsScreenState extends State<AppsScreen> {
     if (call.method != 'installStatus' || !mounted) return;
     final details = Map<String, dynamic>.from(call.arguments as Map);
     final message = (details['message'] ?? 'Android installer returned an unknown result.').toString();
+    final packageName = (details['packageName'] ?? '').toString();
+    final success = (details['status'] as num?)?.toInt() == 0;
+    if (packageName.isNotEmpty) InstallStatusStore.report(packageName, success);
     setState(() => _status = message);
     _message(message);
   }
