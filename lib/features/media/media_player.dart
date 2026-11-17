@@ -56,7 +56,8 @@ class _AudioPlayerSheetState extends State<_AudioPlayerSheet>{late final Player 
         Container(width:42,height:4,decoration:BoxDecoration(color:c.onSurfaceVariant.withValues(alpha:.35),borderRadius:BorderRadius.circular(4))),
         const SizedBox(height:18),CircleAvatar(radius:34,backgroundColor:c.primaryContainer,child:Icon(Icons.music_note_rounded,size:34,color:c.primary)),
         const SizedBox(height:12),Text(widget.title,textAlign:TextAlign.center,maxLines:2,overflow:TextOverflow.ellipsis,style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
-        const SizedBox(height:14),StreamBuilder<Duration>(stream:_player.stream.duration,builder:(context,ds){final d=ds.data??Duration.zero;
+        const SizedBox(height:18),const _LightningBeatIndicator(),
+        const SizedBox(height:12),StreamBuilder<Duration>(stream:_player.stream.duration,builder:(context,ds){final d=ds.data??Duration.zero;
           return StreamBuilder<Duration>(stream:_player.stream.position,builder:(context,ps){final p=ps.data??Duration.zero;final max=d.inMilliseconds.toDouble().clamp(1,double.infinity).toDouble();
             return Column(children:[Slider(value:p.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:d==Duration.zero?null:(v)=>_player.seek(Duration(milliseconds:v.round()))),
               Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(_time(p)),Text(_time(d))])]);});}),
@@ -64,4 +65,64 @@ class _AudioPlayerSheetState extends State<_AudioPlayerSheet>{late final Player 
           return IconButton.filled(onPressed:()=>playing?_player.pause():_player.play(),iconSize:32,icon:Icon(playing?Icons.pause_rounded:Icons.play_arrow_rounded));}),
       ])));
   }
+}
+
+class _LightningBeatIndicator extends StatefulWidget {
+  const _LightningBeatIndicator();
+  @override State<_LightningBeatIndicator> createState() => _LightningBeatIndicatorState();
+}
+class _LightningBeatIndicatorState extends State<_LightningBeatIndicator> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  @override void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 820))..repeat();
+  }
+  @override void dispose() { _controller.dispose(); super.dispose(); }
+  @override Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 54, width: 236,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) => CustomPaint(
+          painter: _LightningBeatPainter(
+            phase: _controller.value,
+            primary: colors.primary,
+            secondary: colors.secondary,
+            glow: colors.primary.withValues(alpha: .38),
+          ),
+        ),
+      ),
+    );
+  }
+}
+class _LightningBeatPainter extends CustomPainter {
+  _LightningBeatPainter({required this.phase, required this.primary, required this.secondary, required this.glow});
+  final double phase;
+  final Color primary, secondary, glow;
+  @override void paint(Canvas canvas, Size size) {
+    final center = size.height / 2;
+    final path = Path();
+    const segments = 72;
+    for (var i = 0; i <= segments; i++) {
+      final x = size.width * i / segments;
+      final pulse = (1 - (i / segments - phase).abs() * 1.65).clamp(0.0, 1.0);
+      final beat = (i % 9 == 0 || i % 13 == 0) ? 1.0 : .28;
+      final jag = (((i * 17) % 11) - 5) / 5;
+      final y = center + jag * (5 + pulse * 15) * beat * (0.55 + pulse);
+      if (i == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
+    }
+    final glowPaint = Paint()..color = glow..style = PaintingStyle.stroke..strokeWidth = 9..strokeCap = StrokeCap.round..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
+    final linePaint = Paint()..shader = LinearGradient(colors:[secondary,primary,secondary]).createShader(Offset.zero & size)..style = PaintingStyle.stroke..strokeWidth = 2.6..strokeCap = StrokeCap.round..strokeJoin = StrokeJoin.round;
+    final corePaint = Paint()..color = Colors.white.withValues(alpha:.9)..style = PaintingStyle.stroke..strokeWidth = .8..strokeCap = StrokeCap.round;
+    canvas.drawPath(path,glowPaint); canvas.drawPath(path,linePaint); canvas.drawPath(path,corePaint);
+    final sparkPaint = Paint()..color = secondary..strokeWidth = 1.4..strokeCap = StrokeCap.round;
+    for (var i=0;i<5;i++) {
+      final x = size.width * ((phase + i*.21) % 1);
+      final h = 3 + (i%3)*2;
+      canvas.drawLine(Offset(x,center-h),Offset(x+3,center+h),sparkPaint);
+    }
+  }
+  @override bool shouldRepaint(covariant _LightningBeatPainter old) =>
+      old.phase != phase || old.primary != primary || old.secondary != secondary;
 }
