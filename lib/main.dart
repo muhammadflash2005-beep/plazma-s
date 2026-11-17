@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 import 'package:media_kit/media_kit.dart';
 import 'services/update_notification_service.dart';
+import 'services/plazma_analytics.dart';
 
 import 'updates/app_update_card.dart';
 import 'widgets/electric_progress_bar.dart';
@@ -28,6 +29,7 @@ import 'features/history/transfer_history_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  await PlazmaAnalytics.initialize();
   await UpdateNotificationService.initialize();
   runApp(const PlazmaApp());
 }
