@@ -354,23 +354,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (context, index) {
                           final item = items[index];
                           return ListTile(
-                            leading: Builder(builder: (context) {
-                              final appIcon = item.type == 'app'
-                                  ? TransferOverlayController.appIconFor(item.relativePath)
-                                  : null;
-                              return appIcon != null
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.memory(appIcon, width: 42, height: 42, fit: BoxFit.contain),
-                                    )
-                                  : Icon(switch (item.type) {
-                                      'app' => Icons.apps_rounded,
-                                      'image' => Icons.image_outlined,
-                                      'video' => Icons.movie_outlined,
-                                      'music' => Icons.music_note_rounded,
-                                      _ => Icons.insert_drive_file_outlined,
-                                    });
-                            }),
+                            leading: ValueListenableBuilder<int>(
+                              valueListenable: TransferOverlayController.appIconRevision,
+                              builder: (context, _, __) {
+                                final appIcon = item.type == 'app'
+                                    ? TransferOverlayController.appIconFor(item.relativePath)
+                                    : null;
+                                return appIcon != null
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.memory(appIcon, width: 42, height: 42, fit: BoxFit.contain),
+                                      )
+                                    : Icon(switch (item.type) {
+                                        'app' => Icons.apps_rounded,
+                                        'image' => Icons.image_outlined,
+                                        'video' => Icons.movie_outlined,
+                                        'music' => Icons.music_note_rounded,
+                                        _ => Icons.insert_drive_file_outlined,
+                                      });
+                              },
+                            ),
                             title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(item.relativePath),
                             trailing: SizedBox(width: 92, child: Column(mainAxisSize: MainAxisSize.min, children: [
