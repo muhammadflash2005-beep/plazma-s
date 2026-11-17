@@ -596,6 +596,20 @@ jobs:
                                       result.error("APK_INSTALL_FAILED", error.message, null)
                                   }
                               }
+                              "openAppSettings" -> {
+                                  val targetPackage = call.argument<String>("packageName")?.trim().orEmpty()
+                                  if (targetPackage.isBlank()) {
+                                      result.error("INVALID_PACKAGE", "An app package is required.", null)
+                                  } else {
+                                      try {
+                                          packageManager.getApplicationInfo(targetPackage, 0)
+                                          startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$targetPackage")))
+                                          result.success(null)
+                                      } catch (error: Exception) {
+                                          result.error("APP_SETTINGS_FAILED", error.message, null)
+                                      }
+                                  }
+                              }
                               else -> result.notImplemented()
                           }
                       }
