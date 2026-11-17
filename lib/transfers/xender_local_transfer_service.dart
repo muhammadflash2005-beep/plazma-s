@@ -1184,9 +1184,9 @@ class XenderLocalTransferService {
           }
           if (highSpeedMode && offset == 0 && item.size >= 32 * 1024 * 1024) {
             const workers = 4;
-            final prepared = await partial.open(mode: FileMode.write);
-            await prepared.truncate(item.size);
-            await prepared.close();
+            final output = await partial.open(mode: FileMode.write);
+            await output.truncate(item.size);
+            var writeTail = Future<void>.value();
             var completedBytes = 0;
             final chunkTasks = <Future<void>>[];
             for (var chunkIndex = 0; chunkIndex < workers; chunkIndex++) {
@@ -1203,31 +1203,36 @@ class XenderLocalTransferService {
                   await chunkResponse.drain<void>();
                   throw HttpException('High-speed transfer chunk failed (HTTP ${chunkResponse.statusCode}).');
                 }
-                final output = await partial.open(mode: FileMode.write);
-                try {
-                  await output.setPosition(start);
-                  await for (final chunk in chunkResponse) {
+                var chunkOffset = start;
+                await for (final chunk in chunkResponse) {
+                  final writePosition = chunkOffset;
+                  chunkOffset += chunk.length;
+                  writeTail = writeTail.then((_) async {
+                    await output.setPosition(writePosition);
                     await output.writeFrom(chunk);
-                    completedBytes += chunk.length;
-                    onProgress(LocalTransferProgress(
-                      fileName: item.name,
-                      fileBytes: completedBytes,
-                      fileSize: item.size,
-                      totalBytes: totalBytes + completedBytes,
-                      totalSize: totalSize,
-                    ));
-                  }
-                  await output.flush();
-                } finally {
-                  await output.close();
+                  });
+                  await writeTail;
+                  completedBytes += chunk.length;
+                  onProgress(LocalTransferProgress(
+                    fileName: item.name,
+                    fileBytes: completedBytes,
+                    fileSize: item.size,
+                    totalBytes: totalBytes + completedBytes,
+                    totalSize: totalSize,
+                  ));
                 }
               }());
             }
             try {
               await Future.wait(chunkTasks);
+              await writeTail;
+              await output.flush();
             } catch (_) {
+              await output.close();
               if (await partial.exists()) await partial.delete();
               rethrow;
+            } finally {
+              await output.close();
             }
             fileBytes = item.size;
             totalBytes += item.size;
