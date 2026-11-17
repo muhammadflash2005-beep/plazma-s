@@ -406,7 +406,7 @@ class _ElectricBoltPainter extends CustomPainter {
 
       // A shorter counter-fork creates the irregular, branching storm look.
       if (i.isEven || size.height > 26) {
-        final forkX = (anchorX + size.width * 0.012).clamp(0.0, size.width);
+        final forkX = (anchorX + size.width * 0.012).clamp(0.0, size.width).toDouble();
         final forkY = _mainY(forkX, size) + direction * size.height * 0.19;
         final fork = _branchPath(
           startX: forkX,
