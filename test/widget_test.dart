@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plazma_s/main.dart';
 
@@ -34,11 +35,12 @@ void main() {
     await tester.pumpWidget(const PlazmaApp());
     await tester.pump(const Duration(seconds: 1));
 
-    await tester.tap(find.text('Settings').last);
-    await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Appearance'), findsOneWidget);
+    // Select the Settings destination by index to avoid tapping duplicate labels.
+    await tester.tap(find.byIcon(Icons.settings_rounded).last);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Manage your Plazma S experience and device preferences.'), findsOneWidget);
     await tester.tap(find.text('Appearance').last);
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 800));
 
     expect(find.text('Choose a theme'), findsOneWidget);
 
