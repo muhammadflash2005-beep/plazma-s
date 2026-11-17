@@ -571,7 +571,7 @@ class XenderLocalTransferService {
         final range = request.headers.value(HttpHeaders.rangeHeader);
         var offset = 0;
         if (range != null) {
-          final match = RegExp(r'^bytes=(\d+)-(\d*)
+          final match = RegExp(r'^bytes=(\d+)-(\d*)$').firstMatch(range.trim());
           if (match == null) {
             request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
             request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
