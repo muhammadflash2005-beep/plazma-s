@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:convert/convert.dart';
 import 'package:flutter/material.dart';
+import '../widgets/electric_progress_bar.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -295,7 +296,7 @@ try {
           Text('Installed: $_currentVersion${_latestVersion == null ? '' : '  ·  Latest: $_latestVersion'}', style: theme.textTheme.bodySmall),
         ],
         if (_progress != null) ...[
-          const SizedBox(height: 12), LinearProgressIndicator(value: _progress),
+          const SizedBox(height: 12), ElectricProgressBar(value: _progress!, height: 10),
           const SizedBox(height: 4), Text('${(_progress! * 100).round()}%', style: theme.textTheme.bodySmall),
         ],
         if (_releaseNotes != null && _releaseNotes!.isNotEmpty && _available) ...[
