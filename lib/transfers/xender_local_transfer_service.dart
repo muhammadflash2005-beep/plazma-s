@@ -1359,7 +1359,7 @@ class XenderLocalTransferService {
 
   String _itemTypeForPath(String path) {
     final lower = path.toLowerCase();
-    if (['.apk', '.aab', '.plazmaapp', '.exe', '.msi', '.msix', '.appimage', '.deb', '.rpm', '.dmg', '.pkg'].any(lower.endsWith)) return 'app';
+    if (['.apk', '.apks', '.aab', '.plazmaapp', '.exe', '.msi', '.msix', '.appimage', '.deb', '.rpm', '.dmg', '.pkg'].any(lower.endsWith)) return 'app';
     if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.heic', '.heif'].any(lower.endsWith)) return 'image';
     if (['.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.3gp'].any(lower.endsWith)) return 'video';
     if (['.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg', '.opus', '.wma'].any(lower.endsWith)) return 'music';
