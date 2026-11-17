@@ -831,6 +831,57 @@ class _AppsScreenState extends State<AppsScreen> {
         throw StateError('The base APK is invalid or belongs to a different app.');
       }
       if (mounted) setState(() => _incomingDetails[packageName] = inspected);
+
+      // Show parsed manifest details before handing the APK set to Android.
+      final appName = (inspected['appName'] ?? packageName).toString();
+      final version = (inspected['versionName'] ?? 'Unknown').toString();
+      final rawPermissions = inspected['requestedPermissions'];
+      final permissions = rawPermissions is List
+          ? rawPermissions.map((value) => value.toString()).where((value) => value.isNotEmpty).toList()
+          : <String>[];
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Review $appName'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Package: $packageName'),
+                const SizedBox(height: 4),
+                Text('Version: $version'),
+                const SizedBox(height: 12),
+                Text('Requested permissions (${permissions.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                if (permissions.isEmpty)
+                  const Text('No requested permissions were listed in the APK manifest.')
+                else
+                  ...permissions.take(20).map((permission) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text('• $permission', style: const TextStyle(fontSize: 12)),
+                  )),
+                if (permissions.length > 20)
+                  Text('And ${permissions.length - 20} more…',
+                    style: const TextStyle(fontSize: 12)),
+                const SizedBox(height: 10),
+                const Text('Android will perform its own signature and compatibility checks. You must approve the system installation screen.',
+                  style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continue')),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+
       await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
         'installApkSet',
         {'packageName': packageName, 'paths': apks.map((file) => file.path).toList()},
