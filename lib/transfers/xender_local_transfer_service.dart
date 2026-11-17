@@ -126,6 +126,7 @@ class XenderLocalTransferService {
   Directory? _lastDownloadDestination;
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
+  Future<void>? _activeDownloadTask;
   final Set<String> _recordedSentHistory = <String>{};
   final Set<String> _recordedReceivedHistory = <String>{};
   final Map<int, String> _finalSavedPaths = <int, String>{};
@@ -935,12 +936,17 @@ class XenderLocalTransferService {
           _publishRoomFiles();
           final restarted = snapshot.files.where((remote) =>
               previous[remote.id]?.status == 'failed' && remote.status == 'waiting').toList();
-          if (restarted.isNotEmpty && _lastDownloadDestination != null &&
-              _lastDownloadProgress != null && !_retryingFailedQueue) {
+          final newlyAdded = snapshot.files.where((remote) =>
+              !previous.containsKey(remote.id) && remote.status == 'waiting').toList();
+          final queuedForAutomaticDownload = [...restarted, ...newlyAdded];
+          if (queuedForAutomaticDownload.isNotEmpty &&
+              _lastDownloadDestination != null &&
+              _lastDownloadProgress != null &&
+              !_retryingFailedQueue) {
             _retryingFailedQueue = true;
             unawaited(downloadAll(
               invite: invite,
-              files: restarted,
+              files: queuedForAutomaticDownload,
               destination: _lastDownloadDestination!,
               onProgress: _lastDownloadProgress!,
               onSaved: _lastDownloadSaved,
@@ -1034,7 +1040,36 @@ class XenderLocalTransferService {
     }
   }
 
+  /// Runs one receiver queue worker per joined room. Every category screen
+  /// can request a download, but overlapping requests must never write the
+  /// same destination concurrently. The active worker discovers newly-added
+  /// room items through the manifest revision handshake.
   Future<void> downloadAll({
+    required PlazmaConnectionInvite invite,
+    required List<SharedLocalFile> files,
+    required Directory destination,
+    required void Function(LocalTransferProgress progress) onProgress,
+    void Function(SharedLocalFile item, String path, String? uri)? onSaved,
+  }) {
+    final active = _activeDownloadTask;
+    if (active != null) return active;
+    _lastDownloadDestination = destination;
+    _lastDownloadProgress = onProgress;
+    _lastDownloadSaved = onSaved;
+    final task = _downloadAllInternal(
+      invite: invite,
+      files: files,
+      destination: destination,
+      onProgress: onProgress,
+      onSaved: onSaved,
+    );
+    _activeDownloadTask = task;
+    return task.whenComplete(() {
+      if (identical(_activeDownloadTask, task)) _activeDownloadTask = null;
+    });
+  }
+
+  Future<void> _downloadAllInternal({
     required PlazmaConnectionInvite invite,
     required List<SharedLocalFile> files,
     required Directory destination,
