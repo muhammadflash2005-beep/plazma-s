@@ -714,7 +714,7 @@ jobs:
                   if (path.isBlank()) throw IllegalArgumentException("An APK path is required.")
                   val apk = File(path)
                   if (!apk.isFile) throw IllegalStateException("The received base APK is missing.")
-                  val info = packageManager.getPackageArchiveInfo(path, PackageManager.GET_ACTIVITIES)
+                  val info = packageManager.getPackageArchiveInfo(path, PackageManager.GET_ACTIVITIES or PackageManager.GET_PERMISSIONS)
                       ?: throw IllegalStateException("The APK is corrupted or is not a valid Android package.")
                   val application = info.applicationInfo ?: throw IllegalStateException("The APK has no application metadata.")
                   application.sourceDir = path
@@ -733,6 +733,7 @@ jobs:
                       "appName" to packageManager.getApplicationLabel(application).toString(),
                       "versionName" to (info.versionName ?: ""),
                       "versionCode" to if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong(),
+                      "requestedPermissions" to (info.requestedPermissions?.toList() ?: emptyList<String>()),
                       "iconBase64" to android.util.Base64.encodeToString(stream.toByteArray(), android.util.Base64.NO_WRAP)
                   )
               }
