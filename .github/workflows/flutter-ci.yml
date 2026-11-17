@@ -28,12 +28,10 @@ jobs:
       - run: flutter test
       - name: Generate Android platform scaffold
         run: flutter create --platforms=android --org com.plazma --project-name plazma_s .
-      - name: Render plasma-ball launcher artwork
+      - name: Verify original Plazma S icon artwork
         run: |
-          sudo apt-get update
-          sudo apt-get install -y librsvg2-bin
-          rsvg-convert --width=512 --height=512 assets/icon/plazma_s.svg --output=assets/icon/plazma_s.png
-          file assets/icon/plazma_s.png
+          test -s assets/icon/plazma_s.jpg
+          file assets/icon/plazma_s.jpg
       - name: Generate Android launcher icons
         run: dart run flutter_launcher_icons
       - name: Set Android app ID and LAN permissions

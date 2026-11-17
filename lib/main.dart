@@ -908,64 +908,6 @@ class _ThemeSwatch extends StatelessWidget {
 }
 
 
-class _PlazmaBrandPainter extends CustomPainter {
-  const _PlazmaBrandPainter({required this.primary, required this.secondary});
-  final Color primary;
-  final Color secondary;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.width * 0.43;
-    final orb = Paint()
-      ..shader = RadialGradient(
-        colors: [const Color(0xFF071A70), primary, secondary.withValues(alpha: 0.92), const Color(0xFF09051A)],
-        stops: const [0, 0.42, 0.78, 1],
-      ).createShader(Rect.fromCircle(center: c, radius: r));
-    canvas.drawCircle(c, r, orb);
-    final rim = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = primary.withValues(alpha: 0.9);
-    canvas.drawCircle(c, r, rim);
-    final bolt = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.15
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
-    final crack = Path()
-      ..moveTo(c.dx - 2, c.dy - r * .72)
-      ..lineTo(c.dx - 5, c.dy - 2)
-      ..lineTo(c.dx + 1, c.dy + 1)
-      ..lineTo(c.dx - 3, c.dy + r * .72);
-    canvas.drawPath(crack, bolt);
-    final p = Path()
-      ..moveTo(c.dx - r * .45, c.dy + r * .62)
-      ..lineTo(c.dx - r * .17, c.dy - r * .62)
-      ..lineTo(c.dx + r * .35, c.dy - r * .62)
-      ..cubicTo(c.dx + r * .9, c.dy - r * .62, c.dx + r * .88, c.dy - r * .08, c.dx + r * .38, c.dy - r * .02)
-      ..lineTo(c.dx + r * .05, c.dy - r * .02)
-      ..lineTo(c.dx - r * .08, c.dy + r * .62)
-      ..close();
-    final pPaint = Paint()
-      ..shader = LinearGradient(colors: [Colors.white, primary, secondary]).createShader(Rect.fromCircle(center: c, radius: r));
-    canvas.drawPath(p, pPaint);
-    final orbit = Path()
-      ..moveTo(c.dx - r * 1.02, c.dy + r * .46)
-      ..cubicTo(c.dx - r * .45, c.dy + r * .24, c.dx + r * .45, c.dy - r * .7, c.dx + r * 1.04, c.dy - r * .36);
-    canvas.drawPath(orbit, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8
-      ..strokeCap = StrokeCap.round
-      ..shader = LinearGradient(colors: [primary, Colors.white, secondary]).createShader(Rect.fromCircle(center: c, radius: r)));
-  }
-
-  @override
-  bool shouldRepaint(covariant _PlazmaBrandPainter oldDelegate) =>
-      oldDelegate.primary != primary || oldDelegate.secondary != secondary;
-}
-
 class _TopBar extends StatelessWidget {
   const _TopBar();
 
@@ -985,13 +927,20 @@ class _TopBar extends StatelessWidget {
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.38), blurRadius: 14, spreadRadius: 1)],
+            border: Border.all(color: theme.colorScheme.secondary.withValues(alpha: 0.72)),
+            boxShadow: [
+              BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.42), blurRadius: 14, spreadRadius: 1),
+              BoxShadow(color: theme.colorScheme.secondary.withValues(alpha: 0.20), blurRadius: 20, spreadRadius: 2),
+            ],
           ),
-          child: CustomPaint(
-            size: const Size(38, 38),
-            painter: _PlazmaBrandPainter(
-              primary: theme.colorScheme.primary,
-              secondary: theme.colorScheme.secondary,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.asset(
+              'assets/icon/plazma_s.jpg',
+              width: 38,
+              height: 38,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.high,
             ),
           ),
         ),
