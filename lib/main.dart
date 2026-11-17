@@ -568,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(
                 children: [
-                  _TopBar(onConnect: (kind) => setState(() => _tab = 1)),
+                  _TopBar(onConnect: (_) => setState(() => _tab = 1)),
                   if (_tab == 0) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
