@@ -798,7 +798,11 @@ jobs:
                   }
                   flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
                       MethodChannel(messenger, "com.plazma.s/apps").invokeMethod(
-                          "installStatus", mapOf("status" to status, "message" to detail)
+                          "installStatus", mapOf(
+                              "status" to status,
+                              "message" to detail,
+                              "packageName" to (intent.getStringExtra("packageName") ?: "")
+                          )
                       )
                   }
               }
@@ -1066,6 +1070,7 @@ jobs:
                       }
                       val callbackIntent = Intent(this, MainActivity::class.java).apply {
                           action = "com.plazma.s.INSTALL_STATUS"
+                          putExtra("packageName", packageName)
                           addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                       }
                       val callback = android.app.PendingIntent.getActivity(
