@@ -39,6 +39,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_rounded).last);
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('Manage your Plazma S experience and device preferences.'), findsOneWidget);
+    await tester.ensureVisible(find.text('Appearance').last);
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(find.text('Appearance').last);
     await tester.pump(const Duration(milliseconds: 800));
 
