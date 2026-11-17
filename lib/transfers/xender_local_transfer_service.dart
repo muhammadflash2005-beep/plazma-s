@@ -1227,10 +1227,6 @@ class XenderLocalTransferService {
               await Future.wait(chunkTasks);
               await writeTail;
               await output.flush();
-            } catch (_) {
-              await output.close();
-              if (await partial.exists()) await partial.delete();
-              rethrow;
             } finally {
               await output.close();
             }
