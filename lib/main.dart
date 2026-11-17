@@ -218,6 +218,7 @@ class ThemeController extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('plazma_theme', theme.name);
+    await prefs.remove('plazma_selected_custom_theme');
   }
 }
 
