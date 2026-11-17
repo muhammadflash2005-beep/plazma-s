@@ -275,6 +275,39 @@ jobs:
                       }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/storage")
                       .setMethodCallHandler { call, result ->
+                          if (call.method == "listStorageVolumes") {
+                              try {
+                                  val volumes = mutableListOf<Map<String, Any>>()
+                                  val candidates = getExternalFilesDirs(null).filterNotNull()
+                                  val seen = mutableSetOf<String>()
+                                  candidates.forEachIndexed { index, appDirectory ->
+                                      // .../Android/data/<package>/files -> volume root.
+                                      var root = appDirectory
+                                      repeat(4) { root = root.parentFile ?: root }
+                                      val canonical = try { root.canonicalPath } catch (_: Exception) { root.absolutePath }
+                                      if (!root.exists() || !root.canRead() || !seen.add(canonical)) return@forEachIndexed
+                                      try {
+                                          val stats = android.os.StatFs(root.absolutePath)
+                                          val total = stats.totalBytes
+                                          val free = stats.availableBytes
+                                          if (total <= 0L) return@forEachIndexed
+                                          volumes.add(mapOf(
+                                              "id" to canonical,
+                                              "name" to if (index == 0) "Phone storage" else "SD card",
+                                              "path" to root.absolutePath,
+                                              "totalBytes" to total,
+                                              "availableBytes" to free,
+                                              "isPrimary" to (index == 0),
+                                              "accessible" to appDirectory.canRead()
+                                          ))
+                                      } catch (_: Exception) { }
+                                  }
+                                  result.success(volumes)
+                              } catch (error: Exception) {
+                                  result.error("STORAGE_DETECTION_FAILED", error.message, null)
+                              }
+                              return@setMethodCallHandler
+                          }
                           if (call.method == "releaseSaveFolder") {
                               val rawUri = call.argument<String>("uri")
                               if (!rawUri.isNullOrBlank()) {
@@ -640,6 +673,19 @@ jobs:
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
+                              "isPackageInstalled" -> {
+                                  val targetPackage = call.argument<String>("packageName").orEmpty()
+                                  if (targetPackage.isBlank()) {
+                                      result.error("INVALID_PACKAGE", "An app package name is required.", null)
+                                  } else {
+                                      try {
+                                          packageManager.getApplicationInfo(targetPackage, 0)
+                                          result.success(true)
+                                      } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                                          result.success(false)
+                                      }
+                                  }
+                              }
                               "listInstalledApps" -> {
                                   try {
                                       result.success(installedAppDetails())
@@ -765,7 +811,11 @@ jobs:
                   }
                   flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
                       MethodChannel(messenger, "com.plazma.s/apps").invokeMethod(
-                          "installStatus", mapOf("status" to status, "message" to detail)
+                          "installStatus", mapOf(
+                              "status" to status,
+                              "message" to detail,
+                              "packageName" to (intent.getStringExtra("packageName") ?: "")
+                          )
                       )
                   }
               }
@@ -1033,6 +1083,7 @@ jobs:
                       }
                       val callbackIntent = Intent(this, MainActivity::class.java).apply {
                           action = "com.plazma.s.INSTALL_STATUS"
+                          putExtra("packageName", packageName)
                           addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                       }
                       val callback = android.app.PendingIntent.getActivity(

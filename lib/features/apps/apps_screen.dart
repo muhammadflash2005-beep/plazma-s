@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 
 import 'app_bundle.dart';
 import 'apk_bundle.dart';
+import 'install_status_store.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +19,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../network/android_wifi_session_service.dart';
@@ -119,6 +121,12 @@ class _AppsScreenState extends State<AppsScreen> {
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingApps(_receiver!);
     _load();
+    unawaited(_loadHighSpeedPreference());
+  }
+
+  Future<void> _loadHighSpeedPreference() async {
+    final preferences = await SharedPreferences.getInstance();
+    _service.highSpeedMode = preferences.getBool('high_speed_mode') ?? false;
   }
 
   void _syncSharingInvite() {
@@ -142,6 +150,9 @@ class _AppsScreenState extends State<AppsScreen> {
     if (call.method != 'installStatus' || !mounted) return;
     final details = Map<String, dynamic>.from(call.arguments as Map);
     final message = (details['message'] ?? 'Android installer returned an unknown result.').toString();
+    final packageName = (details['packageName'] ?? '').toString();
+    final success = (details['status'] as num?)?.toInt() == 0;
+    if (packageName.isNotEmpty) InstallStatusStore.report(packageName, success);
     setState(() => _status = message);
     _message(message);
   }

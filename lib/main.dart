@@ -568,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(
                 children: [
-                  const _TopBar(),
+                  _TopBar(onConnect: (_) => setState(() => _tab = 1)),
                   if (_tab == 0) _topCategoryNavigation(),
                   Expanded(
                     child: Center(
@@ -583,6 +583,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               _categoryContent(),
                               const FilesScreen(),
+                              const TransferHistoryScreen(),
                               _meContent(),
                             ],
                           ),
@@ -600,6 +601,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       destinations: const [
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
                         NavigationDestination(icon: Icon(Icons.swap_horiz_rounded), label: 'Transfer'),
+                        NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
                         NavigationDestination(icon: Icon(Icons.person_rounded), label: 'Me'),
                       ],
                     ),
@@ -795,11 +797,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 
-  Widget _meContent() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    _settingsContent(),
-    const SizedBox(height: 22),
-    _secondaryContent(),
-  ]);
+  Widget _meContent() => _settingsContent();
 
   Widget _settingsContent() {
     final selected = widget.themes.selected;
@@ -897,7 +895,6 @@ class _HomeScreenState extends State<HomeScreen> {
     ]);
   }
 
-  Widget _secondaryContent() => const TransferHistoryScreen();
 }
 
 class _ThemeSwatch extends StatelessWidget {
@@ -921,7 +918,8 @@ class _ThemeSwatch extends StatelessWidget {
 
 
 class _TopBar extends StatelessWidget {
-  const _TopBar();
+  const _TopBar({required this.onConnect});
+  final ValueChanged<String> onConnect;
 
   @override
   Widget build(BuildContext context) {
@@ -947,19 +945,28 @@ class _TopBar extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.asset(
-              'assets/icon/plazma_s.jpg',
-              width: 38,
-              height: 38,
-              fit: BoxFit.cover,
-              filterQuality: FilterQuality.high,
-            ),
+            child: Image.asset('assets/icon/plazma_s.jpg', width: 38, height: 38, fit: BoxFit.cover),
           ),
         ),
         const SizedBox(width: 10),
         Text('plazma', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.onSurface, letterSpacing: -0.8)),
         Text(' S', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: theme.colorScheme.primary)),
         const Spacer(),
+        PopupMenuButton<String>(
+          tooltip: 'Connect to a device',
+          icon: Icon(Icons.add_circle_outline_rounded, size: 30, color: theme.colorScheme.primary),
+          onSelected: onConnect,
+          itemBuilder: (context) => [
+            if (io.Platform.isAndroid) ...[
+              const PopupMenuItem(value: 'android', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.phone_android_rounded), title: Text('Connect to Android'))),
+              const PopupMenuItem(value: 'pc', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.computer_rounded), title: Text('Connect to PC'))),
+            ] else ...[
+              const PopupMenuItem(value: 'android', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.phone_android_rounded), title: Text('Connect to Android'))),
+              if (io.Platform.isWindows || io.Platform.isLinux)
+                const PopupMenuItem(value: 'pc', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.computer_rounded), title: Text('PC to PC'))),
+            ],
+          ],
+        ),
       ]),
     );
   }
@@ -979,7 +986,8 @@ class _Sidebar extends StatelessWidget {
       const Padding(padding: EdgeInsets.fromLTRB(12, 0, 12, 26), child: Text('WORKSPACE', style: TextStyle(fontSize: 10, letterSpacing: 1.8, fontWeight: FontWeight.w800))),
       _navItem(context, Icons.apps_rounded, 'Apps', 0),
       _navItem(context, Icons.swap_horiz_rounded, 'Transfer', 1),
-      _navItem(context, Icons.person_rounded, 'Me', 2),
+      _navItem(context, Icons.history_rounded, 'History', 2),
+      _navItem(context, Icons.person_rounded, 'Me', 3),
       const Spacer(),
       const Padding(padding: EdgeInsets.all(12), child: Text('LOCAL NETWORK ONLY\nDirect device-to-device sharing.', style: TextStyle(fontSize: 11, height: 1.5))),
     ]),

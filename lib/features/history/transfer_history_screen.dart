@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 
 import '../../transfers/transfer_history.dart';
+import '../apps/apk_bundle.dart';
+import '../apps/install_status_store.dart';
 
 class TransferHistoryScreen extends StatefulWidget {
   const TransferHistoryScreen({super.key});
@@ -20,6 +22,24 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   List<TransferHistoryEntry> _entries = [];
   bool _loading = true;
 
+  @override
+  void initState() {
+    super.initState();
+    InstallStatusStore.installed.addListener(_onInstallStatusChanged);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    InstallStatusStore.installed.removeListener(_onInstallStatusChanged);
+    super.dispose();
+  }
+
+  void _onInstallStatusChanged() {
+    if (mounted) setState(() {});
+  }
+  String _selectedDirection = 'received';
+
   static const _audioExtensions = {
     'mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'opus', 'wma', 'aiff',
   };
@@ -28,14 +48,22 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
   };
 
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
 
   Future<void> _load() async {
     final entries = await TransferHistoryStore.load();
+    if (Platform.isAndroid) {
+      final receivedApps = entries.where((entry) =>
+          entry.direction == 'received' && entry.type == 'app');
+      for (final entry in receivedApps) {
+        try {
+          final installed = await const MethodChannel('com.plazma.s/apps')
+              .invokeMethod<bool>('isPackageInstalled', {'packageName': entry.name});
+          if (installed != null) InstallStatusStore.report(entry.name, installed);
+        } catch (_) {
+          // Keep the Install action available if Android cannot confirm the package state.
+        }
+      }
+    }
     if (!mounted) return;
     setState(() {
       _entries = entries;
@@ -110,9 +138,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
         final cache = await getTemporaryDirectory();
         final staged = File('${cache.path}${Platform.pathSeparator}${entry.name}.apk');
         await apks.single.copy(staged.path);
-        await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
-          'installApk', {'path': staged.path},
-        );
+        await ApkBundle.install(staged.path);
       } else {
         await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
           'installApkSet',
@@ -184,11 +210,12 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 trailing: category == 'app' && direction == 'received'
-                    ? TextButton.icon(
-                        onPressed: () => _installApp(entry),
-                        icon: const Icon(Icons.install_mobile_rounded, size: 18),
-                        label: const Text('Install'),
-                      )
+                    ? (InstallStatusStore.isInstalled(entry.name)
+                        ? const Text('Installed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w700))
+                        : TextButton(
+                            onPressed: () => _installApp(entry),
+                            child: const Text('Install'),
+                          ))
                     : null,
               )),
       ],
@@ -265,10 +292,21 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
         Text('Your sent and received files, apps, music and images stay listed here.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 16),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'received', label: Text('Received'), icon: Icon(Icons.download_rounded)),
+            ButtonSegment(value: 'sent', label: Text('Sent'), icon: Icon(Icons.send_rounded)),
+          ],
+          selected: {_selectedDirection},
+          onSelectionChanged: (values) => setState(() => _selectedDirection = values.first),
+        ),
         if (_loading) const LinearProgressIndicator(),
-        _directionCard(title: 'Sent', direction: 'sent', icon: Icons.north_east_rounded),
         const SizedBox(height: 12),
-        _directionCard(title: 'Received', direction: 'received', icon: Icons.south_west_rounded),
+        _directionCard(
+          title: _selectedDirection == 'received' ? 'Received' : 'Sent',
+          direction: _selectedDirection,
+          icon: _selectedDirection == 'received' ? Icons.south_west_rounded : Icons.north_east_rounded,
+        ),
       ],
     );
   }

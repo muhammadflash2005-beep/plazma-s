@@ -127,6 +127,7 @@ class XenderLocalTransferService {
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
   Future<void>? _activeDownloadTask;
+  bool highSpeedMode = false;
   final Set<String> _recordedSentHistory = <String>{};
   final Set<String> _recordedReceivedHistory = <String>{};
   final Map<int, String> _finalSavedPaths = <int, String>{};
@@ -570,7 +571,7 @@ class XenderLocalTransferService {
         final range = request.headers.value(HttpHeaders.rangeHeader);
         var offset = 0;
         if (range != null) {
-          final match = RegExp(r'^bytes=(\d+)-$').firstMatch(range.trim());
+          final match = RegExp(r'^bytes=(\d+)-(\d*)$').firstMatch(range.trim());
           if (match == null) {
             request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
             request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
@@ -578,17 +579,23 @@ class XenderLocalTransferService {
             return;
           }
           offset = int.parse(match.group(1)!);
-          if (offset >= length) {
+          final requestedEnd = match.group(2)!.isEmpty ? length - 1 : int.parse(match.group(2)!);
+          if (offset >= length || requestedEnd < offset || requestedEnd >= length) {
             request.response.statusCode = HttpStatus.requestedRangeNotSatisfiable;
             request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
             await request.response.close();
             return;
           }
+          final endExclusive = requestedEnd + 1;
           request.response.statusCode = HttpStatus.partialContent;
-          request.response.headers.set(
-            HttpHeaders.contentRangeHeader,
-            'bytes $offset-${length - 1}/$length',
-          );
+          request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes $offset-$requestedEnd/$length');
+          request.response.headers.set(HttpHeaders.contentLengthHeader, endExclusive - offset);
+          request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+          request.response.headers.contentType = ContentType.binary;
+          request.response.headers.set('Cache-Control', 'no-store');
+          await request.response.addStream(file.openRead(offset, endExclusive));
+          await request.response.close();
+          return;
         } else {
           request.response.statusCode = HttpStatus.ok;
         }
@@ -1088,7 +1095,9 @@ class XenderLocalTransferService {
     var pendingFiles = List<SharedLocalFile>.from(files);
     final processedIds = <int>{};
     final knownIds = files.map((item) => item.id).toSet();
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..maxConnectionsPerHost = highSpeedMode ? 6 : 2;
     try {
       while (true) {
       for (final item in pendingFiles) {
@@ -1173,6 +1182,61 @@ class XenderLocalTransferService {
             await partial.delete();
             offset = 0;
           }
+          if (highSpeedMode && offset == 0 && item.size >= 32 * 1024 * 1024) {
+            const workers = 4;
+            final output = await partial.open(mode: FileMode.write);
+            await output.truncate(item.size);
+            var writeTail = Future<void>.value();
+            var completedBytes = 0;
+            final chunkTasks = <Future<void>>[];
+            for (var chunkIndex = 0; chunkIndex < workers; chunkIndex++) {
+              final start = (item.size * chunkIndex) ~/ workers;
+              final endExclusive = (item.size * (chunkIndex + 1)) ~/ workers;
+              if (start >= endExclusive) continue;
+              chunkTasks.add(() async {
+                final chunkRequest = await client.getUrl(
+                  _endpoint(invite, '/download', {'id': item.id.toString()}),
+                );
+                chunkRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-${endExclusive - 1}');
+                final chunkResponse = await chunkRequest.close().timeout(const Duration(seconds: 60));
+                if (chunkResponse.statusCode != HttpStatus.partialContent) {
+                  await chunkResponse.drain<void>();
+                  throw HttpException('High-speed transfer chunk failed (HTTP ${chunkResponse.statusCode}).');
+                }
+                var chunkOffset = start;
+                await for (final chunk in chunkResponse) {
+                  final writePosition = chunkOffset;
+                  chunkOffset += chunk.length;
+                  writeTail = writeTail.then((_) async {
+                    await output.setPosition(writePosition);
+                    await output.writeFrom(chunk);
+                  });
+                  await writeTail;
+                  completedBytes += chunk.length;
+                  onProgress(LocalTransferProgress(
+                    fileName: item.name,
+                    fileBytes: completedBytes,
+                    fileSize: item.size,
+                    totalBytes: totalBytes + completedBytes,
+                    totalSize: totalSize,
+                  ));
+                }
+              }());
+            }
+            try {
+              await Future.wait(chunkTasks);
+              await writeTail;
+              await output.flush();
+            } finally {
+              await output.close();
+            }
+            fileBytes = item.size;
+            totalBytes += item.size;
+            final status = await _postQueueStatus(
+              invite, item.id, 'sending', item.size, client: client,
+            );
+            if (status == 'cancelled') throw StateError('Transfer cancelled by sender.');
+          } else {
           final request = await client.getUrl(
             _endpoint(invite, '/download', {'id': item.id.toString()}),
           );
@@ -1221,6 +1285,7 @@ class XenderLocalTransferService {
           } catch (_) {
             await sink.close();
             rethrow;
+          }
           }
           final receivedDigest = await sha256.bind(partial.openRead()).first;
           if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
