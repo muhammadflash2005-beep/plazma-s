@@ -929,17 +929,6 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                             child: Icon(Icons.play_circle_fill_rounded,
                                 color: Colors.white, size: 32),
                           ),
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black54,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: _assetMenu(asset),
-                          ),
-                        ),
                         Positioned(right:2,bottom:2,child:Material(color:Colors.black54,shape:const CircleBorder(),
                           child:IconButton(visualDensity:VisualDensity.compact,tooltip:selected?'Deselect item':'Select item',
                             onPressed:()=>_select(asset),icon:Icon(selected?Icons.check_circle:Icons.circle_outlined,color:Colors.white,size:19)))),
