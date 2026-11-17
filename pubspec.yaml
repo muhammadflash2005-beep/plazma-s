@@ -1,7 +1,7 @@
 name: plazma_s
-description: Fast, secure, cross-platform local network file and app sharing.
+description: Fast cross-platform local network file and app sharing.
 publish_to: "none"
-version: 0.2.27+33
+version: 0.2.28+34
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
