@@ -758,6 +758,7 @@ class _AppsScreenState extends State<AppsScreen> {
       _message('This app has not been saved on this device yet.');
       return;
     }
+    try {
     final manifestParts = _incoming[packageName] ?? const <SharedLocalFile>[];
     final bundleParts = manifestParts
         .where((part) => ApkBundle.isBundlePath(part.relativePath))
