@@ -55,8 +55,8 @@ class _AudioPlayerSheetState extends State<_AudioPlayerSheet>{late final Player 
         const SizedBox(height:18),CircleAvatar(radius:34,backgroundColor:c.primaryContainer,child:Icon(Icons.music_note_rounded,size:34,color:c.primary)),
         const SizedBox(height:12),Text(widget.title,textAlign:TextAlign.center,maxLines:2,overflow:TextOverflow.ellipsis,style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
         const SizedBox(height:14),StreamBuilder<Duration>(stream:_player.stream.duration,builder:(context,ds){final d=ds.data??Duration.zero;
-          return StreamBuilder<Duration>(stream:_player.stream.position,builder:(context,ps){final p=ps.data??Duration.zero;final max=d.inMilliseconds.toDouble().clamp(1,double.infinity);
-            return Column(children:[Slider(value:p.inMilliseconds.toDouble().clamp(0,max),max:max,onChanged:d==Duration.zero?null:(v)=>_player.seek(Duration(milliseconds:v.round()))),
+          return StreamBuilder<Duration>(stream:_player.stream.position,builder:(context,ps){final p=ps.data??Duration.zero;final max=d.inMilliseconds.toDouble().clamp(1,double.infinity).toDouble();
+            return Column(children:[Slider(value:p.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:d==Duration.zero?null:(v)=>_player.seek(Duration(milliseconds:v.round()))),
               Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(_time(p)),Text(_time(d))])]);});}),
         const SizedBox(height:6),StreamBuilder<bool>(stream:_player.stream.playing,builder:(context,s){final playing=s.data??false;
           return IconButton.filled(onPressed:()=>playing?_player.pause():_player.play(),iconSize:32,icon:Icon(playing?Icons.pause_rounded:Icons.play_arrow_rounded));}),
