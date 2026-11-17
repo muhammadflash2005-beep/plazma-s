@@ -187,7 +187,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                 trailing: category == 'app' && direction == 'received'
                     ? TextButton(
                         onPressed: () => _installApp(entry),
-                        label: const Text('Install'),
+                        child: const Text('Install'),
                       )
                     : null,
               )),
