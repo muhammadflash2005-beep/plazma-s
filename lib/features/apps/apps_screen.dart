@@ -386,6 +386,12 @@ class _AppsScreenState extends State<AppsScreen> {
         paths.add(pkg + '/' + bundle.uri.pathSegments.last);
       }
 
+      // Resolve and cache the real installed-app icons before the queue is shown.
+      for (final pkg in packages) {
+        final icon = await _appIcon(pkg);
+        if (icon != null) TransferOverlayController.registerAppIcon(pkg, icon);
+      }
+
       final invite = await (_service.isSharing
           ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
           : _service.startSharing(files: files, relativePaths: paths));
@@ -740,6 +746,10 @@ class _AppsScreenState extends State<AppsScreen> {
           .invokeMapMethod<String, dynamic>('inspectApk', {'path': baseApk.path});
         if (details == null || details['packageName'] != entry.key) {
           throw StateError('Received APK package metadata does not match the package folder.');
+        }
+        final encodedIcon = details['iconBase64'];
+        if (encodedIcon is String && encodedIcon.isNotEmpty) {
+          TransferOverlayController.registerAppIcon(entry.key, base64Decode(encodedIcon));
         }
         if (mounted) setState(() => _incomingDetails[entry.key] = details);
       } catch (error) {
