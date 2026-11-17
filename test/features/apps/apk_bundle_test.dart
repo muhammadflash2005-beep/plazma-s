@@ -17,7 +17,7 @@ void main() {
   });
 
   Future<File> writeApk(String name, List<int> bytes) async {
-    final file = File(temp.path + Platform.pathSeparator + name);
+    final file = File('${temp.path}${Platform.pathSeparator}${name}');
     await file.writeAsBytes(bytes, flush: true);
     return file;
   }
@@ -29,7 +29,7 @@ void main() {
     required String digest,
   }) async {
     final payloadFile = await writeApk('crafted-payload.apk', payload);
-    final manifestFile = File(temp.path + Platform.pathSeparator + 'crafted-manifest.json');
+    final manifestFile = File('${temp.path}${Platform.pathSeparator}crafted-manifest.json');
     await manifestFile.writeAsString(jsonEncode({
       'format': ApkBundle.formatName,
       'version': 1,
@@ -38,7 +38,7 @@ void main() {
         {'name': entryName, 'size': payload.length, 'sha256': digest},
       ],
     }));
-    final bundle = File(temp.path + Platform.pathSeparator + 'crafted.apks');
+    final bundle = File('${temp.path}${Platform.pathSeparator}crafted.apks');
     final encoder = ZipFileEncoder()..create(bundle.path, level: ZipFileEncoder.store);
     await encoder.addFile(payloadFile, entryName, ZipFileEncoder.store);
     await encoder.addFile(manifestFile, ApkBundle.manifestName, ZipFileEncoder.store);
@@ -52,14 +52,14 @@ void main() {
     final bundle = await ApkBundle.create(
       packageName: 'com.example.transfer',
       apkFiles: [split, base],
-      outputDirectory: Directory(temp.path + Platform.pathSeparator + 'out'),
+      outputDirectory: Directory('${temp.path}${Platform.pathSeparator}out'),
     );
 
     expect(bundle.path.endsWith('com.example.transfer.apks'), isTrue);
     final extracted = await ApkBundle.extract(
       bundle: bundle,
       expectedPackageName: 'com.example.transfer',
-      destinationDirectory: Directory(temp.path + Platform.pathSeparator + 'received'),
+      destinationDirectory: Directory('${temp.path}${Platform.pathSeparator}received'),
     );
     expect(extracted.map((file) => file.uri.pathSegments.last).toList(),
         ['base.apk', 'split_1.apk']);
@@ -72,13 +72,13 @@ void main() {
     final bundle = await ApkBundle.create(
       packageName: 'com.example.sender',
       apkFiles: [base],
-      outputDirectory: Directory(temp.path + Platform.pathSeparator + 'out'),
+      outputDirectory: Directory('${temp.path}${Platform.pathSeparator}out'),
     );
     await expectLater(
       ApkBundle.extract(
         bundle: bundle,
         expectedPackageName: 'com.example.receiver',
-        destinationDirectory: Directory(temp.path + Platform.pathSeparator + 'received'),
+        destinationDirectory: Directory('${temp.path}${Platform.pathSeparator}received'),
       ),
       throwsFormatException,
     );
@@ -95,7 +95,7 @@ void main() {
       ApkBundle.extract(
         bundle: bundle,
         expectedPackageName: 'com.example.transfer',
-        destinationDirectory: Directory(temp.path + Platform.pathSeparator + 'received'),
+        destinationDirectory: Directory('${temp.path}${Platform.pathSeparator}received'),
       ),
       throwsFormatException,
     );
@@ -108,7 +108,7 @@ void main() {
       payload: [1, 2, 3],
       digest: List.filled(64, 'a').join(),
     );
-    final destination = Directory(temp.path + Platform.pathSeparator + 'received');
+    final destination = Directory('${temp.path}${Platform.pathSeparator}received');
     await expectLater(
       ApkBundle.extract(
         bundle: bundle,
@@ -117,7 +117,7 @@ void main() {
       ),
       throwsFormatException,
     );
-    expect(await File(temp.path + Platform.pathSeparator + 'outside.apk').exists(), isFalse);
+    expect(await File('${temp.path}${Platform.pathSeparator}outside.apk').exists(), isFalse);
   });
 
   test('requires the base APK when creating a bundle', () async {
@@ -126,7 +126,7 @@ void main() {
       ApkBundle.create(
         packageName: 'com.example.transfer',
         apkFiles: [split],
-        outputDirectory: Directory(temp.path + Platform.pathSeparator + 'out'),
+        outputDirectory: Directory('${temp.path}${Platform.pathSeparator}out'),
       ),
       throwsStateError,
     );
