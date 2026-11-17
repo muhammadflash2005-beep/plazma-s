@@ -40,7 +40,7 @@ class _StorageVolume {
   final int availableBytes;
   final bool isPrimary;
   final bool accessible;
-  int get usedBytes => (totalBytes - availableBytes).clamp(0, totalBytes);
+  int get usedBytes => (totalBytes - availableBytes).clamp(0, totalBytes).toInt();
   double get usedFraction => totalBytes <= 0 ? 0 : usedBytes / totalBytes;
   factory _StorageVolume.fromMap(Map<dynamic, dynamic> value) => _StorageVolume(
     id: value['id']?.toString() ?? '',
