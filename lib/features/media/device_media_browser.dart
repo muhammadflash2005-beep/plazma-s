@@ -624,6 +624,43 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
     }
   }
 
+  Future<void> _showAssetActions(AssetEntity asset) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline_rounded),
+              title: const Text('Rename'),
+              onTap: () => Navigator.pop(sheetContext, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('Copy to folder'),
+              onTap: () => Navigator.pop(sheetContext, 'copy'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_rounded),
+              title: const Text('Move to folder'),
+              onTap: () => Navigator.pop(sheetContext, 'move'),
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_forever_outlined,
+                  color: Theme.of(sheetContext).colorScheme.error),
+              title: Text('Delete permanently',
+                  style: TextStyle(color: Theme.of(sheetContext).colorScheme.error)),
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action != null && mounted) await _manageAsset(asset, action);
+  }
+
   PopupMenuButton<String> _assetMenu(AssetEntity asset) => PopupMenuButton<String>(
     tooltip: 'Manage media',
     icon: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 18),
@@ -845,6 +882,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                 final selected = widget.selectedPaths.contains(_assetPaths[asset.id]);
                 return InkWell(
                   onTap: () => _openAssetPreview(index),
+                  onLongPress: () => _showAssetActions(asset),
                   borderRadius: BorderRadius.circular(10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
@@ -886,18 +924,22 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
                             return Image.memory(bytes, fit: BoxFit.cover);
                           },
                         ),
-                        Positioned(
-                          top: 0, right: 0,
-                          child: Container(
-                            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                            child: _assetMenu(asset),
-                          ),
-                        ),
                         if (widget.kind == MediaKind.videos)
                           const Center(
                             child: Icon(Icons.play_circle_fill_rounded,
                                 color: Colors.white, size: 32),
                           ),
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: _assetMenu(asset),
+                          ),
+                        ),
                         Positioned(right:2,bottom:2,child:Material(color:Colors.black54,shape:const CircleBorder(),
                           child:IconButton(visualDensity:VisualDensity.compact,tooltip:selected?'Deselect item':'Select item',
                             onPressed:()=>_select(asset),icon:Icon(selected?Icons.check_circle:Icons.circle_outlined,color:Colors.white,size:19)))),
