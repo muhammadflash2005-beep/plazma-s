@@ -19,6 +19,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../network/android_wifi_session_service.dart';
@@ -120,6 +121,12 @@ class _AppsScreenState extends State<AppsScreen> {
     _receiver = _service.joinedInvite;
     if (_receiver != null) _watchIncomingApps(_receiver!);
     _load();
+    unawaited(_loadHighSpeedPreference());
+  }
+
+  Future<void> _loadHighSpeedPreference() async {
+    final preferences = await SharedPreferences.getInstance();
+    _service.highSpeedMode = preferences.getBool('high_speed_mode') ?? false;
   }
 
   void _syncSharingInvite() {
