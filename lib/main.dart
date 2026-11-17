@@ -722,7 +722,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               _categoryContent(),
                               const FilesScreen(),
                               const TransferHistoryScreen(),
-                              _meContent(),
+                              _settingsContent(),
                             ],
                           ),
                         ),
@@ -740,7 +740,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         NavigationDestination(icon: Icon(Icons.apps_rounded), label: 'Apps'),
                         NavigationDestination(icon: Icon(Icons.swap_horiz_rounded), label: 'Transfer'),
                         NavigationDestination(icon: Icon(Icons.history_rounded), label: 'History'),
-                        NavigationDestination(icon: Icon(Icons.settings_rounded), label: 'Settings'),
+                        NavigationDestination(
+                          icon: Icon(Icons.settings_outlined),
+                          selectedIcon: Icon(Icons.settings_rounded),
+                          label: 'Settings',
+                        ),
                       ],
                     ),
                 ],
@@ -934,8 +938,6 @@ class _HomeScreenState extends State<HomeScreen> {
       const FilesScreen(),
     ],
   );
-
-  Widget _meContent() => _settingsContent();
 
   Widget _settingsContent() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
