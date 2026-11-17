@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 
 import '../../transfers/transfer_history.dart';
+import '../apps/install_status_store.dart';
 
 class TransferHistoryScreen extends StatefulWidget {
   const TransferHistoryScreen({super.key});
@@ -19,6 +20,22 @@ class TransferHistoryScreen extends StatefulWidget {
 class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
   List<TransferHistoryEntry> _entries = [];
   bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    InstallStatusStore.installed.addListener(_onInstallStatusChanged);
+  }
+
+  @override
+  void dispose() {
+    InstallStatusStore.installed.removeListener(_onInstallStatusChanged);
+    super.dispose();
+  }
+
+  void _onInstallStatusChanged() {
+    if (mounted) setState(() {});
+  }
   String _selectedDirection = 'received';
 
   static const _audioExtensions = {
@@ -111,9 +128,7 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
         final cache = await getTemporaryDirectory();
         final staged = File('${cache.path}${Platform.pathSeparator}${entry.name}.apk');
         await apks.single.copy(staged.path);
-        await const MethodChannel('com.plazma.s/updater').invokeMethod<void>(
-          'installApk', {'path': staged.path},
-        );
+        await ApkBundle.install(staged.path);
       } else {
         await const MethodChannel('com.plazma.s/apps').invokeMethod<void>(
           'installApkSet',
@@ -185,10 +200,12 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 trailing: category == 'app' && direction == 'received'
-                    ? TextButton(
-                        onPressed: () => _installApp(entry),
-                        child: const Text('Install'),
-                      )
+                    ? (InstallStatusStore.isInstalled(entry.name)
+                        ? const Text('Installed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w700))
+                        : TextButton(
+                            onPressed: () => _installApp(entry),
+                            child: const Text('Install'),
+                          ))
                     : null,
               )),
       ],
