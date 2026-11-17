@@ -1006,7 +1006,6 @@ class _HomeScreenState extends State<HomeScreen> {
     ],
   );
 }
-}
 
 class _ThemeSwatch extends StatelessWidget {
   const _ThemeSwatch({required this.theme});
