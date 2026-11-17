@@ -28,10 +28,12 @@ class TransferOverlayController {
 
   // Icons are keyed by the package folder at the start of each app transfer path.
   static final Map<String, Uint8List> _appIcons = <String, Uint8List>{};
+  static final ValueNotifier<int> appIconRevision = ValueNotifier<int>(0);
 
   static void registerAppIcon(String packageName, Uint8List icon) {
     if (packageName.isNotEmpty && icon.isNotEmpty) {
       _appIcons[packageName] = icon;
+      appIconRevision.value++;
     }
   }
 
