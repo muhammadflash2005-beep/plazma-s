@@ -1,0 +1,65 @@
+name: Plazma S CI Auto-Recovery
+
+on:
+  workflow_run:
+    workflows: ["Flutter CI and Android build"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+jobs:
+  recover:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retry failed CI jobs once
+        id: retry
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            if (run.run_attempt < 2) {
+              await github.request(
+                'POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs',
+                { owner, repo, run_id: run.id }
+              );
+              core.notice(`Requested one automatic retry for failed CI run ${run.id} (attempt ${run.run_attempt}).`);
+              core.setOutput('retried', 'true');
+            } else {
+              core.warning(`CI run ${run.id} still failed after its automatic retry. No further retries will be started.`);
+              core.setOutput('retried', 'false');
+            }
+
+      - name: Notify the pull request if retry was exhausted
+        if: steps.retry.outputs.retried == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const prs = run.pull_requests || [];
+            const body = [
+              '⚠️ **Plazma S CI still failing after one automatic retry.**',
+              '',
+              `Workflow run: ${run.html_url}`,
+              `Commit: \`${run.head_sha}\``,
+              '',
+              'This workflow deliberately stops after one retry. Review the failed job logs and fix the underlying issue before merging.'
+            ].join('\n');
+            for (const pr of prs) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body
+              });
+            }
+            await core.summary
+              .addHeading('Automatic recovery exhausted')
+              .addLink('Open failed CI run', run.html_url)
+              .addRaw('The workflow was retried once. Manual diagnosis is required.')
+              .write();
