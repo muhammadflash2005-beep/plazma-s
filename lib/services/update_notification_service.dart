@@ -18,7 +18,7 @@ class UpdateNotificationService {
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
     try {
-      await _plugin.initialize(settings);
+      await _plugin.initialize(settings: settings);
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       await android?.createNotificationChannel(const AndroidNotificationChannel(
@@ -55,10 +55,10 @@ class UpdateNotificationService {
       ),
     );
     await _plugin.show(
-      724,
-      'Plazma S update available',
-      'Version $version is ready to download.',
-      details,
+      id: 724,
+      title: 'Plazma S update available',
+      body: 'Version $version is ready to download.',
+      notificationDetails: details,
       payload: version,
     );
     await preferences.setString(_lastNotifiedVersionKey, version);
