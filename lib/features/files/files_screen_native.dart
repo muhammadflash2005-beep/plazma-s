@@ -777,7 +777,9 @@ class _FilesScreenState extends State<FilesScreen> {
         if (stat.type != FileSystemEntityType.file) continue;
         final relative = entity.path.substring(prefix.length).replaceAll(Platform.pathSeparator, '/');
         if (relative.isEmpty || relative.startsWith('../') ||
-            _relativePaths.contains(relative) || foundPaths.contains(relative)) continue;
+            _relativePaths.contains(relative) || foundPaths.contains(relative)) {
+          continue;
+        }
         foundFiles.add(entity);
         foundPaths.add(relative);
       }
