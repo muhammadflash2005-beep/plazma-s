@@ -8,14 +8,17 @@ import 'package:plazma_s/widgets/electric_progress_bar.dart';
 void main() {
   testWidgets('transfer card keeps the app icon and file details inside the plasma fill',
       (tester) async {
-    await tester.binding.setSurfaceSize(const Size(420, 220));
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(colorSchemeSeed: Colors.deepPurple),
         home: Scaffold(
-          body: Padding(
-            padding: const EdgeInsets.all(16),
-            child: ElectricTransferProgressCard(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 320,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: ElectricTransferProgressCard(
               icon: const Icon(Icons.android_rounded),
               title: 'Amazon Kindle.apk',
               subtitle: '69.70 MB · apps/com.amazon.kindle',
@@ -25,6 +28,7 @@ void main() {
               trailing: IconButton(
                 onPressed: () {},
                 icon: const Icon(Icons.close_rounded),
+                ),
               ),
             ),
           ),
@@ -41,7 +45,6 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.takeException(), isNull);
-    await tester.binding.setSurfaceSize(null);
   });
 
   testWidgets('plasma progress bar accepts completed and zero progress',
