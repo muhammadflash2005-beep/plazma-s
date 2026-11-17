@@ -104,23 +104,50 @@ jobs:
           gradle_file = gradle_kts if gradle_kts.exists() else gradle_groovy
           if gradle_file.exists():
               gradle_text = gradle_file.read_text()
+              if gradle_file == gradle_kts:
+                  # Notifications and AndroidX Core 1.19 require API 37 at compile time.
+                  gradle_text = gradle_text.replace(
+                      "compileSdk = flutter.compileSdkVersion",
+                      "compileSdk = 37",
+                  )
+                  if "compileSdk = 37" not in gradle_text:
+                      raise SystemExit("Could not set Android compileSdk to 37 in Gradle Kotlin DSL")
+                  if "isCoreLibraryDesugaringEnabled = true" not in gradle_text:
+                      gradle_text = gradle_text.replace(
+                          "compileOptions {",
+                          "compileOptions {\\n        isCoreLibraryDesugaringEnabled = true",
+                          1,
+                      )
+              else:
+                  gradle_text = gradle_text.replace(
+                      "compileSdkVersion flutter.compileSdkVersion",
+                      "compileSdkVersion 37",
+                  )
+                  if "coreLibraryDesugaringEnabled true" not in gradle_text:
+                      gradle_text = gradle_text.replace(
+                          "compileOptions {",
+                          "compileOptions {\\n        coreLibraryDesugaringEnabled true",
+                          1,
+                      )
               if "androidx.documentfile:documentfile" not in gradle_text:
                   if "dependencies {" in gradle_text:
                       gradle_text = gradle_text.replace(
                           "dependencies {",
-                          'dependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")',
+                          'dependencies {\\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")\\n    implementation("androidx.core:core:1.15.0")\\n    implementation("androidx.documentfile:documentfile:1.0.1")',
                           1,
                       ) if gradle_file == gradle_kts else gradle_text.replace(
                           "dependencies {",
-                          "dependencies {\n    implementation 'androidx.core:core:1.15.0'\n    implementation 'androidx.documentfile:documentfile:1.0.1'",
+                          "dependencies {\\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'\\n    implementation 'androidx.core:core:1.15.0'\\n    implementation 'androidx.documentfile:documentfile:1.0.1'",
                           1,
                       )
                   else:
-                      block = ('\ndependencies {\n    implementation("androidx.core:core:1.15.0")\n    implementation("androidx.documentfile:documentfile:1.0.1")\n}\n'
+                      block = ('\\ndependencies {\\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")\\n    implementation("androidx.core:core:1.15.0")\\n    implementation("androidx.documentfile:documentfile:1.0.1")\\n}\\n'
                                if gradle_file == gradle_kts else
-                               "\ndependencies {\n    implementation 'androidx.core:core:1.15.0'\n    implementation 'androidx.documentfile:documentfile:1.0.1'\n}\n")
+                               "\\ndependencies {\\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'\\n    implementation 'androidx.core:core:1.15.0'\\n    implementation 'androidx.documentfile:documentfile:1.0.1'\\n}\\n")
                       gradle_text += block
-                  gradle_file.write_text(gradle_text)
+              if "desugar_jdk_libs:2.1.5" not in gradle_text:
+                  raise SystemExit("Core library desugaring dependency was not configured")
+              gradle_file.write_text(gradle_text)
           file_paths = Path("android/app/src/main/res/xml/plazma_file_paths.xml")
           file_paths.parent.mkdir(parents=True, exist_ok=True)
           file_paths.write_text("""<?xml version="1.0" encoding="utf-8"?>
