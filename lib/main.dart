@@ -286,6 +286,19 @@ class _TransferSpeedLabelState extends State<_TransferSpeedLabel> {
   }
 }
 
+String _formatTransferSize(int bytes) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+  if (bytes >= 1024) {
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+  return '$bytes B';
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({required this.themes, super.key});
   final ThemeController themes;
@@ -445,54 +458,46 @@ class _HomeScreenState extends State<HomeScreen> {
                     ]),
                   ],
                   if (totalBytes > 0) ...[
-                    Text('Overall progress · ${(transferredBytes / totalBytes * 100).clamp(0, 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text('Overall progress · ${(transferredBytes / totalBytes * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                     const SizedBox(height: 6),
-                    ElectricProgressBar(value: transferredBytes / totalBytes, height: 7),
+                    ElectricProgressBar(value: transferredBytes / totalBytes, height: 10),
                   ],
                   const SizedBox(height: 10),
                   Expanded(child: items.isEmpty
                     ? const Center(child: Text('No items in this room yet. Add files from any category.'))
                     : ListView.separated(
                         itemCount: items.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        padding: const EdgeInsets.only(bottom: 8),
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, index) {
                           final item = items[index];
                           final fraction = item.size <= 0
                               ? (item.status == 'done' ? 1.0 : 0.0)
                               : (item.bytesTransferred / item.size).clamp(0.0, 1.0).toDouble();
                           final status = isReceiver
-                              ? (item.status == 'sending' ? 'receiving' : item.status == 'done' ? 'saved' : item.status)
-                              : (item.status == 'done' ? 'sent' : item.status);
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
-                            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                              SizedBox(width: 48, height: 48, child: Center(child: _transferItemIcon(item))),
-                              const SizedBox(width: 12),
-                              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                Row(children: [
-                                  Expanded(child: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontWeight: FontWeight.w700))),
-                                  Text('${(fraction * 100).round()}%', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
-                                ]),
-                                Text(item.relativePath, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                                const SizedBox(height: 7),
-                                ElectricProgressBar(value: fraction, height: 9),
-                                const SizedBox(height: 4),
-                                Row(children: [
-                                  Text(status, style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                                  const Spacer(),
-                                  _TransferSpeedLabel(key: ValueKey('speed-${item.id}'), bytesTransferred: item.bytesTransferred),
-                                ]),
-                              ])),
-                              if (item.status == 'waiting' || item.status == 'sending') ...[
-                                const SizedBox(width: 4),
-                                IconButton(visualDensity: VisualDensity.compact,
-                                  tooltip: isReceiver ? 'Cancel receiving item' : 'Cancel sending item',
-                                  onPressed: () => service.cancelQueuedItem(item.id),
-                                  icon: const Icon(Icons.close_rounded, size: 18)),
-                              ],
-                            ]),
+                              ? (item.status == 'sending' ? 'Receiving' : item.status == 'done' ? 'Saved' : item.status)
+                              : (item.status == 'done' ? 'Sent' : item.status);
+                          final sizeLabel = _formatTransferSize(item.size);
+                          return ElectricTransferProgressCard(
+                            key: ValueKey('transfer-card-${item.id}'),
+                            icon: _transferItemIcon(item),
+                            title: item.name,
+                            subtitle: '$sizeLabel · ${item.relativePath}',
+                            progress: fraction,
+                            status: status,
+                            speed: _TransferSpeedLabel(
+                              key: ValueKey('speed-${item.id}'),
+                              bytesTransferred: item.bytesTransferred,
+                            ),
+                            trailing: item.status == 'waiting' || item.status == 'sending'
+                                ? IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: isReceiver ? 'Cancel receiving item' : 'Cancel sending item',
+                                    onPressed: () => service.cancelQueuedItem(item.id),
+                                    icon: const Icon(Icons.close_rounded, size: 18),
+                                  )
+                                : null,
                           );
                         },
                       )),
