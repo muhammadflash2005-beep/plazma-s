@@ -48,7 +48,6 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
     'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',
   };
 
-  }
 
   Future<void> _load() async {
     final entries = await TransferHistoryStore.load();
