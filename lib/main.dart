@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_device_apps/flutter_device_apps.dart';
 import 'package:media_kit/media_kit.dart';
+import 'services/update_notification_service.dart';
 
 import 'updates/app_update_card.dart';
 import 'widgets/electric_progress_bar.dart';
@@ -24,9 +25,10 @@ import 'transfers/transfer_overlay_controller.dart';
 import 'transfers/xender_local_transfer_service.dart';
 import 'features/history/transfer_history_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  await UpdateNotificationService.initialize();
   runApp(const PlazmaApp());
 }
 
