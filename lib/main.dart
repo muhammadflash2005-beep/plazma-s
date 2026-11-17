@@ -25,7 +25,7 @@ import 'features/history/transfer_history_screen.dart';
 
 void main() => runApp(const PlazmaApp());
 
-enum PlazmaTheme { light, dark, ocean, sunset, forest, purple, crimson, midnight, obsidian, monochrome, blackGold }
+enum PlazmaTheme { light, dark, ocean, sunset, forest, purple, crimson, midnight, obsidian, monochrome, blackGold, abyssalAmethyst }
 
 extension PlazmaThemeInfo on PlazmaTheme {
   String get label => switch (this) {
@@ -40,9 +40,10 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.obsidian => 'Obsidian',
         PlazmaTheme.monochrome => 'Black & White',
         PlazmaTheme.blackGold => 'Black & Gold',
+        PlazmaTheme.abyssalAmethyst => 'Abyssal Amethyst',
       };
 
-  bool get isDark => {PlazmaTheme.dark, PlazmaTheme.midnight, PlazmaTheme.obsidian, PlazmaTheme.monochrome, PlazmaTheme.blackGold}.contains(this);
+  bool get isDark => {PlazmaTheme.dark, PlazmaTheme.midnight, PlazmaTheme.obsidian, PlazmaTheme.monochrome, PlazmaTheme.blackGold, PlazmaTheme.abyssalAmethyst}.contains(this);
 
   String get description => switch (this) {
         PlazmaTheme.light => 'Clean white surfaces and electric blue',
@@ -56,6 +57,7 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.obsidian => 'Deep graphite with vivid emerald accents',
         PlazmaTheme.monochrome => 'Pure black surfaces with crisp white and grey details',
         PlazmaTheme.blackGold => 'Matte black surfaces with elegant gold highlights',
+        PlazmaTheme.abyssalAmethyst => 'Obsidian darkness with rare amethyst and ultraviolet accents',
       };
 
   Color get background => switch (this) {
@@ -70,6 +72,7 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.obsidian => const Color(0xFF07130F),
         PlazmaTheme.monochrome => const Color(0xFF000000),
         PlazmaTheme.blackGold => const Color(0xFF080808),
+        PlazmaTheme.abyssalAmethyst => const Color(0xFF08050D),
       };
 
   Color get surface => switch (this) {
@@ -84,6 +87,7 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.obsidian => const Color(0xFF10231B),
         PlazmaTheme.monochrome => const Color(0xFF101010),
         PlazmaTheme.blackGold => const Color(0xFF19150B),
+        PlazmaTheme.abyssalAmethyst => const Color(0xFF15101D),
       };
 
   Color get primary => switch (this) {
@@ -98,6 +102,7 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.obsidian => const Color(0xFF10B981),
         PlazmaTheme.monochrome => const Color(0xFFFFFFFF),
         PlazmaTheme.blackGold => const Color(0xFFD4AF37),
+        PlazmaTheme.abyssalAmethyst => const Color(0xFF9D4EDD),
       };
 
   Color get accent => switch (this) {
@@ -112,15 +117,16 @@ extension PlazmaThemeInfo on PlazmaTheme {
         PlazmaTheme.obsidian => const Color(0xFFA3E635),
         PlazmaTheme.monochrome => const Color(0xFFBDBDBD),
         PlazmaTheme.blackGold => const Color(0xFFFFD76A),
+        PlazmaTheme.abyssalAmethyst => const Color(0xFFE0AAFF),
       };
 
   Color get foreground => switch (this) {
-        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian || PlazmaTheme.monochrome || PlazmaTheme.blackGold => const Color(0xFFF1F5F9),
+        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian || PlazmaTheme.monochrome || PlazmaTheme.blackGold || PlazmaTheme.abyssalAmethyst => const Color(0xFFF1F5F9),
         _ => const Color(0xFF0F172A),
       };
 
   Color get muted => switch (this) {
-        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian || PlazmaTheme.monochrome || PlazmaTheme.blackGold => const Color(0xFF94A3B8),
+        PlazmaTheme.dark || PlazmaTheme.midnight || PlazmaTheme.obsidian || PlazmaTheme.monochrome || PlazmaTheme.blackGold || PlazmaTheme.abyssalAmethyst => const Color(0xFFB8A9C9),
         _ => const Color(0xFF64748B),
       };
 
