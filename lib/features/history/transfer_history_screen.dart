@@ -55,6 +55,19 @@ class _TransferHistoryScreenState extends State<TransferHistoryScreen> {
 
   Future<void> _load() async {
     final entries = await TransferHistoryStore.load();
+    if (Platform.isAndroid) {
+      final receivedApps = entries.where((entry) =>
+          entry.direction == 'received' && entry.type == 'app');
+      for (final entry in receivedApps) {
+        try {
+          final installed = await const MethodChannel('com.plazma.s/apps')
+              .invokeMethod<bool>('isPackageInstalled', {'packageName': entry.name});
+          if (installed != null) InstallStatusStore.report(entry.name, installed);
+        } catch (_) {
+          // Keep the Install action available if Android cannot confirm the package state.
+        }
+      }
+    }
     if (!mounted) return;
     setState(() {
       _entries = entries;
