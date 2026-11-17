@@ -1182,6 +1182,60 @@ class XenderLocalTransferService {
             await partial.delete();
             offset = 0;
           }
+          if (highSpeedMode && offset == 0 && item.size >= 32 * 1024 * 1024) {
+            const workers = 4;
+            final prepared = await partial.open(mode: FileMode.write);
+            await prepared.truncate(item.size);
+            await prepared.close();
+            var completedBytes = 0;
+            final chunkTasks = <Future<void>>[];
+            for (var chunkIndex = 0; chunkIndex < workers; chunkIndex++) {
+              final start = (item.size * chunkIndex) ~/ workers;
+              final endExclusive = (item.size * (chunkIndex + 1)) ~/ workers;
+              if (start >= endExclusive) continue;
+              chunkTasks.add(() async {
+                final chunkRequest = await client.getUrl(
+                  _endpoint(invite, '/download', {'id': item.id.toString()}),
+                );
+                chunkRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-${endExclusive - 1}');
+                final chunkResponse = await chunkRequest.close().timeout(const Duration(seconds: 60));
+                if (chunkResponse.statusCode != HttpStatus.partialContent) {
+                  await chunkResponse.drain<void>();
+                  throw HttpException('High-speed transfer chunk failed (HTTP ${chunkResponse.statusCode}).');
+                }
+                final output = await partial.open(mode: FileMode.write);
+                try {
+                  await output.setPosition(start);
+                  await for (final chunk in chunkResponse) {
+                    await output.writeFrom(chunk);
+                    completedBytes += chunk.length;
+                    onProgress(LocalTransferProgress(
+                      fileName: item.name,
+                      fileBytes: completedBytes,
+                      fileSize: item.size,
+                      totalBytes: totalBytes + completedBytes,
+                      totalSize: totalSize,
+                    ));
+                  }
+                  await output.flush();
+                } finally {
+                  await output.close();
+                }
+              }());
+            }
+            try {
+              await Future.wait(chunkTasks);
+            } catch (_) {
+              if (await partial.exists()) await partial.delete();
+              rethrow;
+            }
+            fileBytes = item.size;
+            totalBytes += item.size;
+            final status = await _postQueueStatus(
+              invite, item.id, 'sending', item.size, client: client,
+            );
+            if (status == 'cancelled') throw StateError('Transfer cancelled by sender.');
+          } else {
           final request = await client.getUrl(
             _endpoint(invite, '/download', {'id': item.id.toString()}),
           );
@@ -1230,6 +1284,7 @@ class XenderLocalTransferService {
           } catch (_) {
             await sink.close();
             rethrow;
+          }
           }
           final receivedDigest = await sha256.bind(partial.openRead()).first;
           if (fileBytes != item.size || receivedDigest.toString() != item.sha256) {
