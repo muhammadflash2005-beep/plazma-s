@@ -349,10 +349,14 @@ class _MusicScreenState extends State<MusicScreen> {
       });
       _message('MP4 audio converted to MP3 successfully.');
     } catch (error) {
-      if (mounted) setState(() => _conversionStatus = 'Conversion failed: $error');
+      if (mounted) {
+        setState(() => _conversionStatus = 'Conversion failed: $error');
+      }
       _message('Could not convert this video to MP3: $error');
     } finally {
-      if (mounted) setState(() => _converting = false);
+      if (mounted) {
+        setState(() => _converting = false);
+      }
     }
   }
 
