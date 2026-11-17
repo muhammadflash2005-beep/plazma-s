@@ -343,7 +343,7 @@ class _ElectricBoltPainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0) return;
 
     final rect = Offset.zero & size;
-    final radius = Radius.circular(math.min(size.height * 0.24, size.width * 0.5));
+    final radius = Radius.circular(math.min(size.height * 0.24, size.width * 0.5).toDouble());
     final glow = Paint()
       ..color = primary.withValues(alpha: 0.58 * fillOpacity)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7);
@@ -376,8 +376,8 @@ class _ElectricBoltPainter extends CustomPainter {
       canvas,
       main,
       glowColor,
-      glowWidth: math.max(1.2, size.height * 0.045),
-      coreWidth: math.max(0.7, size.height * 0.014),
+      glowWidth: math.max(1.2, size.height * 0.045).toDouble(),
+      coreWidth: math.max(0.7, size.height * 0.014).toDouble(),
     );
 
     // Forks branch both above and below the main discharge. Their anchors
@@ -400,8 +400,8 @@ class _ElectricBoltPainter extends CustomPainter {
         canvas,
         branch,
         glowColor,
-        glowWidth: math.max(1.0, size.height * 0.027),
-        coreWidth: math.max(0.55, size.height * 0.009),
+        glowWidth: math.max(1.0, size.height * 0.027).toDouble(),
+        coreWidth: math.max(0.55, size.height * 0.009).toDouble(),
       );
 
       // A shorter counter-fork creates the irregular, branching storm look.
@@ -420,8 +420,8 @@ class _ElectricBoltPainter extends CustomPainter {
           canvas,
           fork,
           glowColor,
-          glowWidth: math.max(0.8, size.height * 0.018),
-          coreWidth: math.max(0.5, size.height * 0.007),
+          glowWidth: math.max(0.8, size.height * 0.018).toDouble(),
+          coreWidth: math.max(0.5, size.height * 0.007).toDouble(),
         );
       }
     }
@@ -432,7 +432,7 @@ class _ElectricBoltPainter extends CustomPainter {
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
     canvas.drawCircle(
       Offset(sparkX, _mainY(sparkX, size)),
-      math.max(1.4, size.height * 0.055),
+      math.max(1.4, size.height * 0.055).toDouble(),
       sparkPaint,
     );
   }
