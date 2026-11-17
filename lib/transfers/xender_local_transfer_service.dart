@@ -14,6 +14,7 @@ import '../rooms/room_registry.dart';
 import 'transfer_history.dart';
 import 'transfer_overlay_controller.dart';
 import 'transfer_queue.dart';
+import '../services/plazma_analytics.dart';
 
 class SharedLocalFile {
   const SharedLocalFile({
@@ -269,6 +270,12 @@ class XenderLocalTransferService {
         },
       );
       await _startForegroundService();
+      unawaited(PlazmaAnalytics.capture('transfer started', {
+        'direction': 'send',
+        'file_count': _manifest.length,
+        'total_bytes': _manifest.fold<int>(0, (sum, item) => sum + (item['size'] as int)),
+        'file_types': _manifest.map((item) => item['type'] as String).toSet().join(','),
+      }));
       return invite;
     } catch (_) {
       await server?.close(force: true);
@@ -281,9 +288,10 @@ class XenderLocalTransferService {
     required List<File> files,
     required List<String> relativePaths,
   }) {
-    return _serializeRoomMutation(
-      () => _addFilesInternal(files: files, relativePaths: relativePaths),
-    );
+    return _serializeRoomMutation(() async {
+      await _addFilesInternal(files: files, relativePaths: relativePaths);
+      unawaited(PlazmaAnalytics.capture('transfer items added', {'file_count': files.length}));
+    });
   }
 
   Future<void> _addFilesInternal({
@@ -440,6 +448,13 @@ class XenderLocalTransferService {
         }
         final wasFirst = (_room?.completedCount ?? 0) == 0;
         final marked = _room?.markCompleted(deviceId) ?? false;
+        if (marked) {
+          unawaited(PlazmaAnalytics.capture('transfer completed', {
+            'direction': 'send',
+            'file_count': _manifest.length,
+            'total_bytes': _manifest.fold<int>(0, (sum, item) => sum + (item['size'] as int)),
+          }));
+        }
         request.response.statusCode = HttpStatus.ok;
         await request.response.close();
         final onCompleted = marked && wasFirst ? _onTransferCompleted : null;
@@ -893,6 +908,10 @@ class XenderLocalTransferService {
           })
           .toList();
       _publishRoomFiles();
+      unawaited(PlazmaAnalytics.capture('qr connection successful', {
+        'file_count': _joinedManifest.length,
+        'total_bytes': _joinedManifest.fold<int>(0, (sum, item) => sum + item.size),
+      }));
       return _joinedManifest;
     } finally {
       client.close(force: true);
@@ -1322,6 +1341,11 @@ class XenderLocalTransferService {
             wasCancelled = true;
           } else {
             hadFailure = true;
+            unawaited(PlazmaAnalytics.capture('transfer failed', {
+              'direction': 'receive',
+              'file_type': item.type,
+              'file_size_bytes': item.size,
+            }));
           }
           // A failed item must not block the remaining room queue.
           continue;
@@ -1371,6 +1395,11 @@ class XenderLocalTransferService {
         throw HttpException('The sender did not acknowledge transfer completion.');
       }
       await completeResponse.drain<void>();
+      unawaited(PlazmaAnalytics.capture('transfer completed', {
+        'direction': 'receive',
+        'file_count': processedIds.length,
+        'total_bytes': totalBytes,
+      }));
       break;
       }
     } finally {
