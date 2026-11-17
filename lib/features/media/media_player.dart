@@ -56,7 +56,7 @@ class _AudioPlayerSheetState extends State<_AudioPlayerSheet>{late final Player 
         Container(width:42,height:4,decoration:BoxDecoration(color:c.onSurfaceVariant.withValues(alpha:.35),borderRadius:BorderRadius.circular(4))),
         const SizedBox(height:18),CircleAvatar(radius:34,backgroundColor:c.primaryContainer,child:Icon(Icons.music_note_rounded,size:34,color:c.primary)),
         const SizedBox(height:12),Text(widget.title,textAlign:TextAlign.center,maxLines:2,overflow:TextOverflow.ellipsis,style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
-        const SizedBox(height:18),const _LightningBeatIndicator(),
+        const SizedBox(height:18),StreamBuilder<bool>(stream:_player.stream.playing,builder:(context,s)=>_LightningBeatIndicator(playing:s.data??false)),
         const SizedBox(height:12),StreamBuilder<Duration>(stream:_player.stream.duration,builder:(context,ds){final d=ds.data??Duration.zero;
           return StreamBuilder<Duration>(stream:_player.stream.position,builder:(context,ps){final p=ps.data??Duration.zero;final max=d.inMilliseconds.toDouble().clamp(1,double.infinity).toDouble();
             return Column(children:[Slider(value:p.inMilliseconds.toDouble().clamp(0,max).toDouble(),max:max,onChanged:d==Duration.zero?null:(v)=>_player.seek(Duration(milliseconds:v.round()))),
@@ -68,14 +68,21 @@ class _AudioPlayerSheetState extends State<_AudioPlayerSheet>{late final Player 
 }
 
 class _LightningBeatIndicator extends StatefulWidget {
-  const _LightningBeatIndicator();
+  const _LightningBeatIndicator({required this.playing});
+  final bool playing;
   @override State<_LightningBeatIndicator> createState() => _LightningBeatIndicatorState();
 }
 class _LightningBeatIndicatorState extends State<_LightningBeatIndicator> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   @override void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 820))..repeat();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 820));
+    if (widget.playing) _controller.repeat();
+  }
+  @override void didUpdateWidget(covariant _LightningBeatIndicator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.playing && !oldWidget.playing) _controller.repeat();
+    if (!widget.playing && oldWidget.playing) _controller.stop();
   }
   @override void dispose() { _controller.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) {
