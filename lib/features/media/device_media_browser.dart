@@ -643,7 +643,7 @@ class _DeviceMediaBrowserState extends State<DeviceMediaBrowser>
               onTap: () => Navigator.pop(sheetContext, 'copy'),
             ),
             ListTile(
-              leading: const Icon(Icons.drive_file_move_outline_rounded),
+              leading: const Icon(Icons.drive_file_move_rounded),
               title: const Text('Move to folder'),
               onTap: () => Navigator.pop(sheetContext, 'move'),
             ),
