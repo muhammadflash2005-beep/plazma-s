@@ -32,12 +32,13 @@ void main() {
 
   testWidgets('Settings Appearance labels all twelve theme swatches and their brightness', (tester) async {
     await tester.pumpWidget(const PlazmaApp());
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
     await tester.tap(find.text('Settings').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Appearance'), findsOneWidget);
     await tester.tap(find.text('Appearance').last);
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
 
     expect(find.text('Choose a theme'), findsOneWidget);
 
