@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 
 enum TransferOverlayDirection { sending, receiving }
@@ -23,6 +25,21 @@ class TransferOverlayController {
 
   static final ValueNotifier<TransferOverlaySnapshot?> current =
       ValueNotifier<TransferOverlaySnapshot?>(null);
+
+  // Icons are keyed by the package folder at the start of each app transfer path.
+  static final Map<String, Uint8List> _appIcons = <String, Uint8List>{};
+
+  static void registerAppIcon(String packageName, Uint8List icon) {
+    if (packageName.isNotEmpty && icon.isNotEmpty) {
+      _appIcons[packageName] = icon;
+    }
+  }
+
+  static Uint8List? appIconFor(String relativePath) {
+    final separator = relativePath.indexOf('/');
+    if (separator <= 0) return null;
+    return _appIcons[relativePath.substring(0, separator)];
+  }
 
   static void show(TransferOverlaySnapshot snapshot) => current.value = snapshot;
   static void clear() => current.value = null;
