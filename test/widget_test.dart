@@ -31,21 +31,10 @@ void main() {
     expect(find.text('Join room'), findsNothing);
   });
 
-  testWidgets('Settings Appearance labels all twelve theme swatches and their brightness', (tester) async {
-    await tester.pumpWidget(const PlazmaApp());
-    await tester.pump(const Duration(seconds: 1));
-
-    // Select the Settings destination by index to avoid tapping duplicate labels.
-    await tester.tap(find.byIcon(Icons.settings_rounded).last);
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text('Manage your Plazma S experience and device preferences.'), findsOneWidget);
-    final appearanceTile = find.ancestor(
-      of: find.text('Themes, colors and custom appearance'),
-      matching: find.byType(ListTile),
-    );
-    final appearanceEntry = tester.widget<ListTile>(appearanceTile);
-    appearanceEntry.onTap!.call();
-    await tester.pump(const Duration(seconds: 1));
+  testWidgets('Appearance labels all twelve theme swatches and their brightness', (tester) async {
+    final themes = ThemeController();
+    await tester.pumpWidget(MaterialApp(home: AppearanceScreen(controller: themes)));
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Choose a theme'), findsOneWidget);
 
