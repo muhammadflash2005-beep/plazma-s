@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import '../services/update_notification_service.dart';
 
 class AppUpdateCard extends StatefulWidget {
   const AppUpdateCard({super.key});
@@ -132,6 +133,9 @@ class _AppUpdateCardState extends State<AppUpdateCard> {
         _status = hasUpdate ? 'Version $latest is available.' : 'You are using the latest version ($current).';
         _busy = false;
       });
+      if (hasUpdate) {
+        unawaited(UpdateNotificationService.showUpdateAvailable(latest));
+      }
     } catch (error) {
       if (!mounted) return;
       final isNetworkError = error is SocketException ||

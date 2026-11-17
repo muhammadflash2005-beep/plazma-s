@@ -1340,11 +1340,6 @@ class _AppsScreenState extends State<AppsScreen> {
                         ),
                       ),
                     ),
-                    if (pkg != null)
-                      Positioned(
-                        top: 0, right: 0,
-                        child: Icon(Icons.more_vert, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                      ),
                   ],
                 ),
               );
