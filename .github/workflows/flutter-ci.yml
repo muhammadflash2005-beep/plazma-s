@@ -93,7 +93,10 @@ jobs:
                   android:exported="false"
                   android:foregroundServiceType="dataSync" />
           """
-          s = s.replace("</application>", service + "\n" + provider + "\n    </application>", 1)
+          posthog_init = """
+              <meta-data android:name="com.posthog.posthog.AUTO_INIT" android:value="false" />
+          """
+          s = s.replace("</application>", posthog_init + "\n" + service + "\n" + provider + "\n    </application>", 1)
           # flutter create already generates MainActivity with singleTop launch mode.
           # Do not inject it again: duplicate XML attributes make AndroidManifest.xml invalid.
           if 'android:name=".MainActivity"' not in s or 'android:launchMode="singleTop"' not in s:
