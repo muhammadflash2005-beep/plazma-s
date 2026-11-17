@@ -17,7 +17,7 @@ void main() {
   });
 
   Future<File> writeApk(String name, List<int> bytes) async {
-    final file = File('${temp.path}${Platform.pathSeparator}${name}');
+    final file = File('${temp.path}${Platform.pathSeparator}$name');
     await file.writeAsBytes(bytes, flush: true);
     return file;
   }
