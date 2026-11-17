@@ -1047,117 +1047,7 @@ class _TopBar extends StatelessWidget {
           width: 38, height: 38,
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
-            borderRadius: BorderRadiu
-
-class AppearanceScreen extends StatelessWidget {
-  const AppearanceScreen({required this.controller, super.key});
-  final ThemeController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Appearance')),
-      body: ListenableBuilder(
-        listenable: controller,
-        builder: (context, _) {
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text('Choose a theme', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text('Select one of the built-in looks or create your own.',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 12,
-                children: PlazmaTheme.values.map((theme) {
-                  final selected = controller.activeCustom == null && controller.selected == theme;
-                  return SizedBox(
-                    width: 100,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => controller.setTheme(theme),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: selected ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                            child: _ThemeSwatch(theme: theme),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(theme.label, textAlign: TextAlign.center, maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
-                          Text(theme.isDark ? 'Dark' : 'Light',
-                            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                        ]),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 18),
-              Card(child: ListTile(
-                leading: const Icon(Icons.palette_outlined),
-                title: const Text('Customizable Theme'),
-                subtitle: const Text('Create and edit your own colors and theme'),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => ThemeStudioScreen(controller: controller),
-                )),
-              )),
-              if (controller.customThemes.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text('Your custom themes', style: Theme.of(context).textTheme.titleMedium),
-                ...controller.customThemes.map((theme) => Card(
-                  child: ListTile(
-                    leading: CircleAvatar(backgroundColor: theme.color('primary')),
-                    title: Text(theme.name),
-                    subtitle: Text(theme.id == controller.selectedCustomId ? 'Applied' : 'Saved'),
-                    onTap: () => controller.applyCustom(theme.id),
-                  ),
-                )),
-              ],
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class ThemeStudioScreen extends StatefulWidget {
- const ThemeStudioScreen({required this.controller,super.key}); final ThemeController controller;
- @override State<ThemeStudioScreen> createState()=>_ThemeStudioScreenState();
-}
-class _ThemeStudioScreenState extends State<ThemeStudioScreen>{
- late CustomPlazmaTheme draft;
- static const fields={'background':'Background','surface':'Surface','primary':'Primary','accent':'Accent','foreground':'Text','muted':'Muted text'};
- @override void initState(){super.initState();final a=widget.controller.activeCustom;draft=a?.copy()??CustomPlazmaTheme(id:DateTime.now().microsecondsSinceEpoch.toString(),name:'My Theme',background:0xFF080B14,surface:0xFF151B2B,primary:0xFF8B5CF6,accent:0xFF22D3EE,foreground:0xFFF8FAFC,muted:0xFF94A3B8,isDark:true);}
- Future<void> editColor(String k)async{final c=TextEditingController(text:draft.color(k).value.toRadixString(16).substring(2).toUpperCase());final s=await showDialog<String>(context:context,builder:(x)=>AlertDialog(title:Text('Set ${fields[k]}'),content:TextField(controller:c,maxLength:6,decoration:const InputDecoration(prefixText:'#',hintText:'RRGGBB')),actions:[TextButton(onPressed:()=>Navigator.pop(x),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,c.text),child:const Text('Apply'))]));if(s==null)return;final v=int.tryParse(s.replaceAll('#',''),radix:16);if(v==null||s.replaceAll('#','').length!=6){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid 6-digit HEX color.')));return;}setState(()=>draft.setColor(k,0xFF000000|v));}
- Future<void> save()async{final c=TextEditingController(text:draft.name);final n=await showDialog<String>(context:context,builder:(x)=>AlertDialog(title:const Text('Save theme'),content:TextField(controller:c,decoration:const InputDecoration(labelText:'Theme name')),actions:[TextButton(onPressed:()=>Navigator.pop(x),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,c.text.trim()),child:const Text('Save'))]));if(n==null||n.isEmpty)return;draft.name=n;await widget.controller.saveCustom(draft.copy());if(mounted)setState((){});if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Theme saved and applied.')));}
- @override Widget build(BuildContext context){final cs=Theme.of(context).colorScheme;return Scaffold(appBar:AppBar(title:const Text('Theme Studio'),actions:[IconButton(onPressed:save,icon:const Icon(Icons.save))]),body:ListView(padding:const EdgeInsets.all(16),children:[
- Text('Build your look',style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text('Customize six colors and preview your theme live.',style:TextStyle(color:cs.onSurfaceVariant)),const SizedBox(height:16),
- Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:draft.color('background'),borderRadius:BorderRadius.circular(20)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
- Row(children:[Icon(Icons.bolt,color:draft.color('primary'),size:32),Text('plazma S',style:TextStyle(color:draft.color('foreground'),fontWeight:FontWeight.w900,fontSize:20))]),const SizedBox(height:14),
- Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:draft.color('surface'),borderRadius:BorderRadius.circular(14)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Transfer preview',style:TextStyle(color:draft.color('foreground'),fontWeight:FontWeight.w800)),Text('Sending your files…',style:TextStyle(color:draft.color('muted'))),const SizedBox(height:12),ClipRRect(borderRadius:BorderRadius.circular(12),child:LinearProgressIndicator(value:.68,minHeight:9,color:draft.color('primary'),backgroundColor:draft.color('muted').withValues(alpha:.25))),const SizedBox(height:8),Text('68% · 12.4 MB/s',style:TextStyle(color:draft.color('accent')))]) )])),
- SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Dark appearance'),value:draft.isDark,onChanged:(v)=>setState(()=>draft.isDark=v)),
- Text('Theme colors',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
- ...fields.entries.map((e)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:draft.color(e.key)),title:Text(e.value),subtitle:Text('#${draft.color(e.key).value.toRadixString(16).padLeft(8,'0').substring(2).toUpperCase()}'),trailing:const Icon(Icons.colorize),onTap:()=>editColor(e.key)))),
- FilledButton.icon(onPressed:save,icon:const Icon(Icons.save),label:const Text('Save and apply')),
- if(widget.controller.customThemes.isNotEmpty)...[const SizedBox(height:20),Text('Saved themes',style:Theme.of(context).textTheme.titleMedium),...widget.controller.customThemes.map((t)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:t.color('primary')),title:Text(t.name),subtitle:Text(t.id==widget.controller.selectedCustomId?'Applied':'Saved'),onTap:()=>setState(()=>draft=t.copy()),trailing:PopupMenuButton<String>(onSelected:(v)async{if(v=='apply')await widget.controller.applyCustom(t.id);if(v=='delete')await widget.controller.deleteCustom(t.id);if(v=='duplicate')await widget.controller.saveCustom(t.copy(id:DateTime.now().microsecondsSinceEpoch.toString(),name:'${t.name} Copy'),apply:false);if(mounted)setState((){});},itemBuilder:(_)=>const[PopupMenuItem(value:'apply',child:Text('Apply')),PopupMenuItem(value:'duplicate',child:Text('Duplicate')),PopupMenuItem(value:'delete',child:Text('Delete'))]))))]
- ]));}
-}
-
-s.circular(12),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: theme.colorScheme.secondary.withValues(alpha: 0.72)),
             boxShadow: [
               BoxShadow(color: theme.colorScheme.primary.withValues(alpha: 0.42), blurRadius: 14, spreadRadius: 1),
@@ -1223,5 +1113,58 @@ class _Sidebar extends StatelessWidget {
     onTap: () => onSelect(index),
     dense: true,
   );
+}
+
+class AppearanceScreen extends StatelessWidget {
+ const AppearanceScreen({required this.controller,super.key});
+ final ThemeController controller;
+ @override Widget build(BuildContext context)=>Scaffold(
+  appBar:AppBar(title:const Text('Appearance')),
+  body:ListenableBuilder(listenable:controller,builder:(context,_){
+   return ListView(padding:const EdgeInsets.all(16),children:[
+    Text('Choose a theme',style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w800)),
+    const SizedBox(height:6),
+    Text('Select a built-in theme or create your own.',style:TextStyle(color:Theme.of(context).colorScheme.onSurfaceVariant)),
+    const SizedBox(height:16),
+    Wrap(spacing:10,runSpacing:12,children:PlazmaTheme.values.map((t){
+     final selected=controller.activeCustom==null&&controller.selected==t;
+     return SizedBox(width:100,child:InkWell(borderRadius:BorderRadius.circular(14),onTap:()=>controller.setTheme(t),child:Padding(padding:const EdgeInsets.all(8),child:Column(mainAxisSize:MainAxisSize.min,children:[
+      Container(padding:const EdgeInsets.all(3),decoration:BoxDecoration(shape:BoxShape.circle,border:Border.all(color:selected?Theme.of(context).colorScheme.primary:Colors.transparent,width:2)),child:_ThemeSwatch(theme:t)),
+      const SizedBox(height:6),Text(t.label,textAlign:TextAlign.center,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w700)),
+      Text(t.isDark?'Dark':'Light',style:TextStyle(fontSize:10,color:Theme.of(context).colorScheme.onSurfaceVariant))
+     ]))));
+    }).toList()),
+    const SizedBox(height:18),
+    Card(child:ListTile(leading:const Icon(Icons.palette_outlined),title:const Text('Customizable Theme'),subtitle:const Text('Create and edit your own colors and theme'),trailing:const Icon(Icons.chevron_right_rounded),onTap:()=>Navigator.of(context).push(MaterialPageRoute(builder:(_)=>ThemeStudioScreen(controller:controller))))),
+    if(controller.customThemes.isNotEmpty)...[
+     const SizedBox(height:12),Text('Your custom themes',style:Theme.of(context).textTheme.titleMedium),
+     ...controller.customThemes.map((t)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:t.color('primary')),title:Text(t.name),subtitle:Text(t.id==controller.selectedCustomId?'Applied':'Saved'),onTap:()=>controller.applyCustom(t.id))))
+    ]
+   ]);
+  })
+ );
+}
+
+class ThemeStudioScreen extends StatefulWidget {
+ const ThemeStudioScreen({required this.controller,super.key}); final ThemeController controller;
+ @override State<ThemeStudioScreen> createState()=>_ThemeStudioScreenState();
+}
+class _ThemeStudioScreenState extends State<ThemeStudioScreen>{
+ late CustomPlazmaTheme draft;
+ static const fields={'background':'Background','surface':'Surface','primary':'Primary','accent':'Accent','foreground':'Text','muted':'Muted text'};
+ @override void initState(){super.initState();final a=widget.controller.activeCustom;draft=a?.copy()??CustomPlazmaTheme(id:DateTime.now().microsecondsSinceEpoch.toString(),name:'My Theme',background:0xFF080B14,surface:0xFF151B2B,primary:0xFF8B5CF6,accent:0xFF22D3EE,foreground:0xFFF8FAFC,muted:0xFF94A3B8,isDark:true);}
+ Future<void> editColor(String k)async{final c=TextEditingController(text:draft.color(k).value.toRadixString(16).substring(2).toUpperCase());final s=await showDialog<String>(context:context,builder:(x)=>AlertDialog(title:Text('Set ${fields[k]}'),content:TextField(controller:c,maxLength:6,decoration:const InputDecoration(prefixText:'#',hintText:'RRGGBB')),actions:[TextButton(onPressed:()=>Navigator.pop(x),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,c.text),child:const Text('Apply'))]));if(s==null)return;final v=int.tryParse(s.replaceAll('#',''),radix:16);if(v==null||s.replaceAll('#','').length!=6){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Enter a valid 6-digit HEX color.')));return;}setState(()=>draft.setColor(k,0xFF000000|v));}
+ Future<void> save()async{final c=TextEditingController(text:draft.name);final n=await showDialog<String>(context:context,builder:(x)=>AlertDialog(title:const Text('Save theme'),content:TextField(controller:c,decoration:const InputDecoration(labelText:'Theme name')),actions:[TextButton(onPressed:()=>Navigator.pop(x),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(x,c.text.trim()),child:const Text('Save'))]));if(n==null||n.isEmpty)return;draft.name=n;await widget.controller.saveCustom(draft.copy());if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Theme saved and applied.')));}
+ @override Widget build(BuildContext context){final cs=Theme.of(context).colorScheme;return Scaffold(appBar:AppBar(title:const Text('Theme Studio'),actions:[IconButton(onPressed:save,icon:const Icon(Icons.save))]),body:ListView(padding:const EdgeInsets.all(16),children:[
+ Text('Build your look',style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w900)),const SizedBox(height:5),Text('Customize six colors and preview your theme live.',style:TextStyle(color:cs.onSurfaceVariant)),const SizedBox(height:16),
+ Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:draft.color('background'),borderRadius:BorderRadius.circular(20)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+ Row(children:[Icon(Icons.bolt,color:draft.color('primary'),size:32),Text('plazma S',style:TextStyle(color:draft.color('foreground'),fontWeight:FontWeight.w900,fontSize:20))]),const SizedBox(height:14),
+ Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:draft.color('surface'),borderRadius:BorderRadius.circular(14)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Transfer preview',style:TextStyle(color:draft.color('foreground'),fontWeight:FontWeight.w800)),Text('Sending your files…',style:TextStyle(color:draft.color('muted'))),const SizedBox(height:12),ClipRRect(borderRadius:BorderRadius.circular(12),child:LinearProgressIndicator(value:.68,minHeight:9,color:draft.color('primary'),backgroundColor:draft.color('muted').withValues(alpha:.25))),const SizedBox(height:8),Text('68% · 12.4 MB/s',style:TextStyle(color:draft.color('accent')))]) )])),
+ SwitchListTile(contentPadding:EdgeInsets.zero,title:const Text('Dark appearance'),value:draft.isDark,onChanged:(v)=>setState(()=>draft.isDark=v)),
+ Text('Theme colors',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w800)),
+ ...fields.entries.map((e)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:draft.color(e.key)),title:Text(e.value),subtitle:Text('#${draft.color(e.key).value.toRadixString(16).padLeft(8,'0').substring(2).toUpperCase()}'),trailing:const Icon(Icons.colorize),onTap:()=>editColor(e.key)))),
+ FilledButton.icon(onPressed:save,icon:const Icon(Icons.save),label:const Text('Save and apply')),
+ if(widget.controller.customThemes.isNotEmpty)...[const SizedBox(height:20),Text('Saved themes',style:Theme.of(context).textTheme.titleMedium),...widget.controller.customThemes.map((t)=>Card(child:ListTile(leading:CircleAvatar(backgroundColor:t.color('primary')),title:Text(t.name),subtitle:Text(t.id==widget.controller.selectedCustomId?'Applied':'Saved'),onTap:()=>setState(()=>draft=t.copy()),trailing:PopupMenuButton<String>(onSelected:(v)async{if(v=='apply')await widget.controller.applyCustom(t.id);if(v=='delete')await widget.controller.deleteCustom(t.id);if(v=='duplicate')await widget.controller.saveCustom(t.copy(id:DateTime.now().microsecondsSinceEpoch.toString(),name:'${t.name} Copy'),apply:false);if(mounted)setState((){});},itemBuilder:(_)=>const[PopupMenuItem(value:'apply',child:Text('Apply')),PopupMenuItem(value:'duplicate',child:Text('Duplicate')),PopupMenuItem(value:'delete',child:Text('Delete'))]))))]
+ ]));}
 }
 
