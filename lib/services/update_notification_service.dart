@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -12,7 +13,7 @@ class UpdateNotificationService {
   static bool _initialized = false;
 
   static Future<void> initialize() async {
-    if (_initialized || !Platform.isAndroid) return;
+    if (_initialized || kIsWeb || !Platform.isAndroid) return;
     const settings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
@@ -34,7 +35,7 @@ class UpdateNotificationService {
   }
 
   static Future<void> showUpdateAvailable(String version) async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || !Platform.isAndroid) return;
     if (!_initialized) await initialize();
     if (!_initialized) return;
     final preferences = await SharedPreferences.getInstance();
