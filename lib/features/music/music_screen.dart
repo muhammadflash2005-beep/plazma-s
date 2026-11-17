@@ -325,9 +325,9 @@ class _MusicScreenState extends State<MusicScreen> {
     if (_converting) return;
     File? output;
     try {
-      final picked = await FilePicker.pickFiles(type: FileType.video, allowMultiple: false);
-      if (picked.isEmpty || picked.files.single.path == null) return;
-      final input = File(picked.files.single.path!);
+      final picked = await FilePicker.pickFiles(type: FileType.video);
+      if (picked.isEmpty || picked.single.path == null) return;
+      final input = File(picked.single.path!);
       if (!await input.exists()) throw StateError('The selected video is no longer available.');
       final root = await getApplicationDocumentsDirectory();
       final outputDirectory = Directory('${root.path}${Platform.pathSeparator}Plazma S Converted Audio');
@@ -369,6 +369,30 @@ class _MusicScreenState extends State<MusicScreen> {
       Text('Browse audio files on this device and share them with up to seven PCs or phones on the same Wi-Fi.',
         style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
       const SizedBox(height: 14),
+      Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.audio_file_rounded, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('MP4 to MP3 converter', style: TextStyle(fontWeight: FontWeight.w800))),
+          FilledButton.tonalIcon(
+            onPressed: _converting ? null : _convertMp4ToMp3,
+            icon: _converting ? const SizedBox(width: 16,height: 16,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.transform_rounded),
+            label: Text(_converting ? 'Converting…' : 'Choose MP4'),
+          ),
+        ]),
+        const SizedBox(height: 5),
+        Text('Extract the audio track from a video and save it as an MP3 file.',
+          style: TextStyle(color: theme.colorScheme.onSurfaceVariant,fontSize: 12)),
+        if (_conversionStatus != null) ...[
+          const SizedBox(height: 8),
+          Text(_conversionStatus!,style: TextStyle(color: theme.colorScheme.onSurfaceVariant,fontSize: 11)),
+        ],
+        if (_convertedMp3 != null && _convertedMp3!.existsSync())
+          Align(alignment: Alignment.centerLeft,child: TextButton.icon(
+            onPressed: () => showAudioPlayer(context,file:_convertedMp3!,title:_convertedMp3!.uri.pathSegments.last),
+            icon: const Icon(Icons.play_arrow_rounded),label: const Text('Play converted MP3'))),
+      ]))),
+      const SizedBox(height: 12),
       if (_status != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(_status!))),
       if (_invite != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
         Text('Room ${_invite!.roomId}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
