@@ -963,7 +963,7 @@ class _TopBar extends StatelessWidget {
             ] else ...[
               const PopupMenuItem(value: 'android', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.phone_android_rounded), title: Text('Connect to Android'))),
               if (io.Platform.isWindows || io.Platform.isLinux)
-                const PopupMenuItem(value: 'pc', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.computer_rounded), title: Text('Connect to PC'))),
+                const PopupMenuItem(value: 'pc', child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.computer_rounded), title: Text('PC to PC'))),
             ],
           ],
         ),
