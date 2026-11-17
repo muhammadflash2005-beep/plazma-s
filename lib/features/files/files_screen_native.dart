@@ -59,6 +59,7 @@ class _FilesScreenState extends State<FilesScreen> {
   final List<String> _relativePaths = [];
   List<_StorageVolume> _storageVolumes = const [];
   bool _storageLoading = false;
+  bool _highSpeedMode = false;
   PlazmaConnectionInvite? _invite;
   PlazmaConnectionInvite? _receiverInvite;
   List<SharedLocalFile> _availableFiles = [];
@@ -84,7 +85,10 @@ class _FilesScreenState extends State<FilesScreen> {
     if (_receiverInvite != null) _watchIncomingFiles(_receiverInvite!);
     _addInitialPaths(widget.initialPaths);
     unawaited(_loadSavedDestination());
-    if (Platform.isAndroid) unawaited(_loadStorageVolumes());
+    if (Platform.isAndroid) {
+      unawaited(_loadStorageVolumes());
+      unawaited(_loadHighSpeedPreference());
+    }
   }
 
   @override
@@ -685,6 +689,7 @@ class _FilesScreenState extends State<FilesScreen> {
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 18),
         _storagePanel(theme),
+        _highSpeedCard(theme),
         if (_status != null) _statusCard(theme),
         if (widget.initialAction != 'join') ...[
           if (_invite == null) _senderPanel(theme) else _senderQrPanel(theme),
@@ -698,6 +703,38 @@ class _FilesScreenState extends State<FilesScreen> {
           child: LinearProgressIndicator(),
         ),
       ],
+    );
+  }
+
+  Future<void> _loadHighSpeedPreference() async {
+    final preferences = await SharedPreferences.getInstance();
+    final enabled = preferences.getBool('high_speed_mode') ?? false;
+    if (!mounted) return;
+    setState(() => _highSpeedMode = enabled);
+    _service.highSpeedMode = enabled;
+  }
+
+  Future<void> _setHighSpeedMode(bool enabled) async {
+    setState(() => _highSpeedMode = enabled);
+    _service.highSpeedMode = enabled;
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool('high_speed_mode', enabled);
+    if (mounted) {
+      _message(enabled
+          ? 'High-speed mode enabled: large files use four parallel verified download ranges.'
+          : 'Normal transfer mode enabled.');
+    }
+  }
+
+  Widget _highSpeedCard(ThemeData theme) {
+    return Card(
+      child: SwitchListTile(
+        value: _highSpeedMode,
+        onChanged: _setHighSpeedMode,
+        secondary: Icon(Icons.rocket_launch_rounded, color: theme.colorScheme.primary),
+        title: const Text('High-speed mode', style: TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: const Text('For files 32 MB or larger, use four parallel range downloads. Both devices need a stable, fast local Wi-Fi link.'),
+      ),
     );
   }
 
