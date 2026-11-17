@@ -25,6 +25,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../network/android_wifi_session_service.dart';
 import '../../transfers/transfer_overlay_controller.dart';
 import '../../transfers/xender_local_transfer_service.dart';
+import '../../services/plazma_analytics.dart';
 
 class DesktopInstalledApp {
   const DesktopInstalledApp({required this.name, required this.version, required this.publisher, required this.installLocation, this.iconPath});
@@ -153,6 +154,10 @@ class _AppsScreenState extends State<AppsScreen> {
     final packageName = (details['packageName'] ?? '').toString();
     final success = (details['status'] as num?)?.toInt() == 0;
     if (packageName.isNotEmpty) InstallStatusStore.report(packageName, success);
+    unawaited(PlazmaAnalytics.capture(
+      success ? 'apk installation successful' : 'apk installation failed',
+      {'platform': 'android'},
+    ));
     setState(() => _status = message);
     _message(message);
   }
@@ -465,6 +470,7 @@ class _AppsScreenState extends State<AppsScreen> {
       if (mounted) setState(() { _preparing = false; _busy = true; _preparingAppName = null; });
 
       final files = <File>[], paths = <String>[];
+      var totalBundleBytes = 0;
       for (final pkg in packages) {
         // Native Android export reads sourceDir and splitSourceDirs directly
         // and creates one uncompressed .apks ZIP on a worker thread.
@@ -474,8 +480,14 @@ class _AppsScreenState extends State<AppsScreen> {
           throw StateError('Android did not create a valid app bundle for $pkg.');
         }
         files.add(bundle);
+        totalBundleBytes += await bundle.length();
         paths.add('Apps/' + pkg + '/' + pkg + '.apks');
       }
+      unawaited(PlazmaAnalytics.capture('apk parsing completed', {
+        'app_count': packages.length,
+        'bundle_count': files.length,
+        'total_bundle_bytes': totalBundleBytes,
+      }));
 
       final invite = await (_service.isSharing
           ? _service.addFiles(files: files, relativePaths: paths).then((_) => _service.invite!)
@@ -484,6 +496,10 @@ class _AppsScreenState extends State<AppsScreen> {
       setState(() { _invite = invite; _selected.removeAll(packages); _status = 'Room ' + invite.roomId + ' is open. You can add more items from other tabs.'; });
       _updateSelectionCount();
       _updateDesktopSelectionCount();
+      unawaited(PlazmaAnalytics.capture('app transfer started', {
+        'app_count': packages.length,
+        'total_bundle_bytes': totalBundleBytes,
+      }));
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
