@@ -196,6 +196,7 @@ jobs:
               private var pendingJoinSsid: String? = null
               private var pendingJoinPassword: String? = null
               private var pendingFolderPickerResult: MethodChannel.Result? = null
+              private var pendingInstallStatus: Map<String, Any>? = null
 
               override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
                   super.onActivityResult(requestCode, resultCode, data)
@@ -613,6 +614,11 @@ jobs:
                               else -> result.notImplemented()
                           }
                       }
+                  pendingInstallStatus?.let { details ->
+                      MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.plazma.s/apps")
+                          .invokeMethod("installStatus", details)
+                      pendingInstallStatus = null
+                  }
                   MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
                       .setMethodCallHandler { call, result ->
                           when (call.method) {
@@ -637,9 +643,19 @@ jobs:
                       }
               }
 
+              override fun onCreate(savedInstanceState: android.os.Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  handleInstallStatus(intent)
+              }
+
               override fun onNewIntent(intent: Intent) {
                   super.onNewIntent(intent)
-                  if (intent.action != "com.plazma.s.INSTALL_STATUS") return
+                  setIntent(intent)
+                  handleInstallStatus(intent)
+              }
+
+              private fun handleInstallStatus(intent: Intent?) {
+                  if (intent?.action != "com.plazma.s.INSTALL_STATUS") return
                   val status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, android.content.pm.PackageInstaller.STATUS_FAILURE)
                   val message = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""
                   if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
@@ -648,6 +664,8 @@ jobs:
                       if (confirmation != null) {
                           confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                           startActivity(confirmation)
+                      } else {
+                          pendingInstallStatus = mapOf("status" to status, "message" to "Android did not provide the installation confirmation screen.")
                       }
                       return
                   }
@@ -657,12 +675,15 @@ jobs:
                       android.content.pm.PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "This app is incompatible with this Android device or CPU architecture."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_CONFLICT -> "A different signature or package conflict prevents installation. Uninstalling the existing app may remove its data."
                       android.content.pm.PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage is available to install this app."
+                      android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED -> "Installation was cancelled."
                       else -> message.ifBlank { "Android could not install this app (status $status)." }
                   }
-                  flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
-                      MethodChannel(messenger, "com.plazma.s/apps").invokeMethod(
-                          "installStatus", mapOf("status" to status, "message" to detail)
-                      )
+                  val details = mapOf("status" to status, "message" to detail)
+                  val messenger = flutterEngine?.dartExecutor?.binaryMessenger
+                  if (messenger != null) {
+                      MethodChannel(messenger, "com.plazma.s/apps").invokeMethod("installStatus", details)
+                  } else {
+                      pendingInstallStatus = details
                   }
               }
 
@@ -776,6 +797,7 @@ jobs:
                       android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
                   )
                   params.setAppPackageName(packageName)
+                  params.setSize(paths.sumOf { File(it).length() })
                   val installer = packageManager.packageInstaller
                   val sessionId = installer.createSession(params)
                   val session = installer.openSession(sessionId)
