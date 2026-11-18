@@ -15,7 +15,7 @@ The current release pipeline builds Android, Windows, and Linux packages. iOS is
 ## What is included
 
 - Local room-based pairing and QR invitations.
-- Android hotspot hosting/joining and local-network connections, subject to device and OS support.
+- Android senders start a private local-only hotspot by default; Android receivers join it through Android's Wi-Fi approval prompt. If hotspot creation is unavailable, Plazma falls back to the existing local Wi-Fi/LAN connection. PC clients can join the displayed hotspot manually.
 - File and folder selection with multi-item transfers.
 - Images, videos, music, files, and installed-app browsing.
 - Transfer progress, queue controls, retry/cancel actions, and transfer history.
@@ -31,7 +31,7 @@ Plazma S does not provide cloud file storage, internet transfer, or relay-based 
 
 - Physical device-to-device testing is still required for each device/network combination; a successful CI build does not prove real-world transfer performance or compatibility.
 - Android may require user confirmation before installing received applications.
-- Some Android devices restrict hotspot control and background activity.
+- Some Android devices restrict local-only hotspot creation or concurrent Wi-Fi modes. Android may display a system approval prompt when a receiver joins a Plazma hotspot. PC clients must join the displayed hotspot manually.
 - The current LAN transfer and room-control transport should not be treated as end-to-end encrypted. Do not use it for sensitive files until encrypted transport is implemented and independently verified.
 - Split-APK bundle handling and installation must be verified on physical Android devices before being considered production-ready.
 
