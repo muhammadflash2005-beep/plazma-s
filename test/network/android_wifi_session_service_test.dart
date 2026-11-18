@@ -19,6 +19,20 @@ void main() {
       expect(parsed.host, invite.host);
       expect(parsed.port, invite.port);
       expect(parsed.token, invite.token);
+      expect(parsed.hasHotspotCredentials, isTrue);
+    });
+
+    test('recognizes same-Wi-Fi invites without hotspot credentials', () {
+      const lanInvite = PlazmaConnectionInvite(
+        ssid: '',
+        password: '',
+        host: '192.168.1.12',
+        port: 45454,
+        token: '0123456789abcdef0123456789abcdef',
+      );
+      final parsed = PlazmaConnectionInvite.tryParse(lanInvite.toQrValue());
+      expect(parsed, isNotNull);
+      expect(parsed!.hasHotspotCredentials, isFalse);
     });
 
     test('rejects unrelated QR codes', () {
