@@ -21,6 +21,9 @@ class PlazmaConnectionInvite {
   final String token;
   final String roomId;
 
+  /// True when an Android receiver should join the sender's private hotspot.
+  bool get hasHotspotCredentials => ssid.isNotEmpty && password.isNotEmpty;
+
   String toQrValue() {
     final uri = Uri(
       scheme: 'plazmas',
@@ -123,16 +126,26 @@ class AndroidWifiSessionService {
         message: 'Android started Wi-Fi but did not provide complete local connection details.',
       );
     }
-    return PlazmaConnectionInvite(
+    final invite = PlazmaConnectionInvite(
       ssid: ssid,
       password: password,
       host: host,
       port: port,
       token: token,
     );
+    if (!invite.hasHotspotCredentials ||
+        PlazmaConnectionInvite.tryParse(invite.toQrValue()) == null) {
+      await stop();
+      throw PlatformException(
+        code: 'INVALID_HOTSPOT_DETAILS',
+        message: 'Android started a hotspot but returned invalid connection details.',
+      );
+    }
+    return invite;
   }
 
   Future<void> join(PlazmaConnectionInvite invite) async {
+    if (!invite.hasHotspotCredentials) return;
     await _channel.invokeMethod<void>('joinHotspot', {
       'ssid': invite.ssid,
       'password': invite.password,

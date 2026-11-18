@@ -109,6 +109,10 @@ class XenderLocalTransferService {
     }
   }
   HttpServer? _server;
+  final AndroidWifiSessionService _wifiSession = AndroidWifiSessionService();
+  bool _ownsHotspot = false;
+  bool _joinedHotspot = false;
+  String? lastConnectionNotice;
   Future<void> _roomMutationTail = Future<void>.value();
   List<File> _files = const [];
   List<Map<String, Object>> _manifest = const [];
@@ -232,17 +236,31 @@ class XenderLocalTransferService {
       });
     }
 
-    // Use the Wi-Fi network already connected on every platform.
-    // Plazma S must never create or join a hotspot.
-    final token = List.generate(
+    // Android hosts a private, internet-free local-only hotspot by default.
+    // If Android or device policy refuses hotspot creation, retain the same-Wi-Fi
+    // path and tell the user how to connect instead.
+    lastConnectionNotice = null;
+    PlazmaConnectionInvite? hotspotInvite;
+    if (Platform.isAndroid) {
+      try {
+        hotspotInvite = await _wifiSession.createInvite();
+        _ownsHotspot = true;
+      } catch (error) {
+        _ownsHotspot = false;
+        lastConnectionNotice =
+            'Private hotspot could not start ($error). Connect both devices to the same Wi-Fi and share again.';
+        debugPrint('Plazma hotspot unavailable; using existing LAN: $error');
+      }
+    }
+    final token = hotspotInvite?.token ?? List.generate(
       16,
       (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
     final roomId = RoomId.generate();
     final invite = PlazmaConnectionInvite(
-      ssid: '',
-      password: '',
-      host: await _localIpv4Address(),
+      ssid: hotspotInvite?.ssid ?? '',
+      password: hotspotInvite?.password ?? '',
+      host: hotspotInvite?.host ?? await _localIpv4Address(),
       port: 45454,
       token: token,
       roomId: roomId,
@@ -280,6 +298,14 @@ class XenderLocalTransferService {
       return invite;
     } catch (_) {
       await server?.close(force: true);
+      if (_ownsHotspot) {
+        try {
+          await _wifiSession.stop();
+        } catch (error) {
+          debugPrint('Could not stop hotspot after room startup failed: $error');
+        }
+        _ownsHotspot = false;
+      }
       rethrow;
     }
   }
@@ -866,7 +892,9 @@ class XenderLocalTransferService {
     _finalSavedPaths.clear();
     _finalSavedUris.clear();
     _lastDownloadSaved = null;
-    // Receivers must already be connected to the same Wi-Fi/LAN.
+    // Android receivers join credentials from an Android-hosted QR invite.
+    // A LAN invite carries no Wi-Fi credentials and leaves the current network alone.
+    final useHotspot = Platform.isAndroid && invite.hasHotspotCredentials;
     await _startForegroundService();
     final deviceId = List.generate(
       16,
@@ -876,6 +904,10 @@ class XenderLocalTransferService {
     _joinedInvite = invite;
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
+      if (useHotspot) {
+        await _wifiSession.join(invite);
+        _joinedHotspot = true;
+      }
       final joinRequest = await client.postUrl(_endpoint(invite, '/join'));
       joinRequest.headers.contentType = ContentType.json;
       joinRequest.write(jsonEncode({
@@ -917,6 +949,32 @@ class XenderLocalTransferService {
         'total_bytes': _joinedManifest.fold<int>(0, (sum, item) => sum + item.size),
       }));
       return _joinedManifest;
+    } catch (_) {
+      // If the room join reached the sender but the manifest request failed,
+      // remove this receiver from the room before releasing its Wi-Fi route.
+      try {
+        final leaveRequest = await client.postUrl(_endpoint(invite, '/leave'));
+        leaveRequest.headers.contentType = ContentType.json;
+        leaveRequest.write(jsonEncode({'deviceId': deviceId}));
+        final leaveResponse = await leaveRequest.close().timeout(const Duration(seconds: 4));
+        await leaveResponse.drain<void>();
+      } catch (error) {
+        debugPrint('Could not remove receiver after failed room join: $error');
+      }
+      if (useHotspot) {
+        try {
+          await _wifiSession.disconnect();
+        } catch (error) {
+          debugPrint('Could not release hotspot network after join failed: $error');
+        }
+      }
+      _joinedHotspot = false;
+      _joinedInvite = null;
+      _joinedDeviceId = null;
+      _joinedManifest = const [];
+      _publishRoomFiles();
+      await stopForegroundService();
+      rethrow;
     } finally {
       client.close(force: true);
     }
@@ -1563,6 +1621,15 @@ class XenderLocalTransferService {
     _manifestChanged = null;
     _room = null;
     await server?.close(force: true);
+    if (_ownsHotspot) {
+      try {
+        await _wifiSession.stop();
+      } catch (error) {
+        debugPrint('Could not stop Plazma local hotspot: $error');
+      }
+      _ownsHotspot = false;
+    }
+    lastConnectionNotice = null;
     TransferOverlayController.clear();
     await stopForegroundService();
   }
@@ -1570,6 +1637,8 @@ class XenderLocalTransferService {
   Future<void> disconnect() async {
     final invite = _joinedInvite;
     final deviceId = _joinedDeviceId;
+    final wasUsingHotspot = _joinedHotspot;
+    _joinedHotspot = false;
     _locallyCancelledDownloads.addAll(_joinedManifest.map((item) => item.id));
     _joinedInvite = null;
     _joinedDeviceId = null;
@@ -1593,7 +1662,13 @@ class XenderLocalTransferService {
         client.close(force: true);
       }
     }
-    // Plazma S never changes the device's Wi-Fi connection.
+    if (wasUsingHotspot) {
+      try {
+        await _wifiSession.disconnect();
+      } catch (error) {
+        debugPrint('Could not release Plazma hotspot connection: $error');
+      }
+    }
     await stopForegroundService();
   }
 }

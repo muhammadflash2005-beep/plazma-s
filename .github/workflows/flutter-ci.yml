@@ -1151,7 +1151,9 @@ jobs:
                                       } else if (attempt < 10) {
                                           Handler(Looper.getMainLooper()).postDelayed({ respondWhenReady(attempt + 1) }, 500)
                                       } else {
-                                          result.error("HOTSPOT_ADDRESS_UNAVAILABLE", "Android started the hotspot but its local IP address could not be detected after 5 seconds.", null)
+                                          hotspotReservation?.close()
+                                          hotspotReservation = null
+                                          result.error("HOTSPOT_ADDRESS_UNAVAILABLE", "Android started the hotspot but its local IP address could not be detected after 5 seconds. The hotspot was stopped; try again or use the same Wi-Fi network.", null)
                                       }
                                   }
                                   respondWhenReady(0)
@@ -1216,21 +1218,25 @@ jobs:
                           ?.let { connectivity.getLinkProperties(it)?.interfaceName }
                       val interfaces = NetworkInterface.getNetworkInterfaces().toList()
                           .filter { it.isUp && !it.isLoopback }
-                      // Never advertise the phone's ordinary Wi-Fi/mobile interface.
-                      // A receiver joins the isolated SoftAP, so its address must belong
-                      // to the hotspot interface, not the sender's upstream LAN.
-                      val candidates = interfaces
-                          .filter { it.name != defaultInterface }
-                          .sortedBy {
-                              val name = it.name.lowercase()
-                              when {
-                                  name.contains("softap") || name.startsWith("ap") ||
-                                      name.startsWith("swlan") -> 0
-                                  name.contains("wlan") -> 1
-                                  else -> 2
-                              }
+                          .filterNot {
+                              Regex("rmnet|ccmni|pdp|tun|vpn|wireguard|tailscale|docker|veth|ppp")
+                                  .containsMatchIn(it.name.lowercase())
                           }
-                      val addresses = candidates.flatMap { networkInterface ->
+                      // Prefer a dedicated SoftAP interface. Some Android builds expose
+                      // the local-only hotspot as wlan1; others report the AP as active,
+                      // so keep the active interface as a last-resort candidate.
+                      val ranked = interfaces.map { networkInterface ->
+                          val name = networkInterface.name.lowercase()
+                          val rank = when {
+                              name.contains("softap") || name.startsWith("ap") ||
+                                  name.startsWith("swlan") -> 0
+                              name.contains("wlan") || name.contains("wifi") -> 1
+                              networkInterface.name != defaultInterface -> 2
+                              else -> 3
+                          }
+                          networkInterface to rank
+                      }
+                      val addresses = ranked.flatMap { (networkInterface, rank) ->
                           networkInterface.inetAddresses.toList()
                               .filterIsInstance<Inet4Address>()
                               .filter { address ->
@@ -1241,8 +1247,8 @@ jobs:
                               }
                               .map { address ->
                                   val host = address.hostAddress
-                                  val preferred = host.endsWith(".1") || host.endsWith(".254")
-                                  Triple(if (preferred) 0 else 1, networkInterface.name, host)
+                                  val gatewayLike = host.endsWith(".1") || host.endsWith(".254")
+                                  Triple(rank * 2 + if (gatewayLike) 0 else 1, networkInterface.name, host)
                               }
                       }
                       addresses.sortedBy { it.first }.firstOrNull()?.third
@@ -1269,7 +1275,23 @@ jobs:
                       return
                   }
                   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                      result.error("MANUAL_WIFI_REQUIRED", "This Android version requires joining the Plazma S Wi-Fi network from Wi-Fi settings.", null)
+                      val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                      @Suppress("DEPRECATION")
+                      val currentSsid = wifi.connectionInfo?.ssid?.trim('"')
+                      if (currentSsid == ssid) {
+                          result.success(null)
+                          return
+                      }
+                      try {
+                          startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                      } catch (_: Exception) {
+                          // The user can open Wi-Fi settings manually if this device blocks it.
+                      }
+                      result.error(
+                          "MANUAL_WIFI_REQUIRED",
+                          "Connect to the Plazma S hotspot '$ssid' in Wi-Fi settings, then return and scan the sender QR code again.",
+                          null
+                      )
                       return
                   }
                   disconnectHotspot(null)
@@ -1287,17 +1309,29 @@ jobs:
                       pendingJoinResult = result
                       val callback = object : ConnectivityManager.NetworkCallback() {
                           override fun onAvailable(network: Network) {
-                              connectivity.bindProcessToNetwork(network)
+                              if (!connectivity.bindProcessToNetwork(network)) {
+                                  try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) { }
+                                  networkCallback = null
+                                  runOnUiThread {
+                                      val pending = pendingJoinResult
+                                      pendingJoinResult = null
+                                      pending?.error("WIFI_BIND_FAILED", "Android joined the hotspot but could not route Plazma S traffic through it. Disconnect VPNs and retry.", null)
+                                  }
+                                  return
+                              }
                               runOnUiThread {
-                                  pendingJoinResult?.success(null)
+                                  val pending = pendingJoinResult
                                   pendingJoinResult = null
+                                  pending?.success(null)
                               }
                           }
                           override fun onUnavailable() {
+                              try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) { }
+                              networkCallback = null
                               runOnUiThread {
-                                  pendingJoinResult?.error("WIFI_JOIN_REJECTED", "The Wi-Fi connection was cancelled or the phone could not join the sender's hotspot.", null)
+                                  val pending = pendingJoinResult
                                   pendingJoinResult = null
-                                  networkCallback = null
+                                  pending?.error("WIFI_JOIN_REJECTED", "The Wi-Fi connection was cancelled or the phone could not join the sender's hotspot. Approve the Android Wi-Fi prompt and retry.", null)
                               }
                           }
                       }
@@ -1318,7 +1352,9 @@ jobs:
                       connectivity.bindProcessToNetwork(null)
                       networkCallback?.let { connectivity.unregisterNetworkCallback(it) }
                       networkCallback = null
+                      val pending = pendingJoinResult
                       pendingJoinResult = null
+                      pending?.error("WIFI_DISCONNECTED", "The Plazma hotspot connection was closed.", null)
                       result?.success(null)
                   } catch (error: Exception) {
                       result?.error("WIFI_DISCONNECT_FAILED", error.message, null)
@@ -1388,6 +1424,40 @@ jobs:
           if missing:
               raise SystemExit("Android app/install wiring is incomplete: " + ", ".join(missing))
           print("Verified: app visibility, base/split export, APK inspection, unknown-source permission, split session commit, and installer result callbacks.")
+          PY
+      - name: Verify Android local-only hotspot lifecycle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml").read_text()
+          source = Path("android/app/src/main/kotlin/com/plazma/plazma_s/MainActivity.kt").read_text()
+          required_permissions = [
+              "android.permission.INTERNET",
+              "android.permission.ACCESS_WIFI_STATE",
+              "android.permission.CHANGE_WIFI_STATE",
+              "android.permission.ACCESS_NETWORK_STATE",
+              "android.permission.CHANGE_NETWORK_STATE",
+              "android.permission.ACCESS_FINE_LOCATION",
+              "android.permission.NEARBY_WIFI_DEVICES",
+          ]
+          missing_permissions = [item for item in required_permissions if item not in manifest]
+          if missing_permissions:
+              raise SystemExit("Android hotspot permissions are incomplete: " + ", ".join(missing_permissions))
+          required = [
+              "WifiManager.LocalOnlyHotspotReservation",
+              "wifi.startLocalOnlyHotspot",
+              "private fun findHotspotAddress",
+              "hotspotReservation?.close()",
+              "WifiNetworkSpecifier.Builder()",
+              "connectivity.bindProcessToNetwork(network)",
+              "private fun disconnectHotspot",
+              '"startHotspot" -> startHotspot(result)',
+              '"joinHotspot" -> joinHotspot(',
+          ]
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit("Android hotspot wiring is incomplete: " + ", ".join(missing))
+          print("Verified: local-only hotspot creation, host address discovery, receiver binding, and teardown hooks.")
           PY
       - name: Configure permanent Android release signing
         if: github.event_name != 'pull_request'
