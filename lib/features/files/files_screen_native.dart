@@ -953,7 +953,7 @@ class _FilesScreenState extends State<FilesScreen> {
               child: QrImageView(data: _invite!.toQrValue(), size: 230),
             ),
             const SizedBox(height: 12),
-            Text(
+            SelectableText(
               _invite!.ssid.isEmpty
                   ? 'Network address: ${_invite!.host}:${_invite!.port}'
                   : 'Plazma hotspot: ${_invite!.ssid}\nPassword: ${_invite!.password}',
