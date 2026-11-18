@@ -956,7 +956,7 @@ class _FilesScreenState extends State<FilesScreen> {
             Text(
               _invite!.ssid.isEmpty
                   ? 'Network address: ${_invite!.host}:${_invite!.port}'
-                  : 'Plazma hotspot: ${_invite!.ssid}\\nPassword: ${_invite!.password}',
+                  : 'Plazma hotspot: ${_invite!.ssid}\nPassword: ${_invite!.password}',
               style: const TextStyle(fontWeight: FontWeight.w700),
               textAlign: TextAlign.center,
             ),
