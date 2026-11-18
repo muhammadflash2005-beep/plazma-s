@@ -128,6 +128,7 @@ class XenderLocalTransferService {
   void Function(LocalTransferProgress progress)? _lastDownloadProgress;
   bool _retryingFailedQueue = false;
   Future<void>? _activeDownloadTask;
+  final Set<int> _locallyCancelledDownloads = <int>{};
   bool highSpeedMode = false;
   final Set<String> _recordedSentHistory = <String>{};
   final Set<String> _recordedReceivedHistory = <String>{};
@@ -702,6 +703,7 @@ class XenderLocalTransferService {
         if (status == 'waiting' || status == 'sending') _setQueueStatus(id, 'cancelled', _manifest[id]['bytesTransferred'] as int? ?? 0);
       }
     } else if (_joinedInvite != null && id >= 0 && id < _joinedManifest.length) {
+      _locallyCancelledDownloads.add(id);
       final bytes = _joinedManifest[id].bytesTransferred;
       final status = await _postQueueStatus(_joinedInvite!, id, 'cancelled', bytes);
       if (status == 'cancelled') _updateJoinedQueueStatus(id, 'cancelled', bytes);
@@ -721,6 +723,7 @@ class XenderLocalTransferService {
     } else if (_joinedInvite != null) {
       for (final item in _joinedManifest) {
         if (item.status == 'waiting' || item.status == 'sending') {
+          _locallyCancelledDownloads.add(item.id);
           final status = await _postQueueStatus(_joinedInvite!, item.id, 'cancelled', item.bytesTransferred);
           if (status == 'cancelled') {
             _updateJoinedQueueStatus(item.id, 'cancelled', item.bytesTransferred);
@@ -858,6 +861,7 @@ class XenderLocalTransferService {
     // A new room must never inherit a retry destination from an older room.
     _lastDownloadDestination = null;
     _lastDownloadProgress = null;
+    _locallyCancelledDownloads.clear();
     _recordedReceivedHistory.clear();
     _finalSavedPaths.clear();
     _finalSavedUris.clear();
@@ -1121,7 +1125,7 @@ class XenderLocalTransferService {
       while (true) {
       for (final item in pendingFiles) {
         if (!processedIds.add(item.id)) continue;
-        if (item.status == 'cancelled') {
+        if (item.status == 'cancelled' || _locallyCancelledDownloads.contains(item.id)) {
           wasCancelled = true;
           continue;
         }
@@ -1207,6 +1211,7 @@ class XenderLocalTransferService {
             await output.truncate(item.size);
             var writeTail = Future<void>.value();
             var completedBytes = 0;
+            var lastQueueUpdate = 0;
             final chunkTasks = <Future<void>>[];
             for (var chunkIndex = 0; chunkIndex < workers; chunkIndex++) {
               final start = (item.size * chunkIndex) ~/ workers;
@@ -1232,6 +1237,18 @@ class XenderLocalTransferService {
                   });
                   await writeTail;
                   completedBytes += chunk.length;
+                  if (_locallyCancelledDownloads.contains(item.id)) {
+                    throw StateError('Transfer cancelled by receiver.');
+                  }
+                  if (completedBytes - lastQueueUpdate >= 1024 * 1024) {
+                    lastQueueUpdate = completedBytes;
+                    final status = await _postQueueStatus(
+                      invite, item.id, 'sending', completedBytes, client: client,
+                    );
+                    if (status == 'cancelled') {
+                      throw StateError('Transfer cancelled by sender.');
+                    }
+                  }
                   onProgress(LocalTransferProgress(
                     fileName: item.name,
                     fileBytes: completedBytes,
@@ -1289,7 +1306,10 @@ class XenderLocalTransferService {
                 fileName: item.name, fileBytes: fileBytes, fileSize: item.size,
                 totalBytes: totalBytes, totalSize: totalSize,
               ));
-              if (fileBytes - lastQueueUpdate >= 16 * 1024 * 1024) {
+              if (_locallyCancelledDownloads.contains(item.id)) {
+                throw StateError('Transfer cancelled by receiver.');
+              }
+              if (fileBytes - lastQueueUpdate >= 1024 * 1024) {
                 final status = await _postQueueStatus(
                   invite, item.id, 'sending', fileBytes, client: client,
                 );
@@ -1298,6 +1318,15 @@ class XenderLocalTransferService {
                 }
                 lastQueueUpdate = fileBytes;
               }
+            }
+            if (_locallyCancelledDownloads.contains(item.id)) {
+              throw StateError('Transfer cancelled by receiver.');
+            }
+            final finalStatus = await _postQueueStatus(
+              invite, item.id, 'sending', fileBytes, client: client,
+            );
+            if (finalStatus == 'cancelled') {
+              throw StateError('Transfer cancelled by sender.');
             }
             await sink.flush();
             await sink.close();
@@ -1541,6 +1570,7 @@ class XenderLocalTransferService {
   Future<void> disconnect() async {
     final invite = _joinedInvite;
     final deviceId = _joinedDeviceId;
+    _locallyCancelledDownloads.addAll(_joinedManifest.map((item) => item.id));
     _joinedInvite = null;
     _joinedDeviceId = null;
     _joinedManifest = const [];
