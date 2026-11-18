@@ -297,7 +297,7 @@ class _FilesScreenState extends State<FilesScreen> {
     setState(() {
       _busy = true;
       _status = Platform.isAndroid
-          ? 'Starting local Wi-Fi room…'
+          ? 'Starting Plazma hotspot…'
           : 'Preparing a local network share…';
     });
     try {
@@ -313,8 +313,12 @@ class _FilesScreenState extends State<FilesScreen> {
       if (!mounted) return;
       setState(() {
         _invite = invite;
-        _status = 'Room ${invite.roomId} is open · waiting for devices';
+        _status = invite.hasHotspotCredentials
+            ? 'Plazma hotspot active · Room ${invite.roomId} is waiting for devices'
+            : 'Room ${invite.roomId} is open · waiting for devices on the same Wi-Fi';
       });
+      final connectionNotice = _service.lastConnectionNotice;
+      if (connectionNotice != null) _message(connectionNotice);
       _roomRefreshTimer?.cancel();
       _roomRefreshTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
@@ -676,7 +680,7 @@ class _FilesScreenState extends State<FilesScreen> {
       children: [
         Text('Share files', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
         const SizedBox(height: 6),
-        Text('Connect devices on the same Wi-Fi network. No hotspot switching or internet required.',
+        Text('Connect through a private Plazma hotspot or an existing local Wi-Fi network. No internet required.',
             style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 18),
         _storagePanel(theme),
@@ -952,8 +956,9 @@ class _FilesScreenState extends State<FilesScreen> {
             Text(
               _invite!.ssid.isEmpty
                   ? 'Network address: ${_invite!.host}:${_invite!.port}'
-                  : 'Wi-Fi: ${_invite!.ssid}',
+                  : 'Plazma hotspot: ${_invite!.ssid}\\nPassword: ${_invite!.password}',
               style: const TextStyle(fontWeight: FontWeight.w700),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             TextButton.icon(
@@ -1035,8 +1040,8 @@ class _FilesScreenState extends State<FilesScreen> {
             ]),
             const SizedBox(height: 8),
             Text(Platform.isAndroid
-                ? 'Tap Receive and scan the sender QR code. If it is a PC share, connect to the same Wi-Fi first.'
-                : 'Tap Receive, then paste the connection code from the sender. Both PCs must be on the same Wi-Fi or wired LAN. If the sender is an Android phone, connect this PC to the same Wi-Fi network.'),
+                ? 'Scan the sender QR code. For an Android hotspot share, approve the Android Wi-Fi connection prompt; Plazma will join the sender automatically. For a normal Wi-Fi share, stay on the same network.'
+                : 'Paste the sender connection link. For an Android hotspot share, first connect this PC to the displayed Plazma hotspot name and password. Otherwise, use the same Wi-Fi or wired LAN as the sender.'),
             const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
