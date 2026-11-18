@@ -950,6 +950,17 @@ class XenderLocalTransferService {
       }));
       return _joinedManifest;
     } catch (_) {
+      // If the room join reached the sender but the manifest request failed,
+      // remove this receiver from the room before releasing its Wi-Fi route.
+      try {
+        final leaveRequest = await client.postUrl(_endpoint(invite, '/leave'));
+        leaveRequest.headers.contentType = ContentType.json;
+        leaveRequest.write(jsonEncode({'deviceId': deviceId}));
+        final leaveResponse = await leaveRequest.close().timeout(const Duration(seconds: 4));
+        await leaveResponse.drain<void>();
+      } catch (error) {
+        debugPrint('Could not remove receiver after failed room join: $error');
+      }
       if (useHotspot) {
         try {
           await _wifiSession.disconnect();
