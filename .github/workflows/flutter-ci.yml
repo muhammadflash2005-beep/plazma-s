@@ -1413,7 +1413,20 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml").read_text()
           source = Path("android/app/src/main/kotlin/com/plazma/plazma_s/MainActivity.kt").read_text()
+          required_permissions = [
+              "android.permission.INTERNET",
+              "android.permission.ACCESS_WIFI_STATE",
+              "android.permission.CHANGE_WIFI_STATE",
+              "android.permission.ACCESS_NETWORK_STATE",
+              "android.permission.CHANGE_NETWORK_STATE",
+              "android.permission.ACCESS_FINE_LOCATION",
+              "android.permission.NEARBY_WIFI_DEVICES",
+          ]
+          missing_permissions = [item for item in required_permissions if item not in manifest]
+          if missing_permissions:
+              raise SystemExit("Android hotspot permissions are incomplete: " + ", ".join(missing_permissions))
           required = [
               "WifiManager.LocalOnlyHotspotReservation",
               "wifi.startLocalOnlyHotspot",
