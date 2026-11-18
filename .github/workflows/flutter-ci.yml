@@ -1275,7 +1275,23 @@ jobs:
                       return
                   }
                   if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                      result.error("MANUAL_WIFI_REQUIRED", "This Android version requires joining the Plazma S Wi-Fi network from Wi-Fi settings.", null)
+                      val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                      @Suppress("DEPRECATION")
+                      val currentSsid = wifi.connectionInfo?.ssid?.trim('"')
+                      if (currentSsid == ssid) {
+                          result.success(null)
+                          return
+                      }
+                      try {
+                          startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                      } catch (_: Exception) {
+                          // The user can open Wi-Fi settings manually if this device blocks it.
+                      }
+                      result.error(
+                          "MANUAL_WIFI_REQUIRED",
+                          "Connect to the Plazma S hotspot '$ssid' in Wi-Fi settings, then return and scan the sender QR code again.",
+                          null
+                      )
                       return
                   }
                   disconnectHotspot(null)
